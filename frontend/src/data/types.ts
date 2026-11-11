@@ -269,6 +269,7 @@ export type NotificationKind =
   | 'GROUP_RUN_START_REMINDER'
   | 'CREW_JOIN_APPROVED'
   | 'CREW_JOIN_REJECTED'
+  | 'CREW_JOIN_REQUESTED'
   | 'POST_COMMENT'
   | 'NEW_FOLLOWER'
   | 'FOLLOW_REQUEST'
@@ -342,8 +343,21 @@ export type FeedScope = 'ALL' | 'FOLLOWING';
 // One page of posts (CMT02 · CMT18 · CMT19, S15P31E105-647); nextCursor is null on the last page.
 export type PostPage = { items: Post[]; nextCursor: string | null };
 
+// 7.1 지역 고르기 (CMT12, S15P31E105-687): a sido and its 시·군·구, each with its region code.
+export type FeedRegionArea = { code: string; name: string };
+export type FeedRegionProvince = FeedRegionArea & { areas: FeedRegionArea[] };
+
 // 7.3 기록 공유 and 7.3e 게시물 수정.
-export type PostDraft = { body: string | null; courseShared: boolean };
+// regionCode (CMT01, S15P31E105-687): the region 7.3 showed for the shared course's start; it goes only with a
+// shared course and is ignored by an edit (CMT04 has no region).
+export type PostDraft = {
+  body: string | null;
+  courseShared: boolean;
+  regionCode?: string | null;
+};
+
+// The region of a shared course's start as 7.3 shows it: ‘부산 수영구’ with its CMT12 code.
+export type PostRegion = { code: string; label: string };
 
 // 7.4 러너 프로필 and 7.4b 내 프로필 (U21). records are the runner's shared runs, or my recent runs.
 export type RunnerProfile = {
@@ -519,6 +533,8 @@ export type MyCrew = {
   area: string;
   memberCount: number;
   membership: 'MEMBER' | 'PENDING';
+  // 크루 대표 사진 주소(M10 imageUrl, S15P31E105-636). Without one the card shows the name only.
+  imageUrl?: string | null;
 };
 
 // 6.1 크루 모집 card (M01). myMembership is null for a crew I have not asked to join.
@@ -530,6 +546,8 @@ export type CrewListItem = {
   capacity: number;
   memberCount: number;
   myMembership: MyCrew['membership'] | null;
+  // 크루 대표 사진 주소(M01·M02 imageUrl, S15P31E105-636), null without one.
+  imageUrl?: string | null;
 };
 
 // 6.2 구성원 row (M07). Pace is the member's recent average, null before their first run.
@@ -539,6 +557,8 @@ export type CrewMember = {
   isOwner: boolean;
   isMe: boolean;
   recentPaceSecPerKm: number | null;
+  // The member's photo address (M07 profileImageUrl, S15P31E105-636); the first letter shows without one.
+  profileImageUrl?: string | null;
 };
 
 // 6.2a 가입 방식, saved on the server (M03 on create, M12 on change; S15P31E105-570).
@@ -578,6 +598,8 @@ export type CrewJoinRequest = {
   // 첫 크루: the applicant has never been in a crew.
   firstCrew: boolean;
   requestedAt: string;
+  // The applicant's photo address (M05 profileImageUrl, S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 // A group run as listed on 6.0 and opened on 6.4 (G02·G03).
@@ -619,6 +641,8 @@ export type GroupRunParticipant = {
   isMe: boolean;
   readyStatus: 'READY' | 'WAITING';
   readinessScore: number | null;
+  // The participant's photo address (G07 profileImageUrl, S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 // 6.4 그룹런 상세 (G03 with G07 participants).
@@ -638,6 +662,28 @@ export type GroupRunDetail = GroupRunSummary & {
     byNickname: string;
     byRole: string;
   } | null;
+  // S15P31E105-680 공동 페이스 카드. Absent from the mock and while the feature is off.
+  pace?: GroupPaceInfo | null;
+};
+
+// S15P31E105-680 공동 페이스 모드: 함께 완주(max(목표, AI 추천)) / 목표 페이스(목표 유지, 위험할 때만 감속).
+export type GroupPaceMode = 'TOGETHER' | 'GOAL';
+
+// S15P31E105-680 공동 페이스 카드 (G03). The server leaves these out while group pace is off.
+export type GroupPaceInfo = {
+  mode: GroupPaceMode;
+  // 지금 적용되는 공동 페이스 (G03 groupGuidePaceSecPerKm). null when nobody has a pace yet.
+  appliedSecPerKm: number | null;
+  // AI 추천: the slowest candidate's pre-run plan. null before or while calculating.
+  aiSecPerKm: number | null;
+  // 방장 목표 (from distance and duration). null without a goal.
+  goalSecPerKm: number | null;
+  basis: 'MEMBER' | 'GOAL' | 'MEDIAN';
+  // Whose plan the AI recommendation comes from.
+  basisNickname: string | null;
+  calculating: boolean;
+  // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
+  slowerThanGoalCount: number | null;
 };
 
 // 6.5 출발 준비.
@@ -1054,7 +1100,11 @@ export type WatchGroupStatus = {
   paceChanged?: { from: number; to: number } | null;
   // 그룹장 폰이 본 선두–후미 간격 벌어짐(S15P31E105-629). 기준을 넘은 뒤 다시 내려오기 전까지 매번 넣고,
   // 넘은 순간의 현황에만 isNew=true다. 워치는 isNew일 때만 진동한다. 그룹장이 아니거나 벌어지지 않았으면 null.
-  gapWidened?: { gapM: number; memberName: string | null; isNew: boolean } | null;
+  gapWidened?: {
+    gapM: number;
+    memberName: string | null;
+    isNew: boolean;
+  } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
@@ -1212,7 +1262,11 @@ export type SearchRequest = {
 // cursor is null when nothing more is left.
 export type SearchPage = {
   // profileImageUrl: the runner's photo address, or null without one.
-  runners: { userId: string; nickname: string; profileImageUrl: string | null }[];
+  runners: {
+    userId: string;
+    nickname: string;
+    profileImageUrl: string | null;
+  }[];
   crews: { crewId: string; name: string }[];
   cursor: string | null;
 };
@@ -1322,6 +1376,8 @@ export type Repositories = {
     // M04: the request waits as PENDING, or makes me a MEMBER at once in a 바로 가입 crew.
     // A full crew fails with CREW_CAPACITY_EXCEEDED.
     requestJoin: (crewId: string) => Promise<MyCrew['membership']>;
+    // M13 (S15P31E105-678): take my own 승인 대기 request back. NOT_PENDING when it was already decided.
+    cancelJoinRequest: (crewId: string) => Promise<void>;
     // 6.2m 정원: from the member count up to 200 (M03's limit).
     updateCapacity: (crewId: string, capacity: number) => Promise<void>;
     setJoinPolicy: (crewId: string, policy: CrewJoinPolicy) => Promise<void>;
@@ -1354,6 +1410,8 @@ export type Repositories = {
       draft: Omit<GroupRunDraft, 'crewId'>,
     ) => Promise<void>;
     // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
+    // G17 방장 페이스 모드 (S15P31E105-680): before the run only; the server recalculates.
+    setPaceMode?: (groupRunId: string, mode: GroupPaceMode) => Promise<void>;
     cancel: (
       groupRunId: string,
       reason: GroupRunCancelReason,
@@ -1389,8 +1447,18 @@ export type Repositories = {
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
   };
   community: {
-    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page).
-    listFeed: (scope: FeedScope, cursor?: string | null) => Promise<PostPage>;
+    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page). A region code keeps the
+    // posts of that sido or 시·군·구 (S15P31E105-687); null or left out is 전국.
+    listFeed: (
+      scope: FeedScope,
+      cursor?: string | null,
+      regionCode?: string | null,
+    ) => Promise<PostPage>;
+    // CMT12 every sido with its 시·군·구, for 7.1 지역 고르기.
+    listRegions: () => Promise<FeedRegionProvince[]>;
+    // 7.3 지역: the region of a shared course's start point ([longitude, latitude]), through the phone's geocoder;
+    // null when it cannot be told within a few seconds (S15P31E105-687).
+    regionAt: (position: [number, number]) => Promise<PostRegion | null>;
     // CMT02 by authorId: one runner's posts, 20 a page.
     listAuthorPosts: (
       userId: string,

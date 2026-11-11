@@ -74,6 +74,7 @@ def executePipeline(List files, boolean manual = false, int staleAfter = -1) {
         gitlabCommitStatus: { Map args, Closure body -> body() },
         updateGitlabCommitStatus: { Map args -> },
         deleteDir: { -> }, checkout: { Map args -> }, echo: { message -> },
+        fileExists: { String path -> true }, writeFile: { Map args -> },
         junit: { Map args -> [failCount: 0] }, archiveArtifacts: { Map args -> },
         string: { Map args -> args },
         withCredentials: { List args, Closure body -> result.credentials++; body() },

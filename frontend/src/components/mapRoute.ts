@@ -24,6 +24,42 @@ export const routeLook = {
   shadowWidth: 10,
 };
 
+// The tilted city view and both RouteReplay modes share this look. Flat maps keep routeLook above.
+// Every colour is opaque: the Naver path overlay on Android drew part-see-through colours solid black (above).
+// Fully transparent (`unpassed`) is the one exception, and draws nothing (S15P31E105-561's replay).
+export const darkMapLook = {
+  // Dark enough for the mint to glow, light enough that the NAVER logo still reads on the map.
+  lightness: -0.3,
+  // 코스 선 (담당자 지정): neon mint #4DFFD2 (RGB 77·255·210), the same as feedLook.route. The ribbon, shadow and
+  // glows are the same hue (165°) at the lightness the earlier lime's ones had (S15P31E105-691).
+  ink: '#4DFFD2',
+  ribbon: '#B3FFEC',
+  passed: '#B4BDC4',
+  // The course under a run (heading · lean while running): dim and thin, so the mint run stays the one line
+  // that reads.
+  guide: '#687874',
+  guideOutline: '#36403E',
+  guideCentre: 2.2,
+  guideEdge: 1.4,
+  shadow: '#00785A',
+  muted: '#9299A4',
+  // Widths (S15P31E105-691): halfway between 672's lines and the running screen's 8.8 dp centre with a 1.6 dp
+  // edge on each side; the border layers shrink together in their 672 proportions.
+  centre: 6,
+  edge: 1.9,
+  shadowWidth: 12,
+  // The replay's glowing trail: a wide dark halo, a narrower brighter one, then the mint core with a pale edge.
+  glowOuter: '#003A2C',
+  glowOuterWidth: 18,
+  glowInner: '#00785A',
+  glowInnerWidth: 12.2,
+  coreWidth: 6.9,
+  coreEdge: 1.2,
+  // The whole course, thin and grey, over the opening overview only.
+  outline: '#8C95A6',
+  unpassed: 'rgba(0,0,0,0)',
+};
+
 // A course that ends where it starts carries one SF mark; otherwise S at the start and F at the end.
 export const loopWithinM = 60;
 export const isLoop = (route: LngLat[]) =>

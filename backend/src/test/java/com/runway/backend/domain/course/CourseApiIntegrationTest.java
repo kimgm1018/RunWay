@@ -590,7 +590,7 @@ class CourseApiIntegrationTest {
                                         {
                                           "latitude": 35.1532,
                                           "longitude": 129.1186,
-                                          "distanceKm": 20.0
+                                          "distanceKm": 21.2
                                         }
                                         """))
                 .andExpect(status().isUnprocessableEntity())

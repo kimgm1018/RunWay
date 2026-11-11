@@ -61,27 +61,31 @@ export function latinRuns(
     return children;
   }
   let changed = false;
-  const parts = React.Children.toArray(children).flatMap((child, index) => {
-    if (typeof child !== 'string' && typeof child !== 'number') {
-      return [child];
-    }
-    const pieces = String(child).split(latinRun);
-    if (pieces.length === 1) {
-      return [child];
-    }
-    changed = true;
-    return pieces
-      .map((piece, at) =>
-        at % 2 === 1 ? (
-          <Text key={`${index}-${at}`} style={{ fontFamily: archivo }}>
-            {piece}
-          </Text>
-        ) : (
-          piece
-        ),
-      )
-      .filter(piece => piece !== '');
-  });
+  // The element type is spelled out: inferred from the three returns it can differ between TypeScript runs
+  // (CI's incremental check read it as unknown[]).
+  const parts = React.Children.toArray(children).flatMap<React.ReactNode>(
+    (child, index): React.ReactNode[] => {
+      if (typeof child !== 'string' && typeof child !== 'number') {
+        return [child];
+      }
+      const pieces = String(child).split(latinRun);
+      if (pieces.length === 1) {
+        return [child];
+      }
+      changed = true;
+      return pieces
+        .map((piece, at) =>
+          at % 2 === 1 ? (
+            <Text key={`${index}-${at}`} style={{ fontFamily: archivo }}>
+              {piece}
+            </Text>
+          ) : (
+            piece
+          ),
+        )
+        .filter(piece => piece !== '');
+    },
+  );
   return changed ? parts : children;
 }
 

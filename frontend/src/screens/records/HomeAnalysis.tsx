@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
-import { AppText, Icon, WordWrap } from '../../components';
+import { AppText, Icon, useToast, WordWrap } from '../../components';
 import type { RunRecordDetail, RunSplit } from '../../data';
 import {
   formatClockTime,
@@ -15,6 +15,7 @@ import { recordsLook } from './look';
 import { compareWithGoal, kmBands, measured } from './paceHeart';
 import { paceHeartLook } from './PaceHeartPreview';
 import { kstDay } from './parts';
+import { useRevealTop } from './revealTop';
 import { TargetSplitChart } from './TargetSplitChart';
 
 // 2.1 홈 러닝 분석 (S15P31E105-615; S15P31E105-594 담당자 시안 "러닝 분석 앞뒤"): one run seen two ways on a card that
@@ -527,6 +528,14 @@ export function HomeRecord({
     record.averagePaceSecPerKm,
     record.targetPaceSecPerKm,
   );
+  // S15P31E105-685: a run recorded without a target pace has nothing to compare, so the card stays on its front and a
+  // toast says why, instead of turning to a back with that one line.
+  const toast = useToast();
+  const noTarget = () =>
+    toast('목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요');
+  // The turn buttons sit at each face's foot; after a turn the scroll brings the card's top back (S15P31E105-689).
+  const revealTop = useRevealTop();
+  const cardTop = useRef<View>(null);
 
   const front = (turn: () => void) => (
     <View style={styles.panel}>
@@ -571,7 +580,10 @@ export function HomeRecord({
           )}
         </View>
       </View>
-      <TurnButton label="목표와 비교하기" onPress={turn} />
+      <TurnButton
+        label="목표와 비교하기"
+        onPress={goal.kind === 'noTarget' ? noTarget : turn}
+      />
     </View>
   );
 
@@ -637,7 +649,13 @@ export function HomeRecord({
   return (
     <View style={styles.root}>
       <RunRow record={record} onOpen={onOpen} openLabel={openLabel} />
-      <FlipCard front={front} back={back} />
+      <View ref={cardTop} collapsable={false}>
+        <FlipCard
+          front={front}
+          back={back}
+          onTurn={() => revealTop(cardTop.current)}
+        />
+      </View>
     </View>
   );
 }

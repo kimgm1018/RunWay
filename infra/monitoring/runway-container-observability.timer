@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh RunWay container metrics and logs
+
+[Timer]
+OnBootSec=20s
+OnUnitInactiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

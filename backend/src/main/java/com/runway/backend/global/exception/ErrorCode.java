@@ -135,7 +135,7 @@ public enum ErrorCode {
     SEARCH_DISTANCE_KM_RANGE(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",
-            "distanceKm는 1.0 이상 15.0 이하여야 합니다."),
+            "distanceKm는 1.0 이상 21.1 이하여야 합니다."),
     SEARCH_SHAPE_INVALID(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",

@@ -18,6 +18,7 @@ import com.runway.backend.domain.course.recommend.GeneratedCourseCandidate.Score
 import com.runway.backend.domain.course.recommend.GeneratedCourses;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -162,6 +163,51 @@ class CourseRecommendServiceTest {
             assertThat(command.latitude()).isEqualTo(37.5665);
             assertThat(command.longitude()).isEqualTo(126.9780);
         });
+    }
+
+    private static RecommendCoursesRequest distance(double distanceKm) {
+        return new RecommendCoursesRequest(START_LAT, START_LON, distanceKm, null, null, null, null, null);
+    }
+
+    /** 출발점에서 정동쪽으로 직선 meters 떨어진 도착점의 편도 21.1 km 요청. */
+    private static RecommendCoursesRequest pointToPointEast(double meters) {
+        double endLon = START_LON + meters / (111_320d * Math.cos(Math.toRadians(START_LAT)));
+        return new RecommendCoursesRequest(
+                START_LAT, START_LON, 21.1, "point_to_point", START_LAT, endLon, null, null);
+    }
+
+    @Test
+    void 하프_마라톤_21점1km까지_생성기에_넘긴다() {
+        var service = service(port(generated(1)), PreparedCourseGrade.of(SLOPE));
+
+        service.recommend(USER_ID, distance(21.1));
+
+        assertThat(calls).singleElement().satisfies(command ->
+                assertThat(command.distanceKm()).isEqualTo(21.1));
+    }
+
+    @Test
+    void 거리가_21점1km를_넘으면_생성기를_호출하지_않고_422다() {
+        var service = service(port(generated(1)), PreparedCourseGrade.of(SLOPE));
+
+        ApiException failure = failureOf(() -> service.recommend(USER_ID, distance(21.11)));
+
+        assertThat(failure.status().value()).isEqualTo(422);
+        assertThat(failure.code()).isEqualTo("INVALID_SEARCH");
+        assertThat(failure.getMessage()).isEqualTo("distanceKm는 1.0 이상 21.1 이하여야 합니다.");
+        assertThat(calls).isEmpty();
+    }
+
+    @Test
+    void 편도_직선거리는_23점71km까지_생성기에_넘기고_넘으면_422다() {
+        var service = service(port(generated(1)), PreparedCourseGrade.of(SLOPE));
+
+        service.recommend(USER_ID, pointToPointEast(23_600));
+        ApiException failure = failureOf(() -> service.recommend(USER_ID, pointToPointEast(23_800)));
+
+        assertThat(calls).hasSize(1);
+        assertThat(failure.status().value()).isEqualTo(422);
+        assertThat(failure.errorCode()).isEqualTo(ErrorCode.SEARCH_OUT_OF_APP_RANGE);
     }
 
     @Test

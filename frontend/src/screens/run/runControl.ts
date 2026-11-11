@@ -104,7 +104,12 @@ export type RunControl = {
   // 세션 생성·워치 준비 후 시작까지.
   start: (goal: SessionGoalDraft) => Promise<void>;
   // 세션 생성·워치 준비만 한다. 시작은 워치의 START_REQUEST나 start로 이어진다.
+  // 시작 화면에서 목표가 정해지면 미리 부른다(S15P31E105-533). 같은 목표로 준비된 세션은 그대로 두고, 목표가 바뀌었거나
+  // 준비가 오래됐으면 남은 READY 세션을 취소하고 새로 준비한다. 화면에 문제를 표시하지 않는다(시작할 때 다시 확인한다).
   prepare: (goal: SessionGoalDraft) => Promise<void>;
+  // 시작을 요청하지 않은 채 시작 화면을 떠나면 미리 만든 READY 세션을 취소하고 워치에도 알린다(S15P31E105-533).
+  // 시작 명령이 진행·미확인 중이거나 READY가 아니면 아무것도 하지 않는다.
+  releasePrepared: () => Promise<void>;
   // 앱 재실행 뒤 기존 세션에 다시 붙는다. 수신함에 남은 워치 결과가 있으면 서버에 보고한다.
   attach: (sessionId: string) => Promise<void>;
   // 그룹런 대기방 준비 완료(G16)로 서버가 만든 READY 세션에 붙어 워치를 그룹 목표로 준비시킨다(S15P31E105-420).
@@ -158,6 +163,10 @@ type Deps = {
     // 종료 뒤 분석 상태 조회 주기와 상한(S15P31E105-663). 상한 뒤에는 워치의 STATE_QUERY로만 답한다.
     analysisPollMs?: number;
     analysisMaxMs?: number;
+    // S01 재시도 간격(S15P31E105-533). 서버는 AI 계획을 최대 40초 계산하므로 시간 초과(50초) 뒤 한 번만 다시 보낸다.
+    createRetryDelaysMs?: number[];
+    // 미리 만든 준비 세션을 시작에 다시 쓰는 최대 시간. 넘으면 취소하고 새로 만든다.
+    preparedMaxAgeMs?: number;
   };
   // 코칭 음성 안내(S15P31E105-579). 없으면 읽지 않는다.
   voice?: CoachingVoiceOut;
@@ -262,6 +271,8 @@ export function createRunControl({
   const analysisMaxMs = timers?.analysisMaxMs ?? 180_000;
   // GPS 위치가 없을 때 대략 위치를 다시 묻는 주기.
   const approxEveryMs = timers?.approxEveryMs ?? 15_000;
+  const createRetryDelaysMs = timers?.createRetryDelaysMs ?? [0, 1000];
+  const preparedMaxAgeMs = timers?.preparedMaxAgeMs ?? 600_000;
 
   let state = initialState;
   let devices: LinkedDevices | null = null;
@@ -271,6 +282,16 @@ export function createRunControl({
   let inflight: CommandApproval | null = null;
   // 이 세션을 만든 목표. 복구한 세션은 목표를 모르므로 null.
   let lastGoal: SessionGoalDraft | null = null;
+  // 이 제어기가 세션을 만든 시각(now). 복구한 세션은 null(오래됨 판단을 하지 않는다).
+  let createdAt: number | null = null;
+  // 워치 준비와 서버 확인(S08 REPORT_PREPARED)이 끝난 세션·버전. 같은 버전이면 시작할 때 다시 준비하지 않는다.
+  let preparedFor: { sessionId: string; stateVersion: number } | null = null;
+  // 진행 중인 시작 요청. 시작을 두 번 눌러도 한 번만 실행한다.
+  let starting: Promise<void> | null = null;
+  // 진행 중인 시작을 기다리는 동안 마지막으로 누른 시작의 목표. 아직 실행 전이면 그 목표로 시작한다.
+  let requestedGoal: SessionGoalDraft | null = null;
+  // 시작 대기 측정(S15P31E105-533)의 기준 시각. 단계와 경과 ms만 남긴다.
+  let flowStart: number | null = null;
   let busy: Promise<void> | null = null;
   // 다른 조작이 진행 중일 때 들어온 워치 요청. 진행 중인 조작이 끝나면 실행한다(마지막 요청만 남긴다).
   // dropped는 더 새 요청에 밀려 실행하지 않게 될 때 호출한다(워치가 응답 없이 기다리지 않게 알린다).
@@ -521,6 +542,12 @@ export function createRunControl({
     }
   }
 
+  const mark = (stage: string) => {
+    if (flowStart !== null) {
+      diag(`timing ${stage} +${now() - flowStart}ms`);
+    }
+  };
+
   const setState = (change: Partial<RunControlState>) => {
     state = { ...state, ...change };
     if (state.recordingMode !== 'WATCH' && state.watchLost) {
@@ -606,9 +633,13 @@ export function createRunControl({
   };
 
   // 같은 요청으로만 재시도한다. 409 등 내용·권한 오류는 재시도하지 않는다.
-  async function call<T>(work: () => Promise<T>): Promise<T> {
+  function call<T>(work: () => Promise<T>): Promise<T> {
+    return callWith(retryDelaysMs, work);
+  }
+
+  async function callWith<T>(delays: number[], work: () => Promise<T>): Promise<T> {
     let lastError: unknown;
-    for (const delay of retryDelaysMs) {
+    for (const delay of delays) {
       if (delay > 0) {
         await sleep(delay + Math.floor(Math.random() * Math.min(500, delay)));
       }
@@ -671,6 +702,17 @@ export function createRunControl({
     }
     return null;
   }
+
+  // 진행 중인 조작이 모두 끝난 뒤 실행한다. 버리지 않는다(사용자의 시작·화면 준비·준비 취소용).
+  const runAfter = async (work: () => Promise<void>): Promise<void> => {
+    while (busy) {
+      await busy;
+    }
+    if (disposed) {
+      return;
+    }
+    return run(work);
+  };
 
   const runOrQueue = (work: () => Promise<void>, dropped?: () => void) => {
     if (busy) {
@@ -752,19 +794,23 @@ export function createRunControl({
         }),
       );
       diag(`${action} ${event.commandId} reported ${saved.result} v${saved.session.stateVersion}`);
+      mark(`${action} result saved ${saved.result}`);
       // 폰이 실행한 명령(인계 후)은 워치에 저장 확인을 보내지 않는다.
-      if (!phoneMode()) {
-        await watch
-          .sendReceived(sessionId, {
-            commandId: event.commandId,
-            persisted: true,
-            stateVersion: saved.session.stateVersion,
-          })
-          .catch(() => undefined);
-      }
+      // 서버가 확정한 상태는 워치 전달을 기다리지 않고 화면에 먼저 반영한다(S15P31E105-533). 전달은 이 조작 안에서 끝까지
+      // 기다려 다음 조작이 저장 확인보다 앞서 워치에 가지 않게 한다. 실패하면 워치가 재전송·STATE_QUERY로 복구한다.
+      const receipt = phoneMode()
+        ? Promise.resolve()
+        : watch
+            .sendReceived(sessionId, {
+              commandId: event.commandId,
+              persisted: true,
+              stateVersion: saved.session.stateVersion,
+            })
+            .catch(() => undefined);
       if (saved.result === 'UNKNOWN') {
         reported.delete(event.commandId);
         applyView(saved.session, { problem: { kind: 'unconfirmed', action } });
+        await receipt;
         return;
       }
       inflight = null;
@@ -775,6 +821,9 @@ export function createRunControl({
             ? { kind: 'rejected', action, reasonCode: event.reasonCode }
             : null,
       });
+      mark(`${action} screen ${saved.session.state}`);
+      await receipt;
+      mark(`${action} receipt sent`);
       await settleActive();
     } catch (error) {
       reported.delete(event.commandId);
@@ -818,6 +867,7 @@ export function createRunControl({
     await sending.catch(error => diag(`${approval.action} ${approval.commandId} send failed ${errorCode(error)}`));
     const event = await waiting;
     diag(`${approval.action} ${approval.commandId} watch result ${event ? event.result : 'TIMEOUT'}`);
+    mark(`${approval.action} watch result`);
     if (!event) {
       setState({
         problem:
@@ -1271,6 +1321,10 @@ export function createRunControl({
       return;
     }
     const sessionId = state.sessionId;
+    // START는 시작 흐름(startFlow)이 정한 기준 시각을 이어 쓴다. 다른 조작은 요청 시각부터 잰다.
+    if (action !== 'START' || flowStart === null) {
+      flowStart = now();
+    }
     setState({ pending: { action, commandId: null }, problem: null });
     diag(`${action} request v${state.stateVersion} mode=${state.recordingMode}`);
     let approval: CommandApproval;
@@ -1297,6 +1351,7 @@ export function createRunControl({
       return;
     }
     diag(`${action} approved ${approval.commandId} ${approval.result}`);
+    mark(`${action} approved`);
     setState({ pending: { action, commandId: approval.commandId } });
     if (phoneMode() && (approval.result === 'PENDING' || approval.result === 'UNKNOWN')) {
       // UNKNOWN(응답 유실 뒤 재요청)도 폰이 실행하지 않았다면 지금 실행하고, 실행했다면 보관한 결과로 보고한다.
@@ -1325,6 +1380,8 @@ export function createRunControl({
   async function prepareWatch(goal: SessionGoalDraft): Promise<boolean> {
     const sessionId = state.sessionId as string;
     const stateVersion = state.stateVersion;
+    preparedFor = null;
+    mark('watch prepare sent');
     // 워치는 이 기기 ID를 측정 batch의 생산 기기로 쓴다(S15P31E105-311).
     const prepared = await watch.prepare(sessionId, {
       stateVersion,
@@ -1333,6 +1390,7 @@ export function createRunControl({
       groupRunId,
     });
     const ready = prepared.ready && prepared.stateVersion === stateVersion;
+    mark(`watch prepared ${ready ? 'ready' : prepared.reasonCode ?? 'VERSION_MISMATCH'}`);
     await call(() =>
       session.reportPrepared(sessionId, {
         deviceId: controlDeviceId ?? devices?.watchDeviceId ?? '',
@@ -1341,8 +1399,11 @@ export function createRunControl({
         reasonCode: ready ? null : prepared.reasonCode ?? 'VERSION_MISMATCH',
       }),
     );
+    mark('prepared reported');
     if (!ready) {
       setState({ problem: { kind: 'watchNotReady', reasonCode: prepared.reasonCode } });
+    } else if (state.sessionId === sessionId && state.stateVersion === stateVersion) {
+      preparedFor = { sessionId, stateVersion };
     }
     return ready;
   }
@@ -1350,14 +1411,17 @@ export function createRunControl({
   // 새 세션을 만든다. 응답 유실·앱 재시작으로 이미 활성 세션이 있으면 그 세션에 다시 붙는다(S01 409 details.sessionId).
   async function createSession(goal: SessionGoalDraft): Promise<boolean> {
     devices = await watch.getLinkedDevices();
+    mark('devices');
     if (!devices) {
       setState({ problem: { kind: 'watchRequired' } });
       return false;
     }
     const linked = devices;
     setState({ problem: null });
+    mark('create sent');
     try {
-      const created = await call(() =>
+      // 응답이 없으면 서버의 AI 계획 상한(40초)이 지난 뒤에만 한 번 다시 보낸다. 서버는 그 사이 만든 세션을 409로 알려 준다.
+      const created = await callWith(createRetryDelaysMs, () =>
         session.create({
           controlDeviceId: linked.watchDeviceId,
           relayDeviceId: linked.phoneDeviceId,
@@ -1366,6 +1430,8 @@ export function createRunControl({
       );
       applyView(created, { joined: false });
       lastGoal = goal;
+      createdAt = now();
+      mark('created');
     } catch (error) {
       const activeId =
         error instanceof DataError && error.code === 'ACTIVE_SESSION_EXISTS'
@@ -1377,6 +1443,7 @@ export function createRunControl({
       // 기존 세션의 목표는 덮어쓰지 않는다(S01 생성 응답 유실 복구).
       await attachTo(String(activeId));
       lastGoal = null;
+      createdAt = null;
     }
     // 준비 화면에서 경로용 위치 권한을 묻고 러닝 서비스에 위치 유형을 켠다. 거절해도 러닝은 이어가며 경로만 남지 않는다.
     // 폰 화면이 앞에 있을 때 켜 두어야 워치에서 시작해도 화면이 꺼진 채 폰 GPS를 받는다(백그라운드 위치 서비스 시작 제한).
@@ -1468,7 +1535,8 @@ export function createRunControl({
     await prepareWatch(goal);
   }
 
-  async function doCancel(notifyWatch: boolean) {
+  // watchAsked: 워치가 CANCEL을 요청했다. 실패를 워치에 ERROR로 알리는 것은 그때만이다(준비 정리용 취소는 알리지 않는다).
+  async function doCancel(notifyWatch: boolean, watchAsked = notifyWatch) {
     if (!state.sessionId) {
       return;
     }
@@ -1486,7 +1554,7 @@ export function createRunControl({
       const code = errorCode(error);
       setState({ pending: null, problem: { kind: 'error', code } });
       // 워치 CANCEL을 처리하지 못하면 상태가 아니라 ERROR로 알린다(9.3, 미확정 START면 COMMAND_PENDING).
-      if (notifyWatch) {
+      if (watchAsked) {
         await watch
           .sendError(sessionId, { code, retryable: false, failedType: 'COMMAND_REQUEST' })
           .catch(() => undefined);
@@ -1582,21 +1650,57 @@ export function createRunControl({
     a.targetDurationSec === b.targetDurationSec &&
     a.targetPaceSecPerKm === b.targetPaceSecPerKm;
 
-  const startFlow = async (goal: SessionGoalDraft | null) => {
+  // 미리 만든 준비 세션이 오래됐다. 그 사이 바뀌었을 수 있는 동의·코스 상태로 계획을 다시 받는다(S15P31E105-533).
+  const stalePrepared = () => createdAt !== null && now() - createdAt > preparedMaxAgeMs;
+
+  // 목표가 바뀌었거나 오래된 READY 세션을 취소한다. 시작 명령이 남아 있으면 건드리지 않는다.
+  // 다시 붙은 개인 세션(앱 재실행 복원·S01 409)은 목표를 모른다. 화면의 목표가 있으면 그 목표로 새로 만든다.
+  const dropOutdated = async (
+    goal: SessionGoalDraft | null,
+  ): Promise<'kept' | 'dropped' | 'failed'> => {
+    const changed = !!goal && (lastGoal ? !sameGoal(goal, lastGoal) : groupRunId === null);
+    if (!state.sessionId || inflight || state.status !== 'READY' || !(changed || stalePrepared())) {
+      return 'kept';
+    }
+    diag(`prepared session dropped ${changed ? 'goal changed' : 'stale'}`);
+    // 워치가 취소된 세션을 준비 상태로 기억하지 않게 서버 상태를 알린다.
+    await doCancel(true, false);
+    // doCancel이 state를 바꾸므로 좁혀진 타입이 아닌 현재 값을 다시 읽는다.
+    if (currentStatus() !== 'CANCELLED') {
+      return 'failed';
+    }
+    setState({ ...initialState });
+    preparedFor = null;
+    createdAt = null;
+    return 'dropped';
+  };
+
+  const watchConnected = async () =>
+    watch.isWatchConnected ? watch.isWatchConnected().catch(() => false) : true;
+
+  const startFlow = async (asked: SessionGoalDraft | null) => {
+    const goal = asked && requestedGoal ? requestedGoal : asked;
+    requestedGoal = null;
+    // 시작을 누른 사이 준비 취소(화면 이탈)가 먼저 끝났다. 사용자의 시작이면 버리지 않고 새 세션으로 시작한다.
+    if (goal && state.status === 'CANCELLED' && !inflight) {
+      setState({ ...initialState });
+      preparedFor = null;
+      createdAt = null;
+      lastGoal = null;
+    }
     if (state.status && state.status !== 'READY') {
       return;
     }
-    // 실패한 시작 뒤 다른 목표로 다시 시작하면 남은 준비 세션을 취소하고 새로 만든다.
-    if (state.sessionId && goal && lastGoal && !sameGoal(goal, lastGoal) && !inflight) {
-      await doCancel(false);
-      // doCancel이 state를 바꾸므로 좁혀진 타입이 아닌 현재 값을 다시 읽는다.
-      if (currentStatus() !== 'CANCELLED') {
-        return;
-      }
-      setState({ ...initialState });
+    flowStart = now();
+    mark('start');
+    // 워치에서 시작했으면(goal 없음) 이 세션을 만든 목표로 다시 만든다.
+    const target = goal ?? lastGoal;
+    // 실패한 시작 뒤 다른 목표로 다시 시작하거나 준비가 오래됐으면 남은 준비 세션을 취소하고 새로 만든다.
+    if ((await dropOutdated(goal)) === 'failed') {
+      return;
     }
     if (!state.sessionId) {
-      if (!goal || !(await createSession(goal))) {
+      if (!target || !(await createSession(target))) {
         return;
       }
       if (state.status !== 'READY') {
@@ -1610,11 +1714,77 @@ export function createRunControl({
       }
       return;
     }
-    // 거절·미준비 뒤에는 버전이 바뀌었을 수 있으므로 시작 전마다 워치를 현재 버전으로 다시 준비시킨다.
-    if (!(await prepareWatch(goal ?? lastGoal ?? emptyGoal))) {
+    // 거절·미준비 뒤에는 버전이 바뀌었을 수 있으므로 같은 버전으로 준비가 확인된 경우에만 다시 준비하지 않는다.
+    // 워치 연결이 끊겼으면 워치가 준비를 잃었을 수 있어 다시 준비한다.
+    const goalNow = target ?? emptyGoal;
+    const reuse =
+      preparedFor?.sessionId === state.sessionId &&
+      preparedFor.stateVersion === state.stateVersion &&
+      (await watchConnected());
+    mark(reuse ? 'prepare reused' : 'prepare needed');
+    if (!reuse && !(await prepareWatch(goalNow))) {
       return;
     }
     await control('START');
+    // 준비를 다시 쓴 시작을 워치가 준비 없음·버전 불일치로 거절했다. 한 번만 다시 준비해 새 버전으로 시작한다.
+    const problem = state.problem as ControlProblem | null;
+    if (
+      reuse &&
+      problem?.kind === 'rejected' &&
+      problem.action === 'START' &&
+      (problem.reasonCode === 'NOT_PREPARED' || problem.reasonCode === 'VERSION_MISMATCH') &&
+      currentStatus() === 'READY' &&
+      !inflight
+    ) {
+      diag(`START retry after ${problem.reasonCode}`);
+      if (await prepareWatch(goalNow)) {
+        await control('START');
+      }
+    }
+  };
+
+  // 시작 화면의 미리 준비(S15P31E105-533). 실패는 화면에 표시하지 않는다. 시작할 때 같은 단계를 다시 거쳐 알린다.
+  const prepareFlow = async (goal: SessionGoalDraft) => {
+    // 앞 화면의 준비 취소가 먼저 끝났으면 새로 준비한다.
+    if (state.status === 'CANCELLED' && !inflight) {
+      setState({ ...initialState });
+      preparedFor = null;
+      createdAt = null;
+      lastGoal = null;
+    }
+    if ((state.status && state.status !== 'READY') || inflight) {
+      return;
+    }
+    // 앱 재실행으로 다시 붙은 세션은 목표를 모르고 그룹 세션일 수도 있다. 화면에 들어온 것만으로 취소하거나 화면 목표로
+    // 워치를 준비하지 않는다. 사용자가 시작을 누를 때 그 목표로 새로 만든다.
+    if (state.sessionId && !lastGoal) {
+      return;
+    }
+    flowStart = now();
+    mark('prepare');
+    try {
+      if ((await dropOutdated(goal)) === 'failed') {
+        return;
+      }
+      if (!state.sessionId && !(await createSession(goal))) {
+        return;
+      }
+      if (
+        state.status !== 'READY' ||
+        inflight ||
+        (preparedFor?.sessionId === state.sessionId &&
+          preparedFor.stateVersion === state.stateVersion)
+      ) {
+        return;
+      }
+      await prepareWatch(goal);
+    } catch (error) {
+      diag(`prepare failed ${errorCode(error)}`);
+    } finally {
+      if (!state.pending && state.problem) {
+        setState({ problem: null });
+      }
+    }
   };
 
   // 워치 측정 batch는 세션 제어 순서와 별개로 바로 W07에 올린다(제어 메시지를 batch 뒤에 묶지 않는다, 6장).
@@ -1766,12 +1936,35 @@ export function createRunControl({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    start: goal => run(() => startFlow(goal)),
-    prepare: goal =>
-      run(async () => {
-        if (!state.sessionId && (await createSession(goal))) {
-          await prepareWatch(goal);
+    // 미리 준비·준비 취소가 진행 중이면 끝난 뒤 이어서 시작한다(run은 진행 중인 조작이 있으면 새 조작을 버린다).
+    // 진행 중인 시작이 있으면 그것을 기다린다(두 번 눌러도 START 하나).
+    start: goal => {
+      requestedGoal = goal;
+      if (starting) {
+        return starting;
+      }
+      const work = runAfter(() => startFlow(goal));
+      starting = work;
+      work.finally(() => {
+        if (starting === work) {
+          starting = null;
         }
+      });
+      return work;
+    },
+    // 다른 조작(예: 앞 화면 준비 취소)이 진행 중이면 끝난 뒤 준비한다.
+    prepare: goal => runAfter(() => prepareFlow(goal)),
+    // S01 응답 전(세션 없음)이어도 진행 중인 준비가 끝난 뒤 판단한다.
+    releasePrepared: () =>
+      runAfter(async () => {
+        // 이 제어기가 미리 만든 세션만 취소한다. 앱 재실행으로 다시 붙은 세션(그룹일 수 있음)은 건드리지 않는다.
+        if (state.status !== 'READY' || inflight || state.pending || createdAt === null) {
+          return;
+        }
+        diag('prepared session released');
+        await doCancel(true, false);
+        preparedFor = null;
+        createdAt = null;
       }),
     attach: sessionId => run(() => attachTo(sessionId)),
     joinGroup: (sessionId, goal, group) => run(() => joinGroupFlow(sessionId, goal, group)),
@@ -1832,6 +2025,20 @@ export function createRunControl({
       }),
     dispose: () => {
       disposed = true;
+      // 이 제어기가 미리 만든 READY 세션은 폐기(그룹 전환·로그아웃 등) 뒤에도 남기지 않는다. 진행 중인 준비(S01 대기 포함)가
+      // 끝난 뒤 취소한다. 워치는 다음 제어기가 맡으므로 알리지 않는다.
+      if (busy || createdAt !== null) {
+        (async () => {
+          while (busy) {
+            await busy;
+          }
+          const sessionId = state.sessionId;
+          if (sessionId && createdAt !== null && state.status === 'READY' && !inflight && !state.pending) {
+            diag('prepared session released on dispose');
+            await call(() => session.cancel(sessionId)).catch(noop);
+          }
+        })().catch(noop);
+      }
       stopAnalysis();
       announcer?.reset();
       knownGuides.clear();

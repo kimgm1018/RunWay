@@ -23,6 +23,7 @@ import { CommentSheet } from './comments';
 import { FeedPage, feedLook } from './FeedPage';
 import { takePrefetchedFeed } from './feedPrefetch';
 import { PostMenu } from './parts';
+import { NATIONWIDE, RegionSheet, type FeedRegion } from './RegionSheet';
 import { usePostPages } from './usePostPages';
 
 const scopes: { value: FeedScope; label: string }[] = [
@@ -30,8 +31,13 @@ const scopes: { value: FeedScope; label: string }[] = [
   { value: 'FOLLOWING', label: '팔로잉' },
 ];
 
+// A list mounted for a new scope or region starts at its first post (S15P31E105-699).
+const firstPost = { x: 0, y: 0 };
+
 // The header row floats over the pages, under the status bar.
 const headerHeight = 48;
+// Where a page's own content starts, under the floating header.
+export const feedPageTop = (insetTop: number) => insetTop + headerHeight + 8;
 
 // 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope), one full-screen page per
 // post paged up and down (S15P31E105-561, 담당자 시안). 20 posts a page, the next read near the end
@@ -48,18 +54,23 @@ export function CommunityScreen() {
   const toast = useToast();
   const { community } = useRepositories();
   const [scope, setScope] = useState<FeedScope>('ALL');
-  // A new scope starts again from its first page.
+  // 지역 고르기 (S15P31E105-687): 전국 until one is picked, kept while the app runs this screen.
+  const [region, setRegion] = useState<FeedRegion>(NATIONWIDE);
+  const [regionsOpen, setRegionsOpen] = useState(false);
+  // A new scope or region starts again from its first page.
   const feed = usePostPages(
     useCallback(
       (cursor: string | null) => {
-        // The first 전체 page may have been read ahead from another tab; if that read failed, read it again.
+        // The first 전체 · 전국 page may have been read ahead from another tab; if that read failed, read it again.
         const ahead =
-          cursor === null && scope === 'ALL' ? takePrefetchedFeed() : null;
+          cursor === null && scope === 'ALL' && region.code === null
+            ? takePrefetchedFeed()
+            : null;
         return ahead
-          ? ahead.catch(() => community.listFeed(scope, cursor))
-          : community.listFeed(scope, cursor);
+          ? ahead.catch(() => community.listFeed(scope, cursor, region.code))
+          : community.listFeed(scope, cursor, region.code);
       },
-      [community, scope],
+      [community, scope, region.code],
     ),
   );
   const { refresh, update } = feed;
@@ -67,7 +78,34 @@ export function CommunityScreen() {
   // The page on screen, back to the first with a new scope. Away from 7.1 (7.2 over it, another tab) no page
   // keeps a map up.
   const [shownPage, setShownPage] = useState(0);
-  useEffect(() => setShownPage(0), [scope]);
+  useEffect(() => setShownPage(0), [scope, region.code]);
+  // A new scope or region shows its list from the first post (S15P31E105-699). The list is mounted again for it
+  // (its key), but Android can hand the new list the old one's scroll offset, so the feed is also put back at
+  // the top when the choice is made and again once the new first page is on screen.
+  const toTop = useRef(false);
+  const showFirst = useCallback(() => {
+    toTop.current = true;
+    setShownPage(0);
+    list.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+  useEffect(() => {
+    if (toTop.current && feed.status === 'ready') {
+      toTop.current = false;
+      list.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, [feed.status, scope, region.code]);
+  const pickScope = (next: FeedScope) => {
+    if (next !== scope) {
+      showFirst();
+      setScope(next);
+    }
+  };
+  const pickRegion = (next: FeedRegion) => {
+    if (next.code !== region.code) {
+      showFirst();
+    }
+    setRegion(next);
+  };
   // Coming back from 7.2, a profile or another tab keeps the posts read so far and the page on screen. Only after
   // a post was written (7.3), edited (7.3e) or deleted elsewhere is the first page read again, the last list on
   // screen until it comes; then the feed is back at its first post. The first focus is the first load itself, so
@@ -117,7 +155,7 @@ export function CommunityScreen() {
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
 
-  const pageTop = insets.top + headerHeight + 8;
+  const pageTop = feedPageTop(insets.top);
   // Above the floating tab bar.
   const pageBottom = insets.bottom + size.tabBar + size.tabBarInset * 2;
   return (
@@ -153,7 +191,9 @@ export function CommunityScreen() {
             <EmptyState
               icon="community"
               title={
-                scope === 'FOLLOWING'
+                region.code !== null
+                  ? `${region.label}에서 공유된 러닝이 아직 없어요`
+                  : scope === 'FOLLOWING'
                   ? '아직 팔로우한 러너의 게시물이 없어요'
                   : '아직 공유된 러닝이 없어요'
               }
@@ -162,9 +202,10 @@ export function CommunityScreen() {
         </ThemeProvider>
       ) : (
         <FlatList
-          // A new scope starts at its first post.
-          key={scope}
+          // A new scope or region starts at its first post.
+          key={`${scope}:${region.code ?? ''}`}
           ref={list}
+          contentOffset={firstPost}
           data={feed.posts}
           keyExtractor={post => post.id}
           // Two pages before the end the next 20 are read; nothing after the last page.
@@ -253,7 +294,7 @@ export function CommunityScreen() {
                 accessibilityRole="tab"
                 accessibilityLabel={option.label}
                 accessibilityState={{ selected }}
-                onPress={() => setScope(option.value)}
+                onPress={() => pickScope(option.value)}
                 hitSlop={6}
                 style={({ pressed }) => pressed && styles.pressed}
               >
@@ -269,12 +310,18 @@ export function CommunityScreen() {
         <View style={styles.flex} />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="지역 부산"
-          onPress={() => toast('지역 고르기는 준비 중이에요')}
+          accessibilityLabel={`지역 ${region.label}`}
+          accessibilityHint="지역을 골라 그 지역 게시물만 봐요"
+          onPress={() => setRegionsOpen(true)}
           style={({ pressed }) => [styles.region, pressed && styles.pressed]}
         >
           <Icon name="mapPin" color={feedLook.white} size={14} />
-          <AppText style={styles.regionText}>부산</AppText>
+          <AppText
+            style={[styles.regionText, styles.regionLabel]}
+            numberOfLines={1}
+          >
+            {region.label}
+          </AppText>
           <Icon name="chevronDown" color={feedLook.white} size={13} />
         </Pressable>
         <Pressable
@@ -300,6 +347,12 @@ export function CommunityScreen() {
           <Icon name="search" color={feedLook.white} size={24} />
         </Pressable>
       </View>
+      <RegionSheet
+        visible={regionsOpen}
+        selected={region}
+        onClose={() => setRegionsOpen(false)}
+        onSelect={pickRegion}
+      />
       <CommentSheet
         post={commentsFor}
         onClose={() => setCommentsFor(null)}
@@ -379,6 +432,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: feedLook.white,
   },
+  // ‘경기 수원시 장안구’ stays one line beside the tabs.
+  regionLabel: { maxWidth: 120 },
   headerButton: {
     width: 40,
     height: 40,

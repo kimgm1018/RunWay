@@ -7,6 +7,7 @@ import { useResource, type CrewListItem, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing } from '../../theme';
 import { groupLook, NumText, Raised, SearchField, groupTone } from './look';
+import { CrewPhoto } from './parts';
 
 // 6.1 crew card (runway-group-screen-designs 01, S15P31E105-594 담당자 시안): a dark navy card with 모집 중 (mint) or
 // 정원 마감 (red pink) on the left, the name and the member count beside it, and a chevron. The area and the intro
@@ -24,6 +25,8 @@ function CrewCard({ crew }: { crew: CrewListItem }) {
       onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
     >
       <Raised tone="night" style={styles.crew}>
+        {/* The crew photo when it has one (S15P31E105-636). */}
+        <CrewPhoto photo={crew.imageUrl} size={40} />
         <View
           style={[styles.status, full ? styles.statusFull : styles.statusOpen]}
         >

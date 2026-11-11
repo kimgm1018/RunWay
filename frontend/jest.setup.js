@@ -49,6 +49,8 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
     Overlay.displayName = name;
     return Overlay;
   };
+  let mapsHeld = false;
+  const heldMaps = [];
   const NaverMapView = React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({
       animateCameraTo: jest.fn(),
@@ -68,6 +70,16 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
         screenY: 0,
       })),
     }));
+    // The native map says it is ready right after it mounts; a test can hold that back
+    // (__holdMapsReady) and send it later (__readyHeldMaps), as a slow map does (S15P31E105-692).
+    const { onInitialized } = props;
+    React.useEffect(() => {
+      if (mapsHeld) {
+        heldMaps.push(onInitialized);
+      } else {
+        onInitialized?.();
+      }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
     return React.createElement(
       View,
       { testID: 'naver-map', style: props.style, onTapMap: props.onTapMap },
@@ -75,6 +87,10 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
     );
   });
   return {
+    __holdMapsReady: held => {
+      mapsHeld = held;
+    },
+    __readyHeldMaps: () => heldMaps.splice(0).forEach(ready => ready?.()),
     NaverMapView,
     NaverMapMarkerOverlay: overlay('naver-map-marker'),
     NaverMapPathOverlay: overlay('naver-map-path'),

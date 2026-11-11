@@ -34,7 +34,8 @@ public final class NaverPlaceSearchClient implements PlaceSearchPort {
 
     public NaverPlaceSearchClient(PlaceSearchProperties properties, JsonMapper mapper) {
         this(properties, mapper,
-                URI.create("https://openapi.naver.com/v1/search/local.json"),
+                // 개발자센터 검색 API는 2026-07-31부터 신규 발급이 막혀 NAVER API HUB 지역 검색을 쓴다.
+                URI.create("https://naverapihub.apigw.ntruss.com/search/v1/local"),
                 URI.create("https://maps.apigw.ntruss.com/map-geocode/v2/geocode"),
                 Duration.ofSeconds(5));
     }
@@ -59,8 +60,8 @@ public final class NaverPlaceSearchClient implements PlaceSearchPort {
         try {
             String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
             var localRequest = request(localEndpoint, "query=" + encoded + "&display=5")
-                    .header("X-Naver-Client-Id", properties.getSearchClientId())
-                    .header("X-Naver-Client-Secret", properties.getSearchClientSecret()).build();
+                    .header("X-NCP-APIGW-API-KEY-ID", properties.getSearchClientId())
+                    .header("X-NCP-APIGW-API-KEY", properties.getSearchClientSecret()).build();
             String coordinate = reference == null ? "" : "&coordinate="
                     + reference.longitude() + "," + reference.latitude();
             var addressRequest = request(geocodeEndpoint, "query=" + encoded + "&count=5" + coordinate)
@@ -102,7 +103,7 @@ public final class NaverPlaceSearchClient implements PlaceSearchPort {
             String address = address(item, "roadAddress", "address");
             if (name.isEmpty()) throw unavailable();
             results.add(new Place(name, address, GeoJsonPoint.of(
-                    number(item, "mapx") / 10_000_000, number(item, "mapy") / 10_000_000)));
+                    wgs84(number(item, "mapx")), wgs84(number(item, "mapy")))));
         }
     }
 
@@ -157,6 +158,11 @@ public final class NaverPlaceSearchClient implements PlaceSearchPort {
         double value = Double.parseDouble(node.asString());
         if (!Double.isFinite(value)) throw unavailable();
         return value;
+    }
+
+    /** 지역 검색 좌표는 WGS84에 10^7을 곱한 정수로 오며, 소수 경위도로 오면 그대로 쓴다. */
+    private static double wgs84(double value) {
+        return Math.abs(value) > 180 ? value / 10_000_000 : value;
     }
 
     private static ApiException unavailable() {

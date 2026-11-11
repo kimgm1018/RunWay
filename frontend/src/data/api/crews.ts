@@ -7,7 +7,7 @@ import type {
   Repositories,
 } from '../types';
 import { apiRequest } from './http';
-import { uploadImage } from './images';
+import { imageAddress, uploadImage } from './images';
 import { listItems } from './listItems';
 import type { Regions } from './regions';
 
@@ -26,12 +26,15 @@ type CrewResponse = {
   joinPolicy: CrewJoinPolicy;
   memberCount: number;
   myMembershipStatus: MembershipStatus | null;
+  // F02 path of the crew photo, null without one (S15P31E105-636).
+  imageUrl?: string | null;
 };
 
 type MemberItem = {
   userId: number;
   nickname: string | null;
   isOwner: boolean;
+  profileImageUrl?: string | null;
 };
 
 type JoinRequestItem = {
@@ -39,6 +42,7 @@ type JoinRequestItem = {
   status: MembershipStatus;
   requestedAt: string;
   nickname: string | null;
+  profileImageUrl?: string | null;
 };
 
 type MyCrewItem = {
@@ -47,6 +51,7 @@ type MyCrewItem = {
   regionCode: string | null;
   myMembershipStatus: 'APPROVED' | 'PENDING';
   memberCount: number;
+  imageUrl?: string | null;
 };
 
 // A withdrawn account keeps its rows but loses its nickname.
@@ -117,6 +122,7 @@ export function createCrewsApi({
       capacity: crew.capacity,
       memberCount: crew.memberCount,
       myMembership: membershipOf(crew.myMembershipStatus),
+      imageUrl: imageAddress(crew.imageUrl),
     };
   }
 
@@ -139,6 +145,7 @@ export function createCrewsApi({
         recent5kPaceSecPerKm: null,
         firstCrew: false,
         requestedAt: item.requestedAt,
+        profileImageUrl: imageAddress(item.profileImageUrl),
       }));
     };
 
@@ -171,6 +178,7 @@ export function createCrewsApi({
           isMe: String(member.userId) === myUserId,
           // The server keeps no member pace yet.
           recentPaceSecPerKm: null,
+          profileImageUrl: imageAddress(member.profileImageUrl),
         }));
       return {
         ...(await toListItem(crew)),
@@ -192,6 +200,15 @@ export function createCrewsApi({
         { method: 'POST' },
       );
       return membershipOf(status) ?? 'PENDING';
+    },
+    // M13: only my own waiting request; the server also removes the leader's 가입 신청 알림.
+    cancelJoinRequest: async crewId => {
+      if (!isServerId(crewId)) {
+        return mock.cancelJoinRequest(crewId);
+      }
+      await apiRequest(`/crews/${crewId}/join-requests/me`, {
+        method: 'DELETE',
+      });
     },
     updateCapacity: async (crewId, capacity) => {
       if (!isServerId(crewId)) {
@@ -277,6 +294,7 @@ export function createCrewsApi({
           memberCount: item.memberCount,
           membership:
             item.myMembershipStatus === 'APPROVED' ? 'MEMBER' : 'PENDING',
+          imageUrl: imageAddress(item.imageUrl),
         }),
       ),
     );

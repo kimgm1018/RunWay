@@ -14,7 +14,7 @@ export const communityLook = {
   ink: '#02050E',
   sub: '#56646C',
   meta: '#8A8A8A',
-  like: '#E2876F',
+  like: '#D44A4A',
   // Flat mist boxes on white: fields, tags, the follow button, the run tiles (--follow-btn-bg).
   field: '#F3F5F6',
   // A row lights up faintly when pressed.
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: communityLook.ink,
   },
-  sheetButtonDanger: { color: '#C4644B' },
+  sheetButtonDanger: { color: '#D44A4A' },
 
   label: {
     borderLeftWidth: 1.5,

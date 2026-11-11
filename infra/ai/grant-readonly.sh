@@ -30,6 +30,15 @@ SQL
 )
 [[ $result == t ]] || { echo 'user_profiles 읽기 권한 확인 실패' >&2; exit 1; }
 echo 'user_profiles 읽기 권한 확인 완료'
+# 준비도 민감도(S15P31E105-676): 백엔드가 매일 쓰는 daily_readiness(V1부터 있음)의 오늘 점수만 읽는다. 쓰기 권한은 없다.
+result=$(psql_admin <<'SQL'
+GRANT SELECT ON public.daily_readiness TO runway_ai;
+SELECT has_table_privilege('runway_ai', 'public.daily_readiness', 'SELECT')
+  AND NOT has_table_privilege('runway_ai', 'public.daily_readiness', 'INSERT,UPDATE,DELETE,TRUNCATE');
+SQL
+)
+[[ $result == t ]] || { echo 'daily_readiness 읽기 권한 확인 실패' >&2; exit 1; }
+echo 'daily_readiness 읽기 권한 확인 완료'
 # AI04 목표 BPM 개인 기록(S15P31E105-438): 측정값은 속도·케이던스·시간 칸만, BPM 변경 기록은 BPM·적용 칸만 준다.
 # 심박 등 다른 건강 칸은 열지 않는다. 두 테이블 모두 V1·V3부터 있으므로 V10을 기다리지 않는다.
 result=$(psql_admin <<'SQL'

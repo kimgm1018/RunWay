@@ -406,3 +406,77 @@ def test_flag_off_does_not_disable_ai03_or_ai04(monkeypatch):
         data = decide_body()
         assert c.post("/v1/pace/decide", json=data).status_code == 200
         assert c.post("/v1/hr/predict", json={key: data[key] for key in ("elapsedSec", "history", "candidates")}).status_code == 200
+
+
+# S15P31E105-680 목표 페이스 모드. 기본 회원의 출발 허용 심박은 163, 위험 심박은 178 bpm이다.
+@pytest.mark.parametrize("predict", [lambda pace, hr: [140.0] * 3, lambda pace, hr: [170.0] * 3,
+                                     lambda pace, hr: [190, 190, 155 if pace > 344 else 170]])
+def test_together_mode_is_bit_identical_to_missing_field(predict):
+    default = run(body(), GroupModel(predict)).model_dump_json()
+    together = run(body(paceMode="TOGETHER"), GroupModel(predict)).model_dump_json()
+    assert together == default
+
+
+def test_pace_mode_rejects_unknown_value():
+    from app.group_pace.schemas import GroupPaceRequest
+
+    with pytest.raises(ValidationError):
+        GroupPaceRequest.model_validate(body(paceMode="FAST"))
+
+
+def test_goal_mode_holds_goal_above_allow_line_but_below_danger():
+    model = GroupModel(lambda pace, hr: [170.0] * 3)
+    together = run(body(currentGroupPaceSecPerKm=320), model)
+    goal = run(body(currentGroupPaceSecPerKm=320, paceMode="GOAL"), model)
+    assert together.direction == "SLOW"
+    assert (goal.group_pace_sec_per_km, goal.direction, goal.reason) == (320, "HOLD", "SMALL_CHANGE")
+    assert goal.struggling_count == 1  # 허용선 초과 회원 수는 그대로 알린다
+
+
+@pytest.mark.parametrize("elapsed,last_change", [(300, None), (60, None), (300, 30)])
+def test_goal_mode_still_slows_on_danger_even_in_warmup_or_cooldown(elapsed, last_change):
+    model = GroupModel(lambda pace, hr: [180.0] * 3 if pace < 345 else [170.0] * 3)
+    change = None if last_change is None else {
+        "direction": "FAST", "changedAt": (T0 - timedelta(seconds=last_change)).isoformat()}
+    result = run(body(currentGroupPaceSecPerKm=320, paceMode="GOAL", elapsedSec=elapsed, lastChange=change), model)
+    assert (result.group_pace_sec_per_km, result.direction, result.reason) == (350, "SLOW", "HR_LIMIT")
+
+
+def test_goal_mode_uses_the_120s_danger_condition_not_short_horizons():
+    # 30·60초만 위험선 위면(지금 심박 관성) 늦추지 않는다. 기존 위험 조건(120초 예측)과 같다.
+    model = GroupModel(lambda pace, hr: [185.0, 185.0, 170.0])
+    result = run(body(currentGroupPaceSecPerKm=320, paceMode="GOAL"), model)
+    assert (result.group_pace_sec_per_km, result.direction) == (320, "HOLD")
+
+
+def test_goal_mode_danger_slows_once_to_the_passing_candidate_without_floor_cascade():
+    # 30·60초 예측은 늦춰도 그대로(실제 GRU와 같은 모양), 120초만 페이스에 반응한다(리뷰 B-1).
+    model = GroupModel(lambda pace, hr: [185.0, 185.0, 180.0 if pace < 335 else 170.0])
+    first = run(body(currentGroupPaceSecPerKm=320, paceMode="GOAL"), model)
+    assert (first.group_pace_sec_per_km, first.reason) == (340, "HR_LIMIT")
+    change = {"direction": "SLOW", "changedAt": (T0 - timedelta(seconds=30)).isoformat()}
+    second = run(body(currentGroupPaceSecPerKm=340, paceMode="GOAL", lastChange=change), model)
+    assert (second.group_pace_sec_per_km, second.direction) == (340, "HOLD")
+
+
+@pytest.mark.parametrize("current", [320, 340, 350])
+def test_goal_mode_never_recovers_faster_than_goal(current):
+    result = run(body(currentGroupPaceSecPerKm=current, paceMode="GOAL"), GroupModel(lambda pace, hr: [120.0] * 3))
+    assert result.group_pace_sec_per_km >= 320
+    assert result.group_pace_sec_per_km == 320 or current - result.group_pace_sec_per_km == 30
+
+
+def test_goal_mode_without_goal_pace_falls_back_to_together():
+    model = GroupModel(lambda pace, hr: [170.0] * 3)
+    data = dict(goalPaceSecPerKm=None, startRecommendedPaceSecPerKm=340)
+    assert run(body(paceMode="GOAL", **data), model) == run(body(**data), model)
+
+
+def test_goal_mode_over_http_and_old_request_without_field():
+    with TestClient(create_app(lambda: GroupModel(lambda pace, hr: [170.0] * 3),
+                               lambda: MpcPolicy(load_policy_config(), flat_table(0)))) as c:
+        old = c.post("/v1/group/pace", json=body(currentGroupPaceSecPerKm=320))
+        goal = c.post("/v1/group/pace", json=body(currentGroupPaceSecPerKm=320, paceMode="GOAL"))
+        assert old.status_code == goal.status_code == 200
+        assert old.json()["direction"] == "SLOW"
+        assert goal.json()["groupPaceSecPerKm"] == 320

@@ -78,14 +78,29 @@ test('a state without a score says why, and a stale one names its day', () => {
   ).toBe('건강 데이터 권한이 없어요.');
 });
 
-test('준비도 grade on top: 80 and up 양호, 60 and up 보통, else 낮음 (S15P31E105-594)', () => {
+test('준비도 grade on top: five bands of 20 points (S15P31E105-657)', () => {
   const { gradeOf } = require('../ReadinessPanel');
-  expect([100, 80, 79, 60, 59, 0].map(gradeOf)).toEqual([
-    '양호',
-    '양호',
-    '보통',
-    '보통',
-    '낮음',
-    '낮음',
+  expect([100, 80, 79, 60, 59, 40, 39, 20, 19, 0].map(gradeOf)).toEqual([
+    '준비도 최상',
+    '준비도 최상',
+    '준비도 양호',
+    '준비도 양호',
+    '준비도 보통',
+    '준비도 보통',
+    '준비도 낮음',
+    '준비도 낮음',
+    '휴식 권장',
+    '휴식 권장',
+  ]);
+});
+
+test('준비도 grade note: one line per band (S15P31E105-657)', () => {
+  const { gradeNoteOf } = require('../ReadinessPanel');
+  expect([80, 60, 40, 20, 0].map(gradeNoteOf)).toEqual([
+    '몸 상태가 좋아요. 계획한 강도로 달려도 좋아요.',
+    '평소처럼 달리기 좋은 상태예요.',
+    '무리하지 말고 편한 페이스로 달려요.',
+    '가볍게 짧게 달리는 걸 권해요.',
+    '오늘은 쉬면서 회복하는 게 좋아요.',
   ]);
 });

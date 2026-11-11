@@ -12,7 +12,15 @@ import {
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { NaverMapPathOverlay } from '@mj-studio/react-native-naver-map';
+import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
+import {
+  pointAt,
+  replayPlayMs,
+  replaySpeedup,
+} from '../src/screens/community/RouteReplay';
+import { routeLengthM, walkAlong, type LngLat } from '../src/geo';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { Avatar } from '../src/screens/community/parts';
@@ -156,6 +164,8 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       })),
     };
   };
+  // 7.4b 저장한 코스 draws its own course outlines (S15P31E105-682); this test is about runs only.
+  repositories.courses.getSaved = async () => [];
   const listFeed = repositories.community.listFeed;
   repositories.community.listFeed = async (scope, cursor) => {
     const page = await listFeed(scope, cursor);
@@ -464,6 +474,32 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(km()).toBeLessThan(0.1);
   expect(texts(screen)).toContain('탭하면 일시정지');
   expect(texts(screen)).toContain('평균 페이스 (/KM)');
+  // The replay says how sped up it is (S15P31E105-672).
+  expect(texts(screen)).toMatch(/×\d+ 배속/);
+  // Only the part already run is drawn (S15P31E105-672 review): every replay line is see-through past the
+  // runner, shares the same progress and has its own layer; the grey outline shows over the opening overview.
+  const replayLines = () =>
+    screen.root.findAll(
+      node =>
+        node.type === NaverMapPathOverlay &&
+        node.props.passedColor !== undefined,
+    );
+  const outlines = () =>
+    screen.root.findAll(
+      node =>
+        node.type === NaverMapPathOverlay &&
+        node.props.color === darkMapLook.outline,
+    );
+  expect(replayLines()).toHaveLength(3);
+  for (const line of replayLines()) {
+    expect(line.props.color).toBe('rgba(0,0,0,0)');
+    expect(line.props.progress).toBe(0);
+    expect(typeof line.props.zIndex).toBe('number');
+  }
+  expect(outlines()).toHaveLength(1);
+  expect(outlines()[0].props.zIndex).toBeLessThan(
+    Math.min(...replayLines().map(line => line.props.zIndex)),
+  );
   // The camera swoops in first (once the map is up, here after its limit), then the run plays; time passes in
   // steps so each stage's timers start.
   for (let step = 0; step < 18; step++) {
@@ -472,6 +508,12 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   const halfway = km();
   expect(halfway).toBeGreaterThan(0);
   expect(halfway).toBeLessThan(5.02);
+  // The lines grow with the runner, all together, and the outline is gone once the camera swoops in.
+  const grown = replayLines().map(line => line.props.progress);
+  expect(grown[0]).toBeGreaterThan(0);
+  expect(grown[0]).toBeLessThan(1);
+  expect(new Set(grown).size).toBe(1);
+  expect(outlines()).toHaveLength(0);
 
   await press(screen, '재생 일시정지');
   expect(texts(screen)).toContain('일시정지됨 · 탭하면 계속');
@@ -482,12 +524,44 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(km()).toBe(paused);
 
   await press(screen, '재생 계속');
-  for (let step = 0; step < 20; step++) {
+  // A 5.02 km run plays in about 11 s (replayPlayMs), so this runs past its end and into the outro.
+  for (let step = 0; step < 26; step++) {
     await settle(500);
   }
   expect(km()).toBe(5.02);
   expect(texts(screen)).toContain('탭하면 다시 재생');
+  expect(replayLines().every(line => line.props.progress === 1)).toBe(true);
   await press(screen, '코스 재생 닫기');
+});
+
+// The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
+test('a replay plays longer for a longer run, within 8 to 15 seconds', () => {
+  expect(replayPlayMs(0)).toBe(8000);
+  expect(replayPlayMs(1500)).toBe(8000);
+  expect(replayPlayMs(5020)).toBe(11020);
+  expect(replayPlayMs(42195)).toBe(15000);
+  expect(replayPlayMs(Number.NaN)).toBe(8000);
+  expect(replayPlayMs(3000)).toBeLessThan(replayPlayMs(7000));
+  // 30 minutes in 11.02 s is about 163 times as fast.
+  expect(replaySpeedup(1800, 11020)).toBe(163);
+  expect(replaySpeedup(0, 11020)).toBeNull();
+});
+
+// The replay's camera point comes from legs measured once (S15P31E105-686) and lands exactly where walking the
+// route would.
+test('the replay point along the route matches walking it', () => {
+  const route: LngLat[] = [
+    [129.1334, 35.1555],
+    [129.1326, 35.1554],
+    [129.1326, 35.1554],
+    [129.1307, 35.1549],
+    [129.1305, 35.1562],
+  ];
+  const total = routeLengthM(route);
+  for (const progress of [-0.5, 0, 0.1, 0.33, 0.5, 0.77, 0.999, 1, 1.4]) {
+    const walked = walkAlong(route, total * Math.min(1, Math.max(0, progress)));
+    expect(pointAt(route, progress)).toEqual(walked[walked.length - 1]);
+  }
 });
 
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
@@ -1171,6 +1245,115 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run
   expect(texts(screen)).toContain('페이스와 심박 변화');
 });
 
+// Run tiles end in their distance; course tiles in their time.
+const runTiles = (screen: Screen) =>
+  screen.root.findAll(
+    node =>
+      typeof node.props.accessibilityLabel === 'string' &&
+      /, \d+\.\d+km$/.test(node.props.accessibilityLabel) &&
+      typeof node.props.onPress === 'function',
+  );
+
+// S15P31E105-682: 7.4b shows four runs and four saved courses, 더보기 only when there are more.
+test('7.4b shows four recent runs and four saved courses with 더보기, and a course opens its run', async () => {
+  const screen = await openCommunity();
+  await press(screen, '프로필');
+  await settle(50);
+  const page = texts(screen);
+  expect(page).toContain('최근 기록');
+  expect(page).toContain('저장한 코스');
+  // The mock has more than four runs and five saved courses.
+  expect(runTiles(screen)).toHaveLength(4);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
+
+  await press(screen, '최근 기록 더보기');
+  await settle(50);
+  expect(texts(screen)).toContain('내 기록');
+  await press(screen, '프로필');
+  await settle(50);
+
+  await press(screen, '저장한 코스 더보기');
+  await settle(50);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km 33분')).not.toThrow();
+  await press(screen, '프로필');
+  await settle(50);
+
+  // A course tile opens its course run.
+  await press(screen, '민락수변 왕복, 5.4km · 33분');
+  for (let tries = 0; tries < 40; tries++) {
+    if (texts(screen).includes('민락수변 왕복 5.4km')) {
+      break;
+    }
+    await settle(50);
+  }
+  expect(texts(screen)).toContain('민락수변 왕복 5.4km');
+});
+
+test('7.4b shows 더보기 only past four runs and four saved courses', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getProfile = repositories.runners.getProfile;
+  repositories.runners.getProfile = async userId => {
+    const profile = await getProfile(userId);
+    return { ...profile, records: profile.records.slice(0, 4) };
+  };
+  // The mock answers on a timer, and this file runs fake timers.
+  const pending = repositories.courses.getSaved();
+  await settle(50);
+  const courses = await pending;
+  const many = [...courses, ...courses].map((course, index) => ({
+    ...course,
+    id: `${course.id}-${index}`,
+    name: `코스 ${index + 1}`,
+    myAlias: null,
+  }));
+  jest.spyOn(repositories.courses, 'getSaved').mockResolvedValue(many);
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(runTiles(screen)).toHaveLength(4);
+  expect(() => labelled(screen, '최근 기록 더보기')).toThrow();
+  expect(texts(screen)).toContain('코스 4');
+  expect(texts(screen)).not.toContain('코스 5');
+
+  await press(screen, '저장한 코스 더보기');
+  await settle(50);
+  expect(texts(screen)).toContain('코스 5');
+});
+
+test('7.4b shows no 저장한 코스 더보기 for four saved courses or fewer', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const pending = repositories.courses.getSaved();
+  await settle(50);
+  const courses = await pending;
+  jest
+    .spyOn(repositories.courses, 'getSaved')
+    .mockResolvedValue(courses.slice(0, 4));
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+});
+
+test('7.4b says when there are no saved courses or they did not load', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  // Every load fails until the server comes back (opening the tab loads twice: mount and focus).
+  const saved = jest
+    .spyOn(repositories.courses, 'getSaved')
+    .mockRejectedValue(new DataError('NETWORK_ERROR', '연결 없음'));
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(texts(screen)).toContain('저장한 코스를 불러오지 못했어요');
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+
+  saved.mockResolvedValue([]);
+  await press(screen, '저장한 코스 다시 불러오기');
+  await settle(50);
+  expect(texts(screen)).toContain('아직 저장한 코스가 없어요');
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+});
+
 // S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
 test('Avatar shows the photo and falls back to the letter', async () => {
   let screen: Screen;
@@ -1248,6 +1431,7 @@ test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () =
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
     courseShared: false,
+    regionCode: null,
   });
 });
 
@@ -1267,6 +1451,85 @@ test('7.3 keeps 코스도 함께 공유 off and disabled on a free run', async (
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
     courseShared: false,
+    regionCode: null,
+  });
+});
+
+// S15P31E105-687 사용자 결정 1번: only a shared course gets a region, from its start, shown on 7.3 before 게시.
+function withCourseStart() {
+  const { repositories, created } = withRun(true);
+  const { getShareable } = repositories.community;
+  repositories.community.getShareable = async recordId => ({
+    ...(await getShareable(recordId)),
+    courseRun: true,
+    route: [
+      [129.118, 35.153],
+      [129.12, 35.155],
+    ],
+  });
+  const regionAt = jest.fn(repositories.community.regionAt);
+  repositories.community.regionAt = regionAt;
+  return { repositories, created, regionAt };
+}
+
+test('7.3 shows 지역 for a shared course and sends it with the post', async () => {
+  const { repositories, created, regionAt } = withCourseStart();
+  const screen = await openShare(repositories);
+  await settle(50);
+
+  expect(regionAt).toHaveBeenCalledWith([129.118, 35.153]);
+  expect(texts(screen)).toContain('지역: 부산 수영구');
+
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: true,
+    regionCode: '26500',
+  });
+});
+
+test('7.3 hides 지역 and sends none once the course is not shared', async () => {
+  const { repositories, created } = withCourseStart();
+  const screen = await openShare(repositories);
+  await settle(50);
+  expect(texts(screen)).toContain('지역: 부산 수영구');
+
+  await act(async () => courseSwitch(screen).props.onPress());
+  await settle(50);
+  expect(texts(screen)).not.toContain('지역:');
+
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: false,
+    regionCode: null,
+  });
+});
+
+test('7.3 asks no region for a free run and shows none when none is found', async () => {
+  const free = withRun(false);
+  const freeRegionAt = jest.fn(free.repositories.community.regionAt);
+  free.repositories.community.regionAt = freeRegionAt;
+  let screen = await openShare(free.repositories);
+  await settle(50);
+  expect(freeRegionAt).not.toHaveBeenCalled();
+  expect(texts(screen)).not.toContain('지역:');
+  await act(async () => screen.unmount());
+  mounted = null;
+
+  const { repositories, created } = withCourseStart();
+  repositories.community.regionAt = async () => null;
+  screen = await openShare(repositories);
+  await settle(50);
+  expect(texts(screen)).not.toContain('지역:');
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: true,
+    regionCode: null,
   });
 });
 

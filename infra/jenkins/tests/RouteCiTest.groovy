@@ -16,6 +16,7 @@ def runCi(Map opts) {
         node: { String label, Closure body -> body() }, dir: { String path, Closure body -> body() },
         timeout: { Map args, Closure body -> body() },
         deleteDir: { -> }, checkout: { Map ignored -> }, echo: { ignored -> },
+        fileExists: { String ignored -> true }, writeFile: { Map ignored -> },
         withEnv: { List values, Closure body -> body() },
         withCredentials: { List values, Closure body -> body() }, string: { Map value -> value },
         sh: { args ->

@@ -36,19 +36,26 @@ final class PostPageCursor {
         return limit;
     }
 
-    /** CMT02 커서. 마지막 게시물 ID 다음부터(id 내림차순) 이어 조회한다. */
-    static String encodeFeed(long viewerId, String scope, Long authorId, long lastPostId) {
-        return encode(
-                FEED + "|" + viewerId + "|" + scope + "|" + authorToken(authorId) + "|" + lastPostId);
+    /**
+     * CMT02 커서. 마지막 게시물 ID 다음부터(id 내림차순) 이어 조회한다. 지역 필터(S15P31E105-687)가 있으면 6번째 칸에 넣고, 없으면 예전과
+     * 같은 5칸이라 배포 전에 받은 커서도 그대로 이어진다.
+     */
+    static String encodeFeed(
+            long viewerId, String scope, Long authorId, String regionCode, long lastPostId) {
+        String raw =
+                FEED + "|" + viewerId + "|" + scope + "|" + authorToken(authorId) + "|" + lastPostId;
+        return encode(regionCode == null ? raw : raw + "|" + regionCode);
     }
 
-    static long decodeFeed(String cursor, long viewerId, String scope, Long authorId) {
+    static long decodeFeed(
+            String cursor, long viewerId, String scope, Long authorId, String regionCode) {
         try {
-            String[] parts = decode(cursor, 5);
+            String[] parts = decode(cursor, regionCode == null ? 5 : 6);
             if (!FEED.equals(parts[0])
                     || Long.parseLong(parts[1]) != viewerId
                     || !scope.equals(parts[2])
-                    || !authorToken(authorId).equals(parts[3])) {
+                    || !authorToken(authorId).equals(parts[3])
+                    || (regionCode != null && !regionCode.equals(parts[5]))) {
                 throw new IllegalArgumentException();
             }
             return positiveId(parts[4]);

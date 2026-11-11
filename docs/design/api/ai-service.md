@@ -89,6 +89,8 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | --- | --- | --- |
 | `GRU_PERSONALIZATION_ENABLED` | `false` | AI06 GRU head 계산과 AI03/AI04 GRU 개인 출력층 사용 스위치. 꺼져 있으면 AI06에서 head를 계산하지 않고 null과 `GRU_PERSONALIZATION_DISABLED`를 반환 |
 | `GRU_PERSONALIZATION_MAX_WINDOWS` | `2000` | GRU 개인화에 사용할 최대 학습 window 수. 최신 러닝부터 고르며, 상한을 넘은 window는 결과에 반영되지 않음 |
+| `GRU_GB_PERSONALIZATION_ENABLED` | `false`(코드) / `true`(배포 compose) | ODE식 GRU 개인 보정 g·b(S15P31E105-641). 켜면 AI06이 `summaryU`에 `gruGain`·`gruOffsetBpm`·`gruSupportN`을 넣고, AI04·AI10이 학습 심박 기준선 행에서 읽어 기본 GRU 출력에 `hr0 + g·(pred − hr0) + b`로 적용. 꺼져 있으면 출력이 이전과 같음 |
+| `GRU_GB_MAX_WINDOWS` | `3000` | AI06 g·b 계산 최대 window 수(최신 러닝부터) |
 | `AI_DB_URL` | (없음) | 읽기 전용 PostgreSQL 주소. 비면 AI03/AI04의 DB 개인화 조회는 자동 OFF이며, 개인 계획의 기존 503 동작은 유지 |
 | `GRU_PERSONALIZATION_CACHE_TTL_SEC` | `300` | 사용자 head 캐시 시간 |
 | `GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC` | `60` | 행 없음·개인화 테이블 없음 캐시 시간 |
@@ -196,7 +198,7 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `publishSuggested` | boolean | 백엔드가 발행 판단을 이어갈지 |
 | `decision` | object / null | 최종 `action`, `chosenIndex`, `recommendedPaceSecPerKm`, `cueBpm`, `predictedHr30Bpm`, `predictedHr60Bpm`, `predictedHr120Bpm`, `routeProgressM`, `basedOnStateVersion`, `expiresAt`, `reason`, `reasonText`, `coachingLevel`. `coachingLevel`은 코칭 단계 `OK`/`CAUTION`/`DANGER`(아래 "코칭 단계", 없어도 되는 칸). `cueBpm`은 `recommendedPaceSecPerKm`의 목표 BPM(60~220 정수)이며 `PLAN_HOLD`·`GUIDE_PACE`·`EASE_OFF`에 모두 넣는다. 계산하지 못하면 null과 경고 `CUE_BPM_UNAVAILABLE` |
 | `candidates[]` | object[] | `paceSecPerKm`, `predHrBpm[3]`, `upperHrBpm[3]`, `passed`, `rejectReason`, `score` |
-| `pacing` | object / null | `actualMinusGuideSecPerKm`, `etaSec`, `etaMinusGoalSec`, `hrDangerBpm`(섞은 P98 + 3), `hrSustainBpm`(섞은 P85), `hrThresholdSource`(`POPULATION`/`BLENDED`/`PERSONAL`), `hrThresholdWeight`. 선택: `handoverPhase`(`PLAN_HOLD`/`PLAN_BLEND`/`MPC`), `planWeight`(0~1). |
+| `pacing` | object / null | `actualMinusGuideSecPerKm`, `etaSec`, `etaMinusGoalSec`, `hrDangerBpm`(섞은 P98 + 3), `hrSustainBpm`(섞은 P85), `hrThresholdSource`(`POPULATION`/`BLENDED`/`PERSONAL`), `hrThresholdWeight`. 선택: `handoverPhase`(`PLAN_HOLD`/`PLAN_BLEND`/`MPC`), `planWeight`(0~1), `gruPersonalWeight`(GRU 개인 g·b 비중 n/(n+50), 미적용 0)·`gruSupportN`(반영 러닝 수) — 두 값은 `GRU_GB_PERSONALIZATION_ENABLED=true`이고 `userId`가 있을 때만 들어간다. |
 | `warnings[]` | string[] | 모델·정책 경고 |
 | `forecast` | object / null | 요청 및 서버 설정으로 켰을 때 ODE v2.1 남은 거리, 완주 시각, HR 곡선 |
 | `hrPersonalized` | boolean | 요청에 `userId`가 있을 때 개인 head 사용 여부 |
@@ -505,6 +507,8 @@ W07 저장 기록으로 `sessions[]`를 만드는 방법(러닝 선택·5초 재
 
 AI06 응답에는 기존 ODE 필드와 함께 `hrDangerBpm`(개인 P98 원값, +3 전), `hrSustainBpm`(P85), `hrThresholdRunCount`(실제로 사용한 러닝 수, 최대 20)도 포함한다. `GRU_PERSONALIZATION_ENABLED=false`가 기본이다. 꺼져 있으면 GRU 출력층을 계산하지 않고 `gruPersonalization=null`, `GRU_PERSONALIZATION_DISABLED` 경고를 반환한다. 켜져 있을 때는 `GRU_PERSONALIZATION_MAX_WINDOWS`(기본 2000)에 따라 최신 러닝부터 학습 window를 고른다. 더 오래된 window가 상한에서 빠지면 결과가 달라질 수 있다.
 
+`GRU_GB_PERSONALIZATION_ENABLED=true`(기본 false, S15P31E105-641)이면 AI06이 같은 호출에서 기본 GRU의 support 예측으로 개인 g·b를 계산해 `summaryU` 객체 안에 `gruGain`(0.5~2.0), `gruOffsetBpm`(±8), `gruSupportN`(쓴 러닝 수)을 추가한다. 응답 최상위 필드는 바뀌지 않으며, 백엔드는 `summaryU`를 그대로 `user_hr_personalization.summary_u_json`에 저장하므로 DB migration·백엔드 변경이 없다. ODE는 `summaryU`의 정해진 27개 이름만 읽는다. 계산에 실패하면 세 키를 넣지 않고(AI04·AI10은 보정 없음) 로그만 남긴다.
+
 채점 가능한 window가 없으면 `gruPersonalization=null`과 `GRU_PERSONALIZATION_NO_SUPPORT_WINDOWS` 경고를 반환한다. Support 품질은 ODE와 같이 `GOOD`·`LOW`를 유효값, `MISSING`을 결측으로 본다. `UNUSABLE` 러닝은 제외하며 채점 HR은 `hrIsFilled=false`여야 한다. GRU predictor의 평가 mask에 맞춰 허용된 `LOW` HR을 `GOOD`으로 변환한다.
 
 `userId`와 `sessions[].sessionId`는 양수 int64 서버 ID이며 응답의 `userId`도 정수다. legacy 호환용 ID 십진 문자열 입력은 현재 코드에서 정수로 정규화하지만, 그 외 새 AI04/AI05/AI06 숫자 필드는 JSON integer 또는 실수만 허용한다. 팀 전체 BIGINT wire 정책을 정한 것은 아니다. API03의 `history.gradePct`/`futureGradePct`는 유지한다. W07·AI05·AI06의 `gradePercent`는 별도 경계 필드다.
@@ -564,7 +568,7 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 ### Request Body
 
-선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다.
+선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다. 백엔드의 세션 생성·목표 변경 호출은 재시도를 포함한 전체 상한 40초를 쓰고, 재시도에도 첫 시도와 같은 전체 마감을 보낸다. 같은 클라이언트를 쓰는 그룹 공동 페이스 계산(GroupPaceService)도 같은 상한을 적용받는다(S15P31E105-533, [sessions.md](sessions.md) "목표 검증·초기 계획·동의"의 초기 계획과 같은 값).
 
 허용하는 최상위 입력은 `courseId`, `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`가 있으면 코스 러닝, 없으면(생략 또는 null) 자유러닝이다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
 
@@ -709,6 +713,7 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 | `participants[].active` | boolean | 실제로 달리는지 여부. 일시정지·종료·지연·불참자는 보내지 않거나 false |
 | `participants[].history` | object | AI03·AI04의 `History`와 동일. 5초 간격 `hrBpm`, `speedMps`, `gradePct` 및 선택 `segmentId`. 배열 길이는 같아야 하며 결측은 null |
 | `participants[].futureGradePct` | array / null | 앞으로 2분의 경사 24칸. null 또는 빈 칸이 하나라도 있으면 경사 모름 |
+| `paceMode` | string | 선택. `TOGETHER`(기본, 생략과 같음) / `GOAL`(목표 페이스 모드, S15P31E105-680). 아래 "목표 페이스 모드". 그 밖의 값은 `400 VALIDATION_ERROR` |
 
 선택 필드는 생략해도 null로 처리한다. 미동의자는 `userId`와 심박을 보내지 않는다. `userId`가 없거나 심박 기록이 전부 null이면 속도 기록만 사용하며, 심박 기준 DB와 GRU 개인화는 조회하지 않는다. 최근 측정 기준 페이스는 AI04와 같은 최근 12칸(60초) 속도의 결측 제외 평균을 `1000 / speed`로 바꾼 값이다. 심박 판단은 AI04와 같은 t0 심박·완전 history 칸 수 검사를 통과해야 한다. 판단 가능한 심박도 기준 페이스도 없는 참가자는 제외하고 `PARTICIPANT_DATA_UNUSABLE`을 붙인다.
 
@@ -736,6 +741,16 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 6. 마지막 변경부터 120초 미만이면 방향과 관계없이 현재를 유지한다(`COOLDOWN`). 단 G에서 누군가의 **여유값을 더하기 전** 120초 예측이 혼합된 위험 기준 이상이면 감속은 허용한다. 정확히 120초면 제한하지 않는다.
 7. `elapsedSec` < 180이면 감속은 최대 +10초/km다(`WARMUP_CAP`). 위험으로 쿨다운을 벗어난 경우에도 적용한다. 제한 후 반환 페이스에서 `strugglingCount`를 다시 센다.
 8. 현재와 차이가 10초/km 미만이면 현재를 유지한다(`HOLD`, `changed=false`, `SMALL_CHANGE`). 정확히 10초는 변경한다. 회복 가능한 후보가 없어 유지하는 경우도 `SMALL_CHANGE`다. 활성 참가자 전원에게 쓸 수 있는 데이터가 없으면 HTTP 200, 현재 페이스, `HOLD`, `NO_DATA`를 반환한다.
+
+### 목표 페이스 모드 (`paceMode=GOAL`)
+
+S15P31E105-680. 방장이 출발 전에 고른 모드다. `goalPaceSecPerKm`가 없으면 `TOGETHER`와 같게 계산한다. `TOGETHER`이거나 생략하면 출력은 이전과 비트 단위로 같다.
+
+1. 후보·예측·응답 형식·`strugglingCount`(허용선 기준)는 위와 같다.
+2. 판정선을 허용선 대신 회원별 **위험 심박**으로 바꿔 같은 선택 규칙(5~8)을 쓴다. 상한은 여유값 없는 예측이다. G와 느린 후보는 기존 위험 조건(6)과 같은 120초 예측을, 빠른(회복) 후보는 30·60·120초 예측의 최댓값을 쓴다. 따라서 G에서 누군가의 120초 예측이 위험 심박 이상일 때만 늦추며(`HR_LIMIT`/`FLOOR`), 주의·허용선 초과만으로는 늦추지 않는다. 30·60초 예측은 늦춰도 거의 변하지 않아 감속 판정에 쓰지 않는다(연속 `FLOOR` 방지).
+3. 회복 가속의 한계는 항상 목표 페이스다. 목표보다 빠르게 올리지 않는다.
+4. 위험 감속은 쿨다운(6)을 벗어나고 워밍업 상한(7)도 적용하지 않는다.
+5. 백엔드는 모드가 `GOAL`일 때만 이 필드를 보낸다. 이전 버전 AI는 모르는 필드를 무시하므로 배포 순서와 관계없이 요청이 실패하지 않는다.
 
 ### 설정·호출 주기·오류
 

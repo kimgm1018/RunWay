@@ -23,7 +23,7 @@ export const resultLook = {
   line: 'rgba(255,255,255,0.12)',
   outline: 'rgba(255,255,255,0.75)',
   watermark: 'rgba(255,255,255,0.08)',
-  danger: '#F15066',
+  danger: '#D44A4A',
   ink: '#02050E',
 } as const;
 

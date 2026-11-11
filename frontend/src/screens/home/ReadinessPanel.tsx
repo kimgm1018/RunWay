@@ -50,10 +50,31 @@ const states: Record<
   },
 };
 
-// The score's grade on top (S15P31E105-594 담당자 요청: "준비도 양호, 보통 이런 느낌"). R02 has no grade yet
-// (readiness-formula 6절), so the card names the band of the score itself: 80 and up 양호, 60 and up 보통, else 낮음.
+// The score's grade on top. R02 has no grade yet (readiness-formula 6절), so the card names the band of the score
+// itself, 100 points in five bands of 20 (담당자 결정 2026-11-10, S15P31E105-657): 80 and up 준비도 최상, 60 and up
+// 준비도 양호, 40 and up 준비도 보통, 20 and up 준비도 낮음, else 휴식 권장.
 export const gradeOf = (score: number) =>
-  score >= 80 ? '양호' : score >= 60 ? '보통' : '낮음';
+  score >= 80
+    ? '준비도 최상'
+    : score >= 60
+    ? '준비도 양호'
+    : score >= 40
+    ? '준비도 보통'
+    : score >= 20
+    ? '준비도 낮음'
+    : '휴식 권장';
+
+// One line under the grade on what the band means for today's run (담당자 결정 2026-11-10, S15P31E105-657).
+export const gradeNoteOf = (score: number) =>
+  score >= 80
+    ? '몸 상태가 좋아요. 계획한 강도로 달려도 좋아요.'
+    : score >= 60
+    ? '평소처럼 달리기 좋은 상태예요.'
+    : score >= 40
+    ? '무리하지 말고 편한 페이스로 달려요.'
+    : score >= 20
+    ? '가볍게 짧게 달리는 걸 권해요.'
+    : '오늘은 쉬면서 회복하는 게 좋아요.';
 
 // The top sentence for the week's load band (weeklyLoadLabel, S15P31E105-599).
 const loadSentences: Record<string, string> = {
@@ -244,7 +265,7 @@ export function ReadinessPanel({
   const score = ready ? today.readinessScore : null;
   const counted = Math.round(useCountUp(score ?? 0));
   const guide = readinessGuide(today, { isToday });
-  // S15P31E105-594 담당자 요청: on top the score's grade (준비도 양호 · 보통 · 낮음), and under it the load against the
+  // S15P31E105-594 담당자 요청: on top the score's grade (준비도 최상 … 휴식 권장), and under it the load against the
   // usual week when there is one (the band R02's numbers already give, S15P31E105-599), else the data's own sentence.
   // Both speak of the score's own day, which the date line names. Without a score, why there is none.
   const trainingLoad = ready ? today.trainingLoad ?? null : null;
@@ -252,7 +273,9 @@ export function ReadinessPanel({
     ready && today.weeklyLoadLabel
       ? loadSentences[today.weeklyLoadLabel] ?? null
       : null;
-  const headline = score !== null ? `준비도 ${gradeOf(score)}` : null;
+  const headline = score !== null ? gradeOf(score) : null;
+  // The note speaks of today's run, so an older day's score shows only its grade (S15P31E105-615 rule).
+  const gradeNote = score !== null && isToday ? gradeNoteOf(score) : null;
   const lead =
     score === null
       ? note
@@ -315,8 +338,29 @@ export function ReadinessPanel({
           {headline ? (
             <WordWrap text={headline} style={styles.headline} fontSize={24} />
           ) : null}
+          {gradeNote ? (
+            // One sentence per line (담당자 요청: 두 문장을 한 줄에 쓰지 않는다).
+            <View style={styles.gradeNoteBox}>
+              {gradeNote.split('. ').map((sentence, index, all) => (
+                <WordWrap
+                  key={sentence}
+                  text={index < all.length - 1 ? `${sentence}.` : sentence}
+                  style={styles.gradeNote}
+                  fontSize={14.5}
+                />
+              ))}
+            </View>
+          ) : null}
           {lead ? (
-            <View style={headline ? styles.leadBox : null}>
+            <View
+              style={
+                gradeNote
+                  ? styles.leadAfterNote
+                  : headline
+                  ? styles.leadBox
+                  : null
+              }
+            >
               <WordWrap text={lead} style={styles.lead} fontSize={13.5} />
             </View>
           ) : null}
@@ -420,6 +464,14 @@ const styles = StyleSheet.create({
     color: recordsLook.onCard,
   },
   leadBox: { marginTop: 10 },
+  gradeNoteBox: { marginTop: 8 },
+  gradeNote: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: recordsLook.onCard,
+  },
+  leadAfterNote: { marginTop: 6 },
   lead: {
     fontFamily: fontFamily.medium,
     fontSize: 13.5,

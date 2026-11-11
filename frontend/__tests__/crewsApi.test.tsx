@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
@@ -37,9 +37,14 @@ type ServerCrew = {
   regionCode: string | null;
   // M01·M02 joinPolicy (S15P31E105-570); APPROVAL when a seed leaves it out.
   joinPolicy?: 'APPROVAL' | 'INSTANT';
-  members: { userId: number; nickname: string }[];
-  pending: { userId: number; nickname: string }[];
+  members: Person[];
+  pending: Person[];
+  // F02 path of the crew photo (M01·M02·M10 imageUrl, S15P31E105-636).
+  imageUrl?: string;
 };
+
+// profileImageUrl: M05·M07 photo path (S15P31E105-636).
+type Person = { userId: number; nickname: string; profileImageUrl?: string };
 
 // The server's crews; requests and leaving change them.
 let crews: ServerCrew[];
@@ -63,6 +68,7 @@ const summary = (crew: ServerCrew) => ({
   joinPolicy: crew.joinPolicy ?? 'APPROVAL',
   memberCount: crew.members.length,
   myMembershipStatus: statusOf(crew),
+  imageUrl: crew.imageUrl ?? null,
 });
 
 function people(count: number, from: number) {
@@ -133,6 +139,7 @@ function serve() {
               myMembershipStatus: statusOf(crew),
               memberCount: crew.members.length,
               isOwner: crew.ownerId === meId,
+              imageUrl: crew.imageUrl ?? null,
             })),
         });
       }
@@ -397,6 +404,68 @@ test('6.0 lists my crews from M10', async () => {
   expect(page).toContain('광안리 새벽 크루');
   expect(page).toContain('민락 야경 러너스');
   expect(page).not.toContain('수영강 아침 크루');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-636: crew photos on 6.0·6.1·6.2, member photos on 6.2·6.2a, the first letter without one.
+test('crew and member photos show, and a broken photo falls back to the letter', async () => {
+  const photo = (id: string) => `/api/v1/images/${id}`;
+  const memberImageId = '11111111-1111-4111-8111-111111111111';
+  const applicantImageId = '22222222-2222-4222-8222-222222222222';
+  crews[1].imageUrl = photo(crewImageId);
+  crews[1].members[1].profileImageUrl = photo(memberImageId);
+  crews[1].pending[0].profileImageUrl = photo(applicantImageId);
+  const photos = (screen: Screen) =>
+    screen.root
+      .findAllByType(Image)
+      .map(node => (node.props.source as { uri?: string })?.uri ?? '');
+  const shows = (screen: Screen, id: string) =>
+    photos(screen).filter(uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)));
+  const letter = (screen: Screen, text: string) =>
+    screen.root.findAllByType(Text).some(node => node.props.children === text);
+
+  const screen = await openGroup();
+  const crewPhotos = (view: Screen) =>
+    view.root.findAll(
+      node => node.type === Image && node.props.testID === 'crew-photo',
+    );
+  // 6.0 내 크루: only the crew with a photo shows one.
+  expect(shows(screen, crewImageId).length).toBeGreaterThan(0);
+  await press(screen, '크루 모집');
+  // 6.1: the card of the crew with a photo; the other crews draw none.
+  expect(
+    crewPhotos(screen).filter(node =>
+      node.props.source?.uri?.endsWith(photo(crewImageId)),
+    ).length,
+  ).toBeGreaterThan(0);
+  await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+  // 6.2 head: the crew photo by the name; when it fails, nothing is drawn in its place.
+  const hero = crewPhotos(screen).filter(node =>
+    node.props.source?.uri?.endsWith(photo(crewImageId)),
+  );
+  expect(hero.length).toBeGreaterThan(0);
+  await act(async () => hero[hero.length - 1].props.onError());
+  expect(
+    crewPhotos(screen).filter(node =>
+      node.props.source?.uri?.endsWith(photo(crewImageId)),
+    ).length,
+  ).toBeLessThan(hero.length);
+  // 6.2: the crew photo by the name and 도윤's photo; 민준 has none, so the letter stays.
+  expect(shows(screen, memberImageId)).toHaveLength(1);
+  expect(letter(screen, '민')).toBe(true);
+  expect(letter(screen, '도')).toBe(false);
+  const memberPhoto = screen.root
+    .findAllByType(Image)
+    .find(node => node.props.source?.uri?.endsWith(photo(memberImageId)))!;
+  await act(async () => memberPhoto.props.onError());
+  expect(shows(screen, memberImageId)).toHaveLength(0);
+  expect(letter(screen, '도')).toBe(true);
+
+  // The leader's 6.2 lists the waiting request with its photo (S15P31E105-678); 6.2a opens on top of it, so
+  // the applicant's photo is drawn once there and once more by the 6.2 underneath.
+  expect(shows(screen, applicantImageId)).toHaveLength(1);
+  await press(screen, '가입 신청 1건');
+  expect(shows(screen, applicantImageId)).toHaveLength(2);
   await act(async () => screen.unmount());
 });
 

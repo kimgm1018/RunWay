@@ -154,13 +154,23 @@ class Pacing(CamelModel):
     hr_sustain_bpm: float | None = None
     hr_threshold_source: Literal["POPULATION", "BLENDED", "PERSONAL"] | None = None
     hr_threshold_weight: float | None = None
+    # S15P31E105-641 선택 필드: GRU 개인 g·b 비중(0~1)과 반영 러닝 수. 기능이 꺼져 있으면 응답에 넣지 않는다.
+    gru_personal_weight: float | None = None
+    gru_support_n: int | None = None
+    # S15P31E105-676 선택 필드: 오늘 준비도 R, 허용 심박 감소 bpm(≥0), 개인 c 비중 w. 기능이 꺼져 있으면 넣지 않는다.
+    readiness_score: float | None = None
+    readiness_adjust_bpm: float | None = None
+    readiness_weight: float | None = None
 
     @model_serializer(mode="wrap")
     def _omit_handover_when_off(self, handler):
         data = handler(self)
         for key in ("handover_phase", "handoverPhase", "plan_weight", "planWeight",
                     "hr_danger_bpm", "hrDangerBpm", "hr_sustain_bpm", "hrSustainBpm",
-                    "hr_threshold_source", "hrThresholdSource", "hr_threshold_weight", "hrThresholdWeight"):
+                    "hr_threshold_source", "hrThresholdSource", "hr_threshold_weight", "hrThresholdWeight",
+                    "gru_personal_weight", "gruPersonalWeight", "gru_support_n", "gruSupportN",
+                    "readiness_score", "readinessScore", "readiness_adjust_bpm", "readinessAdjustBpm",
+                    "readiness_weight", "readinessWeight"):
             if key in data and data[key] is None:
                 del data[key]
         return data

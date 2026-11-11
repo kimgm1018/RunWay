@@ -77,6 +77,10 @@ type RunState = {
 
 type RunActions = {
   start: (config: RunConfig) => void;
+  // 시작 화면에서 목표가 정해지면 세션 생성·AI 계획·워치 준비를 미리 한다(S15P31E105-533). 그룹 모드와 진행 중인 러닝은 건너뛴다.
+  prepare: (config: RunConfig) => void;
+  // 시작하지 않고 시작 화면을 떠나면 미리 만든 READY 세션을 취소한다. 시작 명령이 진행·미확인 중이면 그대로 둔다.
+  releasePrepared: () => void;
   pause: () => void;
   resume: () => void;
   finish: () => void;
@@ -144,6 +148,8 @@ const RunResumeContext = createContext<{
 }>({ target: null, consume: () => undefined });
 
 const TERMINAL = ['COMPLETED', 'CANCELLED', 'INTERRUPTED'];
+// 종료한 러닝의 제어기를 미리 준비로 바꾸지 않는 시간. runControl의 분석 상태 조회 상한(3분)과 같다.
+const keepFinishedMs = 180_000;
 
 // 이 앱이 시작하지 않은(다시 붙은) 운동은 코스·목표를 알 수 없으므로 화면 기록은 자유 러닝으로 이어간다.
 const joinedConfig: RunConfig = {
@@ -707,12 +713,41 @@ export function RunSessionProvider({
         }
         pendingConfig.current = config;
         const existing = controlRef.current?.getState();
-        const reusable =
-          existing &&
-          existing.sessionId !== null &&
-          !TERMINAL.includes(existing.status ?? '');
+        // 미리 준비가 S01 응답을 기다리는 중(세션 없음)인 제어기도 이어 쓴다. 새로 만들면 S01·AI 계획이 겹친다(S15P31E105-533).
+        const reusable = existing && !TERMINAL.includes(existing.status ?? '');
         const target = reusable ? controlRef.current! : newControl();
         target.start(goalOf(config));
+      },
+      prepare: config => {
+        if (config.mode === 'GROUP' || groupRef.current) {
+          return;
+        }
+        const existing = controlRef.current?.getState();
+        const status = existing?.status ?? null;
+        if (status !== null && !TERMINAL.includes(status) && status !== 'READY') {
+          return;
+        }
+        // 막 끝난 러닝의 제어기는 분석 결과를 워치에 옮기는 동안 남겨 둔다(최대 3분). 그동안은 미리 준비하지 않고
+        // 시작할 때 새로 만든다.
+        const endedAt = existing?.endedAt ? Date.parse(existing.endedAt) : NaN;
+        if (status === 'COMPLETED' && Date.now() - endedAt < keepFinishedMs) {
+          return;
+        }
+        // 워치에서 시작해도 화면 기록이 이 설정으로 열리게 한다.
+        pendingConfig.current = config;
+        // S01 응답을 기다리는 중(세션 없음)인 제어기도 이어 쓴다. 목표가 바뀌었으면 제어기가 순서대로 정리한다.
+        const reusable = existing && !TERMINAL.includes(status ?? '');
+        const target = reusable ? controlRef.current! : newControl();
+        target.prepare(goalOf(config));
+      },
+      releasePrepared: () => {
+        const target = controlRef.current;
+        const status = target?.getState().status ?? null;
+        // S01 응답 전(상태 없음)이면 제어기가 준비가 끝난 뒤 판단한다.
+        if (!target || groupRef.current || (status !== null && status !== 'READY')) {
+          return;
+        }
+        target.releasePrepared();
       },
       pause: () => {
         const target = personal();

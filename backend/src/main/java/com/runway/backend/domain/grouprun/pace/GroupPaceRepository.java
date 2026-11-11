@@ -16,20 +16,64 @@ public class GroupPaceRepository {
     private final JdbcTemplate jdbc;
 
     public record State(Integer pace, Integer startPace, String direction, Instant changedAt,
-            int strugglingCount, Instant updatedAt) {}
+            int strugglingCount, Instant updatedAt, String mode, Integer aiPace, Long basisUserId,
+            String basisNickname, Integer slowerThanGoalCount, Instant startRequestedAt,
+            boolean startRequestRecent) {
+        public State(Integer pace, Integer startPace, String direction, Instant changedAt,
+                int strugglingCount, Instant updatedAt) {
+            this(pace, startPace, direction, changedAt, strugglingCount, updatedAt, MODE_TOGETHER,
+                    null, null, null, null, null, false);
+        }
+
+        public boolean goalMode() { return MODE_GOAL.equals(mode); }
+
+        /**
+         * A recalculation was requested within the last two minutes (DB clock, the same clock that stamped it) and has
+         * neither finished nor given up.
+         */
+        public boolean calculating() {
+            return startPace == null && startRequestRecent;
+        }
+    }
+
+    public static final String MODE_TOGETHER = "TOGETHER";
+    public static final String MODE_GOAL = "GOAL";
+
+    /** Start result: applied pace, AI recommendation, its member and the slower-than-goal count. */
+    public record Start(int pace, int aiPace, long basisUserId, Integer slowerThanGoalCount) {}
     public record Runner(long userId, long sessionId, String status, Instant startedAt,
             boolean consent) {}
     public record Candidate(long userId, boolean consent, BigDecimal profilePace) {}
 
     public Optional<State> find(long groupId) {
-        return jdbc.query("SELECT * FROM group_run_pace_state WHERE group_run_id = ?",
+        return jdbc.query("""
+                SELECT s.*,
+                    -- The basis member's name only while they still share health data (consent can be withdrawn).
+                    CASE WHEN u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE'
+                         THEN u.nickname END AS basis_nickname,
+                    COALESCE(s.start_requested_at > clock_timestamp() - interval '120 seconds', FALSE)
+                        AS start_request_recent
+                FROM group_run_pace_state s
+                LEFT JOIN users u ON u.id = s.pace_basis_user_id
+                WHERE s.group_run_id = ?
+                """,
                 (rs, n) -> new State(rs.getObject("group_pace_sec_per_km", Integer.class),
                         rs.getObject("start_recommended_pace_sec_per_km", Integer.class),
                         rs.getString("last_change_direction"),
-                        rs.getTimestamp("last_change_at") == null ? null
-                                : rs.getTimestamp("last_change_at").toInstant(),
-                        rs.getInt("struggling_count"), rs.getTimestamp("updated_at").toInstant()),
+                        instant(rs.getTimestamp("last_change_at")),
+                        rs.getInt("struggling_count"), rs.getTimestamp("updated_at").toInstant(),
+                        rs.getString("pace_mode"),
+                        rs.getObject("ai_recommended_pace_sec_per_km", Integer.class),
+                        rs.getObject("pace_basis_user_id", Long.class),
+                        rs.getString("basis_nickname"),
+                        rs.getObject("slower_than_goal_count", Integer.class),
+                        instant(rs.getTimestamp("start_requested_at")),
+                        rs.getBoolean("start_request_recent")),
                 groupId).stream().findFirst();
+    }
+
+    private static Instant instant(Timestamp value) {
+        return value == null ? null : value.toInstant();
     }
 
     /** updated_at is also the lease token. Failed requests retain their reservation. */
@@ -61,9 +105,28 @@ public class GroupPaceRepository {
     /** Invalidate before publishing the after-commit event, so old calculations cannot win. */
     public void invalidateStart(long groupId) {
         jdbc.update("""
-                INSERT INTO group_run_pace_state(group_run_id) VALUES (?)
-                ON CONFLICT (group_run_id) DO UPDATE SET start_recommended_pace_sec_per_km = NULL
+                INSERT INTO group_run_pace_state(group_run_id, start_requested_at)
+                VALUES (?, clock_timestamp())
+                ON CONFLICT (group_run_id) DO UPDATE SET start_recommended_pace_sec_per_km = NULL,
+                    ai_recommended_pace_sec_per_km = NULL, pace_basis_user_id = NULL,
+                    slower_than_goal_count = NULL, start_requested_at = clock_timestamp()
                 """, groupId);
+    }
+
+    /** Host mode change. The caller invalidates in the same transaction so a recalculation follows. */
+    public void saveMode(long groupId, String mode) {
+        jdbc.update("""
+                INSERT INTO group_run_pace_state(group_run_id, pace_mode) VALUES (?, ?)
+                ON CONFLICT (group_run_id) DO UPDATE SET pace_mode = EXCLUDED.pace_mode
+                """, groupId, mode);
+    }
+
+    /** A calculation that cannot produce a value ends the calculating state, unless superseded. */
+    public boolean abandonStart(long groupId, Instant token) {
+        return jdbc.update("""
+                UPDATE group_run_pace_state SET start_requested_at = NULL
+                WHERE group_run_id = ? AND updated_at = ? AND start_requested_at IS NOT NULL
+                """, groupId, Timestamp.from(token)) == 1;
     }
 
     public boolean saveRunning(long groupId, Instant token, GroupPacePort.Result result,
@@ -79,12 +142,15 @@ public class GroupPaceRepository {
                 Timestamp.from(token), groupId) == 1;
     }
 
-    public boolean saveStart(long groupId, Instant token, int pace) {
+    public boolean saveStart(long groupId, Instant token, Start start) {
         return jdbc.update("""
-                UPDATE group_run_pace_state SET start_recommended_pace_sec_per_km = ?
+                UPDATE group_run_pace_state SET start_recommended_pace_sec_per_km = ?,
+                    ai_recommended_pace_sec_per_km = ?, pace_basis_user_id = ?,
+                    slower_than_goal_count = ?, start_requested_at = NULL
                 WHERE group_run_id = ? AND updated_at = ?
                   AND EXISTS (SELECT 1 FROM group_runs WHERE id = ? AND status = 'SCHEDULED')
-                """, pace, groupId, Timestamp.from(token), groupId) == 1;
+                """, start.pace(), start.aiPace(), start.basisUserId(), start.slowerThanGoalCount(),
+                groupId, Timestamp.from(token), groupId) == 1;
     }
 
     public List<Runner> runners(long groupId) {

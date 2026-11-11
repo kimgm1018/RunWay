@@ -31,6 +31,7 @@ import {
   useResource,
   type CrewDetail,
   type CrewJoinPolicy,
+  type CrewJoinRequest,
   type CrewMember,
   type Repositories,
 } from '../../data';
@@ -53,7 +54,8 @@ import {
   NumText,
   Raised,
 } from './look';
-import { useGroupRunDraft } from './parts';
+import { CrewPhoto, PhotoOr, useGroupRunDraft } from './parts';
+import { CrewJoinRequestRow } from './CrewJoinRequestRow';
 import { BackButton } from '../../components/BackButton';
 
 // The rows 구성원 shows before 모두 보기.
@@ -223,9 +225,15 @@ function MemberRow({
   return (
     <View style={[styles.memberRow, !last && styles.memberLine]}>
       <View style={styles.initial}>
-        <AppText style={styles.initialText}>
-          {member.nickname.slice(0, 1)}
-        </AppText>
+        <PhotoOr
+          photo={member.profileImageUrl}
+          size={34}
+          fallback={
+            <AppText style={styles.initialText}>
+              {member.nickname.slice(0, 1)}
+            </AppText>
+          }
+        />
       </View>
       <AppText style={styles.memberName}>
         {member.isMe ? `${member.nickname} (나)` : member.nickname}
@@ -467,15 +475,37 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
     | 'sent'
     | 'joined'
     | 'leave'
+    | 'cancelRequest'
     | 'ownerLeave'
     | 'remove'
     | 'dissolve'
     | null
   >(null);
   const [busy, setBusy] = useState(false);
+  // 6.2 for the leader: the requests waiting for a decision, shown here without opening 6.2a (S15P31E105-678).
+  const [requests, setRequests] = useState<CrewJoinRequest[] | null>(null);
+  const isOwner = crew?.amOwner === true;
+  useEffect(() => {
+    if (!isOwner) {
+      setRequests(null);
+      return undefined;
+    }
+    let active = true;
+    crews
+      .listJoinRequests(crewId)
+      .then(list => {
+        if (active) setRequests(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [crews, crewId, isOwner, loaded]);
   const [removeTarget, setRemoveTarget] = useState<CrewMember | null>(null);
   const removing = useRef(false);
   const membershipAction = useRef(false);
+  // One 승인·거절·신청 취소 request at a time, also against a fast second tap before busy renders.
+  const requestAction = useRef(false);
   const [successorId, setSuccessorId] = useState<string | null>(null);
   const successors =
     crew?.members.filter(member => !member.isMe && !member.isOwner) ?? [];
@@ -524,6 +554,62 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
       );
     } finally {
       removing.current = false;
+      setBusy(false);
+    }
+  };
+
+  const decideRequest = async (request: CrewJoinRequest, approve: boolean) => {
+    if (busy || requestAction.current) return;
+    requestAction.current = true;
+    setBusy(true);
+    try {
+      await crews.decideJoinRequest(crewId, request.userId, approve);
+      toast(
+        approve
+          ? `${request.nickname}님이 크루 멤버가 됐어요`
+          : `${request.nickname}님의 신청을 거절했어요`,
+      );
+      reload();
+    } catch (error) {
+      const code = errorCode(error);
+      toast(
+        code === 'CREW_CAPACITY_EXCEEDED'
+          ? '정원이 가득 차서 승인할 수 없어요'
+          : code === 'NOT_PENDING'
+          ? '이미 처리된 신청이에요'
+          : '처리하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      if (code === 'NOT_PENDING') reload();
+    } finally {
+      requestAction.current = false;
+      setBusy(false);
+    }
+  };
+
+  // M13: I take my own 승인 대기 request back; the leader's 가입 신청 알림 goes with it.
+  const cancelRequest = async (current: CrewDetail) => {
+    if (busy || requestAction.current) return;
+    requestAction.current = true;
+    setBusy(true);
+    try {
+      await crews.cancelJoinRequest(current.id);
+      changed();
+      setSheet(null);
+      toast('가입 신청을 취소했어요');
+      reload();
+    } catch (error) {
+      const code = errorCode(error);
+      setSheet(null);
+      toast(
+        code === 'NOT_PENDING'
+          ? '이미 처리된 신청이에요'
+          : code === 'CREW_NOT_FOUND'
+          ? '크루를 찾을 수 없어요'
+          : '가입 신청을 취소하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      if (code === 'NOT_PENDING' || code === 'CREW_NOT_FOUND') reload();
+    } finally {
+      requestAction.current = false;
       setBusy(false);
     }
   };
@@ -659,9 +745,9 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
       }
     : crew.myMembership === 'PENDING'
     ? {
-        title: '승인 대기 중 · 내 크루에서 보기',
+        title: '승인 대기 중 · 신청 취소',
         primary: false,
-        onPress: toMyCrews,
+        onPress: () => setSheet('cancelRequest'),
       }
     : full
     ? {
@@ -706,9 +792,16 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
             {/* 6.2-CrewHero as the 시안's first card: the name, 지역 · 인원 as pills, and the status chip with the
                 join policy beside it (mint while recruiting, K1 mint once full). */}
             <Card>
-              <AppText style={styles.title} accessibilityRole="header">
-                {crew.name}
-              </AppText>
+              {/* The crew photo left of the name when the crew has one (S15P31E105-636). */}
+              <View style={styles.photoRow}>
+                <CrewPhoto photo={crew.imageUrl} size={64} />
+                <AppText
+                  style={[styles.title, styles.flex]}
+                  accessibilityRole="header"
+                >
+                  {crew.name}
+                </AppText>
+              </View>
               <View style={styles.facts}>
                 <Fact icon="mapPin" label="지역" value={crew.area} />
                 <Fact
@@ -741,6 +834,23 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
                   count={crew.pendingRequestCount ?? 0}
                   policy={crew.joinPolicy}
                 />
+                {requests && requests.length > 0 ? (
+                  <View style={styles.requestList}>
+                    {requests.map(request => (
+                      <CrewJoinRequestRow
+                        key={request.userId}
+                        request={request}
+                        canApprove={crew.memberCount < crew.capacity}
+                        busy={busy}
+                        onDecide={approve => decideRequest(request, approve)}
+                      />
+                    ))}
+                  </View>
+                ) : requests ? (
+                  <AppText style={styles.caption}>
+                    아직 대기 중인 신청이 없어요
+                  </AppText>
+                ) : null}
                 <ManageCard
                   memberCount={crew.memberCount}
                   limited={limited}
@@ -934,6 +1044,24 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
                   title="내 크루로"
                   kind="primary"
                   onPress={toMyCrews}
+                />
+              </SheetBody>
+            ) : crew && sheet === 'cancelRequest' ? (
+              <SheetBody
+                icon="alert"
+                title="가입 신청을 취소할까요?"
+                body={`‘${crew.name}’에 보낸 가입 신청을 취소해요. 다시 가입하려면 신청을 새로 보내야 해요.`}
+              >
+                <SheetButton
+                  title="닫기"
+                  disabled={busy}
+                  onPress={() => setSheet(null)}
+                />
+                <SheetButton
+                  title="신청 취소"
+                  kind="primary"
+                  disabled={busy}
+                  onPress={() => cancelRequest(crew)}
                 />
               </SheetBody>
             ) : crew && sheet === 'leave' ? (
@@ -1131,6 +1259,7 @@ const styles = StyleSheet.create({
   },
   captionInvalid: { color: groupTone.danger },
   // 6.2-CrewHero.
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 26,
@@ -1169,6 +1298,7 @@ const styles = StyleSheet.create({
     color: groupLook.onMint,
   },
   requests: { flexDirection: 'row', alignItems: 'center' },
+  requestList: { gap: 10 },
   // The 시안's mint 'N건' and 모두 보기: small mint marks read on the navy.
   mint: { color: groupTone.accent },
   // AppText sets its own colour, so the digits name the mint again.

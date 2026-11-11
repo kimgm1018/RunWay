@@ -260,6 +260,38 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("NOT_HOST"));
     }
 
+    // S15P31E105-636 AC-2: G07 참가자 프로필 사진 주소. 사진 없는 참가자는 null 키.
+    @Test
+    void participants_includeProfileImageUrl() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        String imageId = "3f4a5b6c-7d8e-4f9a-8b1c-2d3e4f5a6b7c";
+        jdbc.update(
+                "UPDATE users SET profile_image_key = ? WHERE id = ?",
+                "images/profile/" + hostId + "/" + imageId + ".jpg",
+                hostId);
+        jdbc.update("UPDATE users SET profile_image_key = NULL WHERE id = ?", memberId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+
+        String body =
+                mockMvc.perform(
+                                get("/api/v1/group-runs/{id}/participants", groupRunId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(memberId)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.items", hasSize(2)))
+                        .andExpect(
+                                jsonPath("$.items[?(@.userId==" + hostId + ")].profileImageUrl")
+                                        .value("/api/v1/images/" + imageId))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(body).contains("\"profileImageUrl\":null");
+    }
+
     @Test
     void participants_listReadyStatus() throws Exception {
         long groupRunId = createGroupRun(hostId);

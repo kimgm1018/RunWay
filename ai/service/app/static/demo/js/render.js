@@ -173,7 +173,7 @@
       return;
     }
     var defs = svg('defs', {}, elevation);
-    gradient(defs, 'elev-fill', [[0, '#8fa3b8', 0.32], [1, '#8fa3b8', 0.02]], true);
+    gradient(defs, 'elev-fill', [[0, '#7DA0B2', 0.32], [1, '#7DA0B2', 0.02]], true);
     var elevs = elevIdx.map(function (i) { return Number(points[i][2]); });
     var eMin = Math.min.apply(null, elevs), eMax = Math.max.apply(null, elevs), eSpan = (eMax - eMin) || 1;
     var ex = function (d) { return 4 + d / (length || 1) * (es.w - 8); };
@@ -243,8 +243,8 @@
     var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
 
     var defs = svg('defs', {}, chart);
-    gradient(defs, 'actual-fill', [[0, '#e8eef5', 0.16], [1, '#e8eef5', 0]], true);
-    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    gradient(defs, 'actual-fill', [[0, '#7DA0B2', 0.22], [1, '#7DA0B2', 0]], true);
+    gradient(defs, 'danger-fill', [[0, '#D44A4A', 0.26], [1, '#D44A4A', 0.04]], true);
 
     var step = (hi - lo) > 60 ? 20 : 10;
     for (var g = Math.ceil(lo / step) * step; g <= hi; g += step) {
@@ -343,7 +343,7 @@
     var x = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
     var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
     var defs = svg('defs', {}, chart);
-    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    gradient(defs, 'danger-fill', [[0, '#D44A4A', 0.26], [1, '#D44A4A', 0.04]], true);
     var step = (hi - lo) > 60 ? 20 : 10;
     for (var gv = Math.ceil(lo / step) * step; gv <= hi; gv += step) {
       svg('line', {x1: padL, x2: W - padR, y1: y(gv), y2: y(gv), class: 'svg-grid'}, chart);
@@ -573,9 +573,24 @@
     Object.keys(labels).forEach(function (id) { put(id, labels[id]); });
   }
 
+  // 641: GRU 개인 보정 표시. 기능이 꺼져 있으면 gruGb가 없어 숨긴다.
+  function gruLine(gb) {
+    var node = byId('metric-gru');
+    if (!node) return;
+    var on = !!(gb && gb.applied);
+    node.textContent = on ? '개인 보정 적용 중 (러닝 ' + gb.supportN + '회, 비중 ' + Math.round(Number(gb.weight) * 100) + '%)' : '';
+    node.classList.toggle('hidden', !on);
+  }
+
   function heroNumbers(trace, stage) {
     setLabels(!!trace.group);
-    if (trace.group) { groupHero(trace); return; }
+    if (trace.group) {
+      var gw = Number.isInteger(trace.group.worstIndex) && trace.group.members ? trace.group.members[trace.group.worstIndex] : null;
+      gruLine(gw && gw.gruGb);
+      groupHero(trace);
+      return;
+    }
+    gruLine(trace.gruGb);
     var input = trace.input || {};
     var allow = num(trace.reference && trace.reference.allowBpm);
     var hr = num(input.hrNowBpm);
@@ -759,7 +774,7 @@
     lastRendered = null;
     lastTopTraceId = null;
     ['metric-hr', 'metric-pace', 'metric-distance', 'metric-elapsed'].forEach(function (id) { put(id, '—'); });
-    put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —');
+    put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —'); gruLine(null);
     put('metric-remaining', '남은 거리 —'); put('metric-latency', '판단 —');
     var hrCard = document.querySelector('.stat-hr');
     if (hrCard) hrCard.classList.remove('over');

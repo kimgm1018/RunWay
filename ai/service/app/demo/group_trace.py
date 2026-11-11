@@ -81,6 +81,10 @@ def build_group_trace(body, response, detail: dict, *, boot_id: str, seq: int, s
             "baselineUpperBpm": _r(upper[baseline]) if upper[baseline] is not None else None,
             "hrTail": [_r(v) for v in history.hr_bpm[-24:]],
         })
+        if "gruGb" in item:   # 641: 기능이 켜져 있을 때만
+            members[-1]["gruGb"] = item["gruGb"]
+        if "readiness" in item:   # 676: 기능이 켜져 있을 때만(오늘 준비도·허용 심박 감소·개인 c 비중)
+            members[-1]["readiness"] = item["readiness"]
     members.sort(key=lambda m: m["_order"])
     for m in members:
         m.pop("_order")

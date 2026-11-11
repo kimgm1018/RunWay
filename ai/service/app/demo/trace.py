@@ -172,6 +172,15 @@ def build_trace(outcome, *, boot_id: str, seq: int, stage: str, replay_speed: in
                      "lastAppliedAt": _iso(context.last_coaching.applied_at) if context.last_coaching else None},
         "check120": None, "mae10MinBpm": None,
     }
+    pacing = response.pacing if response else None
+    if pacing is not None and pacing.gru_support_n is not None:
+        # 641: GRU 개인 g·b 표시(기능이 켜져 있을 때만 키가 생긴다)
+        trace["gruGb"] = {"applied": bool(pacing.gru_personal_weight), "supportN": pacing.gru_support_n,
+                          "weight": _r(pacing.gru_personal_weight)}
+    if pacing is not None and pacing.readiness_adjust_bpm is not None:
+        # 676: 준비도 민감도 표시(기능이 켜져 있을 때만 키가 생긴다)
+        trace["readiness"] = {"score": pacing.readiness_score, "adjustBpm": pacing.readiness_adjust_bpm,
+                              "weight": pacing.readiness_weight}
     if outcome.status in {"INPUT_INSUFFICIENT", "PAUSED"}:
         trace["reference"] = None
         trace["gate"] = None

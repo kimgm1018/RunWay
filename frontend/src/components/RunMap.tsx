@@ -2,6 +2,7 @@ import React, {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -19,6 +20,7 @@ import { latinRuns } from './AppText';
 import { fontFamily, k1, palette } from '../theme';
 import {
   coursePaceColors,
+  darkMapLook,
   isLoop,
   paceColor,
   routeLook,
@@ -105,12 +107,30 @@ type RunMapProps = {
   view?: RunMapView;
   // A course card's small map (S15P31E105-562): smaller start and finish poles.
   compact?: boolean;
+  // 그룹런 시안 (S15P31E105-673): the course and the run as a near-black line with a purple edge on the group
+  // screens; every other screen keeps its look.
+  groupLine?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 const toCoord = ([longitude, latitude]: LngLat) => ({ latitude, longitude });
 
+// A line's map coordinates, made once per line (S15P31E105-686): the same array then reaches the native map on
+// every render, so React skips converting and comparing its points again while the screen re-renders.
+const coordCache = new WeakMap<LngLat[], ReturnType<typeof toCoord>[]>();
+function coordsOf(line: LngLat[]) {
+  let coords = coordCache.get(line);
+  if (!coords) {
+    coords = line.map(toCoord);
+    coordCache.set(line, coords);
+  }
+  return coords;
+}
+
 const ink = routeLook.ink;
+
+// The group screens' course line (그룹런 시안): near-black over a purple edge. Opaque, as every map colour must be.
+const groupLineLook = { ink: '#0B0E14', ribbon: '#B58CFF' } as const;
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
 const flatLayers = {
   BUILDING: false,
@@ -357,11 +377,13 @@ function PoleMarker({
   label,
   finish = false,
   compact = false,
+  darkMap = false,
 }: {
   at: LngLat;
   label: string;
   finish?: boolean;
   compact?: boolean;
+  darkMap?: boolean;
 }) {
   const { head, stem, foot, font } = poleSizes[compact ? 'compact' : 'full'];
   const height = head + stem + foot;
@@ -378,25 +400,36 @@ function PoleMarker({
         <View
           style={[
             styles.poleHead,
+            darkMap && styles.poleHeadDark,
             { width: head, height: head, borderRadius: head / 2 },
             compact && styles.poleHeadCompact,
-            finish && styles.poleHeadFinish,
+            finish &&
+              (darkMap ? styles.poleHeadFinishDark : styles.poleHeadFinish),
           ]}
         >
           <Text
             style={[
               styles.poleText,
               { fontSize: font },
-              finish && styles.poleTextFinish,
+              darkMap && styles.poleTextDark,
+              finish &&
+                (darkMap ? styles.poleTextFinishDark : styles.poleTextFinish),
             ]}
           >
             {latinRuns(label, styles.poleText)}
           </Text>
         </View>
-        <View style={[styles.poleStem, { height: stem }]} />
+        <View
+          style={[
+            styles.poleStem,
+            darkMap && styles.poleStemDark,
+            { height: stem },
+          ]}
+        />
         <View
           style={[
             styles.poleFoot,
+            darkMap && styles.poleFootDark,
             { height: foot, borderRadius: foot / 2, width: foot * 2.5 },
           ]}
         />
@@ -454,6 +487,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     rotatable = true,
     view = 'flat',
     compact = false,
+    groupLine = false,
     style,
   },
   ref,
@@ -489,6 +523,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
   const tilted = view !== 'flat';
+  const baseLook = tilted ? darkMapLook : routeLook;
+  const pathLook = groupLine
+    ? {
+        ...baseLook,
+        ink: groupLineLook.ink,
+        ribbon: groupLineLook.ribbon,
+        guide: groupLineLook.ink,
+      }
+    : baseLook;
   const me = running ? trail[trail.length - 1] : null;
   const heading = useRef(0);
   if (view === 'heading' && running) {
@@ -575,11 +618,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
   // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
   const recordParts = routeParts?.filter(part => part.length >= 2);
+  // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
+  const kmCount = segmentPaces?.length ?? 0;
+  const kmPieces = useMemo(
+    () =>
+      route && route.length >= 2 && kmCount > 0
+        ? splitRoute(route, kmCount)
+        : null,
+    [route, kmCount],
+  );
   const pieces = hasRoute
     ? recordParts
       ? recordParts
-      : !running && segmentPaces && segmentPaces.length > 0
-      ? splitRoute(route, segmentPaces.length)
+      : !running && kmPieces
+      ? kmPieces
       : [route]
     : [];
   const fastest = segmentPaces?.length ? Math.min(...segmentPaces) : 0;
@@ -587,12 +639,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The centre line's colour per piece: the km colour when the course carries paces, ink otherwise.
   const pieceColor = (index: number) =>
     muted
-      ? k1.mid
+      ? tilted
+        ? darkMapLook.muted
+        : k1.mid
       : running
-      ? routeLook.guide
+      ? pathLook.guide
       : segmentPaces?.length
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
-      : routeLook.ink;
+      : pathLook.ink;
+  // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is mint.
+  const tiltedGuide = running && tilted;
   const loop = hasRoute && isLoop(route);
   const hasTrail = !!trail && trail.length >= 2;
   // The lines of the run so far: its parts when it has them, else the whole trail.
@@ -625,7 +681,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       mapType="Basic"
       // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
       // lighter to load, and a card's map takes no gestures anyway (S15P31E105-562).
-      isLiteModeEnabled={compact}
+      isLiteModeEnabled={compact && !tilted}
+      lightness={tilted ? darkMapLook.lightness : undefined}
       layerGroups={tilted ? tiltedLayers : flatLayers}
       buildingHeight={buildingHeight}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
@@ -674,144 +731,187 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       isShowCompass={false}
       locale="ko"
     >
-      {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
-      {shadowLines.map((line, index) => (
-        <NaverMapPathOverlay
-          key={`shadow-${index}`}
-          coords={line.map(toCoord)}
-          width={routeLook.shadowWidth}
-          color={routeLook.shadow}
-          zIndex={0}
-        />
-      ))}
-      {/* The course: a white ribbon round a thin centre line in the km colours, the part run in grey. While
-          running it is a guide under the run. */}
-      {pieces.length > 0 ? (
-        <NaverMapMultiPathOverlay
-          pathParts={pieces.map((piece, index) => ({
-            coords: piece.map(toCoord),
-            color: pieceColor(index),
-            outlineColor: routeLook.ribbon,
-            passedColor: routeLook.passed,
-            passedOutlineColor: routeLook.ribbon,
-          }))}
-          width={routeLook.centre}
-          outlineWidth={routeLook.edge}
-          progress={progress}
-          zIndex={1}
-        />
-      ) : null}
-      {/* The run so far: the same ribbon in ink, from a white start. */}
-      {trailLines.map((line, index) => (
-        <NaverMapPathOverlay
-          key={`trail-${index}`}
-          coords={line.map(toCoord)}
-          width={routeLook.centre}
-          outlineWidth={routeLook.edge}
-          color={ink}
-          outlineColor={routeLook.ribbon}
-          zIndex={2}
-        />
-      ))}
-      {hasTrail ? (
-        <DotMarker
-          at={trail[0]}
-          dot={{ size: 10, fill: palette.white, ring: ink, ringWidth: 2.5 }}
-        />
-      ) : null}
-      {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
-      {hasRoute && !running ? (
-        loop ? (
-          <PoleMarker at={route[0]} label="SF" compact={compact} />
-        ) : (
-          <>
-            <PoleMarker
-              at={route[route.length - 1]}
-              label="F"
-              finish
-              compact={compact}
+      {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+          later, and removing them first (a feed switch) crashed in its getChildAt. */}
+      {ready ? (
+        <>
+          {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
+          {shadowLines.map((line, index) => (
+            <NaverMapPathOverlay
+              key={`shadow-${index}`}
+              coords={coordsOf(line)}
+              width={pathLook.shadowWidth}
+              color={pathLook.shadow}
+              zIndex={0}
             />
-            <PoleMarker at={route[0]} label="S" compact={compact} />
-          </>
-        )
-      ) : null}
-      {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
-      {paceLabels && !running
-        ? pieces.map((piece, index) => {
-            const label = paceLabels[index];
-            if (!label) {
-              return null;
-            }
-            const width = 40 + label.length * 9.5;
+          ))}
+          {/* The course: a white ribbon round a thin centre line in the km colours, the part run in grey. While
+          running it is a guide under the run. */}
+          {pieces.length > 0 ? (
+            <NaverMapMultiPathOverlay
+              pathParts={pieces.map((piece, index) => ({
+                coords: coordsOf(piece),
+                color: pieceColor(index),
+                outlineColor:
+                  tiltedGuide && !groupLine
+                    ? darkMapLook.guideOutline
+                    : pathLook.ribbon,
+                passedColor: pathLook.passed,
+                passedOutlineColor:
+                  tiltedGuide && !groupLine
+                    ? darkMapLook.guideOutline
+                    : pathLook.ribbon,
+              }))}
+              width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
+              outlineWidth={tiltedGuide ? darkMapLook.guideEdge : pathLook.edge}
+              progress={progress}
+              zIndex={1}
+            />
+          ) : null}
+          {/* The run so far: the same ribbon in ink, from a white start. */}
+          {trailLines.map((line, index) => (
+            <NaverMapPathOverlay
+              key={`trail-${index}`}
+              coords={coordsOf(line)}
+              width={pathLook.centre}
+              outlineWidth={pathLook.edge}
+              color={pathLook.ink}
+              outlineColor={pathLook.ribbon}
+              zIndex={2}
+            />
+          ))}
+          {hasTrail ? (
+            <DotMarker
+              at={trail[0]}
+              dot={{ size: 10, fill: palette.white, ring: ink, ringWidth: 2.5 }}
+            />
+          ) : null}
+          {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
+          {hasRoute && !running ? (
+            loop ? (
+              <PoleMarker
+                at={route[0]}
+                label="SF"
+                compact={compact}
+                darkMap={tilted}
+              />
+            ) : (
+              <>
+                <PoleMarker
+                  at={route[route.length - 1]}
+                  label="F"
+                  finish
+                  compact={compact}
+                  darkMap={tilted}
+                />
+                <PoleMarker
+                  at={route[0]}
+                  label="S"
+                  compact={compact}
+                  darkMap={tilted}
+                />
+              </>
+            )
+          ) : null}
+          {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
+          {paceLabels && !running
+            ? pieces.map((piece, index) => {
+                const label = paceLabels[index];
+                if (!label) {
+                  return null;
+                }
+                const width = 40 + label.length * 9.5;
+                return (
+                  <NaverMapMarkerOverlay
+                    key={`pace-${index}`}
+                    {...toCoord(piece[Math.floor(piece.length / 2)])}
+                    width={width}
+                    height={26}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View
+                      style={[
+                        styles.pill,
+                        tilted && styles.pillDark,
+                        { width },
+                      ]}
+                    >
+                      <View style={styles.pillNumber}>
+                        <Text style={styles.pillNumberText}>
+                          {latinRuns(index + 1, styles.pillNumberText)}
+                        </Text>
+                      </View>
+                      <Text style={styles.pillText}>
+                        {latinRuns(label, styles.pillText)}
+                      </Text>
+                    </View>
+                  </NaverMapMarkerOverlay>
+                );
+              })
+            : null}
+          {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
+          {endpoints ? (
+            <>
+              <PoleMarker
+                at={destination as LngLat}
+                label="F"
+                finish
+                darkMap={tilted}
+              />
+              {position ? (
+                <PoleMarker at={position} label="S" darkMap={tilted} />
+              ) : null}
+            </>
+          ) : null}
+          {running || (position && !hasRoute && !endpoints) ? (
+            <DotMarker
+              at={running ? trail[trail.length - 1] : (position as LngLat)}
+              dot={{
+                size: 17,
+                fill: pathLook.ink,
+                ring: palette.white,
+                ringWidth: 3,
+                glow: tilted
+                  ? 'rgba(77, 255, 210, 0.18)'
+                  : 'rgba(58, 90, 108, 0.16)',
+                glowSize: 48,
+              }}
+            />
+          ) : null}
+          {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
+          drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
+          {(members ?? []).map(member => {
+            const width = memberDot + 6 + member.label.length * 13 + 4;
             return (
               <NaverMapMarkerOverlay
-                key={`pace-${index}`}
-                {...toCoord(piece[Math.floor(piece.length / 2)])}
+                key={member.label}
+                {...toCoord(member.position)}
                 width={width}
-                height={26}
-                anchor={{ x: 0.5, y: 0.5 }}
+                height={memberHeight}
+                anchor={{ x: memberDot / 2 / width, y: 0.5 }}
+                zIndex={1}
               >
-                <View style={[styles.pill, { width }]}>
-                  <View style={styles.pillNumber}>
-                    <Text style={styles.pillNumberText}>
-                      {latinRuns(index + 1, styles.pillNumberText)}
-                    </Text>
-                  </View>
-                  <Text style={styles.pillText}>
-                    {latinRuns(label, styles.pillText)}
+                <View style={[styles.member, { width }]}>
+                  <Dot
+                    size={memberDot}
+                    fill={member.color}
+                    ring={palette.white}
+                    ringWidth={2}
+                  />
+                  <Text
+                    style={[
+                      styles.memberName,
+                      tilted ? styles.memberNameDark : styles.memberNameLight,
+                    ]}
+                  >
+                    {member.label}
                   </Text>
                 </View>
               </NaverMapMarkerOverlay>
             );
-          })
-        : null}
-      {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
-      {endpoints ? (
-        <>
-          <PoleMarker at={destination as LngLat} label="F" finish />
-          {position ? <PoleMarker at={position} label="S" /> : null}
+          })}
         </>
       ) : null}
-      {running || (position && !hasRoute && !endpoints) ? (
-        <DotMarker
-          at={running ? trail[trail.length - 1] : (position as LngLat)}
-          dot={{
-            size: 17,
-            fill: ink,
-            ring: palette.white,
-            ringWidth: 3,
-            glow: 'rgba(58, 90, 108, 0.16)',
-            glowSize: 48,
-          }}
-        />
-      ) : null}
-      {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
-          drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
-      {(members ?? []).map(member => {
-        const width = memberDot + 6 + member.label.length * 13 + 4;
-        return (
-          <NaverMapMarkerOverlay
-            key={member.label}
-            {...toCoord(member.position)}
-            width={width}
-            height={memberHeight}
-            anchor={{ x: memberDot / 2 / width, y: 0.5 }}
-            zIndex={1}
-          >
-            <View style={[styles.member, { width }]}>
-              <Dot
-                size={memberDot}
-                fill={member.color}
-                ring={palette.white}
-                ringWidth={2}
-              />
-              <Text style={[styles.memberName, styles.memberNameLight]}>
-                {member.label}
-              </Text>
-            </View>
-          </NaverMapMarkerOverlay>
-        );
-      })}
     </NaverMapView>
   );
 });
@@ -831,6 +931,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
   },
   memberNameLight: { color: '#253649', textShadowColor: '#F3F5F6' },
+  memberNameDark: { color: palette.white, textShadowColor: '#0B1106' },
   center: { alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute' },
   pole: { alignItems: 'center' },
@@ -841,18 +942,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  poleHeadDark: {
+    backgroundColor: darkMapLook.ink,
+    borderColor: darkMapLook.ribbon,
+  },
   poleHeadCompact: { borderWidth: 1.5 },
   poleHeadFinish: { backgroundColor: palette.white, borderColor: ink },
+  poleHeadFinishDark: {
+    backgroundColor: palette.white,
+    borderColor: darkMapLook.ink,
+  },
   poleText: {
     color: palette.white,
     fontFamily: fontFamily.bold,
     includeFontPadding: false,
   },
+  poleTextDark: { color: '#071713' },
   poleTextFinish: { color: ink },
+  poleTextFinishDark: { color: '#071713' },
   poleStem: { width: 2, backgroundColor: ink },
+  poleStemDark: { backgroundColor: darkMapLook.ink },
   poleFoot: {
     backgroundColor: 'rgba(2, 5, 14, 0.25)',
   },
+  poleFootDark: { backgroundColor: 'rgba(77, 255, 210, 0.24)' },
   pill: {
     height: 26,
     borderRadius: 13,
@@ -861,6 +974,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 4,
     gap: 6,
+  },
+  pillDark: {
+    backgroundColor: '#071713',
+    borderColor: darkMapLook.ink,
+    borderWidth: 1,
   },
   pillNumber: {
     width: 18,

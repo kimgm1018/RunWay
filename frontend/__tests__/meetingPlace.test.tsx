@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
+import { LightGlass } from '../src/components';
 import {
   DataProvider,
   createMockRepositories,
@@ -143,6 +144,38 @@ test('distinguishes failure from empty results and allows retry', async () => {
   await press('장소 검색 다시 시도');
   await advance(300);
   expect(text()).toContain('찾는 장소가 없어요');
+});
+
+// S15P31E105-679: the result rows over the map are opaque, so map labels do not show through the names.
+test('search results and their notices sit on an opaque background over the map', async () => {
+  await open();
+  const opaqueRowWith = (label: string) =>
+    screen.root
+      .findAllByType(LightGlass)
+      .filter(node =>
+        node
+          .findAllByType(Text)
+          .some(item => [item.props.children].flat().join('').includes(label)),
+      )
+      .every(node => typeof node.props.solid === 'string');
+  search.mockRejectedValueOnce(new Error('synthetic failure'));
+  await type('공원');
+  await advance(300);
+  expect(opaqueRowWith('검색하지 못했어요')).toBe(true);
+  search.mockResolvedValueOnce([place('공원 입구'), place('공원 정문')]);
+  await press('장소 검색 다시 시도');
+  await advance(300);
+  expect(text()).toContain('공원 정문');
+  expect(opaqueRowWith('공원 입구')).toBe(true);
+  expect(opaqueRowWith('공원 정문')).toBe(true);
+  // The search box itself is the navy pill of 그룹런 시안 (S15P31E105-673), no longer glass.
+  const glassSearch = screen.root
+    .findAllByType(LightGlass)
+    .find(node =>
+      node.findAll(item => item.props.accessibilityLabel === '장소·주소 검색')
+        .length,
+    );
+  expect(glassSearch).toBeUndefined();
 });
 
 test('selects the result on the map and confirms its coordinates into the group draft', async () => {

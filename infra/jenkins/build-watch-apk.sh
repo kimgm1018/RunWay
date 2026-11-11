@@ -17,6 +17,7 @@ case "$mode" in
     test) set -- :app:testDebugUnitTest "$@" ;;
     lint) set -- :app:lintDebug "$@" ;;
     apk) set -- :app:assembleDebug "$@" ;;
+    release) set -- :app:assembleRelease "$@" ;;
     stop)
         # 워치 에이전트는 executor 1개라 남아 있는 데몬은 현재 실행이 띄운 것뿐이다.
         # 정리 실패가 원래 검사 결과를 가리지 않도록 경고만 남긴다.
@@ -51,4 +52,6 @@ printf '워치 %s 소요 시간: %s초 (종료 코드: %s)\n' "$mode" "$elapsed"
 if [ "$result" -ne 0 ]; then exit "$result"; fi
 if [ "$mode" = all ] || [ "$mode" = apk ]; then
     test -s app/build/outputs/apk/debug/app-debug.apk
+elif [ "$mode" = release ]; then
+    test -s app/build/outputs/apk/release/app-release.apk
 fi

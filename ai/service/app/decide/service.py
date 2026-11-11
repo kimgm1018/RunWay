@@ -15,6 +15,8 @@ from app.inference import ApiError, check_sufficient, free_run_warnings, to_batc
 from app.models.base import HRModel
 from app.gru_personalization import GruPersonalizationResult, UNAVAILABLE_WARNING, lookup_user_personalization
 from app.ai_logging import log_ai_error
+from app.gru_gb import apply_gb, is_identity, personal_weight
+from app import readiness_adjust
 from app.hr_threshold_lookup import HrThresholdLookupResult, UNAVAILABLE_WARNING as HR_THRESHOLD_UNAVAILABLE_WARNING
 from app.policy.config import load_policy_config
 from app.policy.hr_reference import HrThresholds, blend_hr_thresholds
@@ -102,29 +104,61 @@ def _cue_bpm(calc, pace: float, body: DecideRequest, bpm_lookup=None) -> tuple[i
         return None, warnings + (CUE_BPM_UNAVAILABLE,)
 
 def _thresholds_for_user(user_id, lookup, cfg, *, configured: bool = True) -> tuple[HrThresholds, tuple[str, ...]]:
+    thresholds, warnings, _gb = _user_hr_lookup(user_id, lookup, cfg, configured=configured)
+    return thresholds, warnings
+
+
+def _user_hr_lookup(user_id, lookup, cfg, *, configured: bool = True
+                    ) -> tuple[HrThresholds, tuple[str, ...], tuple[float, float, int]]:
+    """학습 심박 기준선과 같은 행의 GRU (g, b, 러닝 수)(S15P31E105-641)를 한 번의 조회로 돌려준다. 기본 (1, 0, 0)."""
+    thresholds, warnings, gb, _result = _user_hr_lookup_full(user_id, lookup, cfg, configured=configured)
+    return thresholds, warnings, gb
+
+
+def _user_hr_lookup_full(user_id, lookup, cfg, *, configured: bool = True):
+    """_user_hr_lookup + 조회 행(HrThresholdLookupResult 또는 None). 준비도 민감도(676)가 같은 행을 쓴다."""
+    thresholds, warnings, result = _threshold_lookup(user_id, lookup, cfg, configured=configured)
+    if not isinstance(result, HrThresholdLookupResult):
+        result = None
+    gb = (result.gru_gain, result.gru_offset_bpm, result.gru_support_n) if result is not None else (1.0, 0.0, 0)
+    return thresholds, warnings, gb, result
+
+
+def _apply_readiness(user_id, thresholds: HrThresholds, result, readiness_lookup, at: datetime):
+    """S15P31E105-676: 오늘 준비도가 낮으면 위험·지속 기준을 Δ만큼 내린다(더 보수적으로만).
+    readiness_lookup이 None(기능 꺼짐)이면 (같은 기준, None, ())라 출력이 이전과 같다."""
+    if readiness_lookup is None or user_id is None:
+        return thresholds, None, ()
+    c_user = result.readiness_sensitivity if result is not None else None
+    n = result.readiness_support_n if result is not None else 0
+    adjust, warnings = readiness_adjust.user_adjustment(readiness_lookup, user_id, at, c_user, n)
+    return readiness_adjust.lower_thresholds(thresholds, adjust.drop_bpm), adjust, warnings
+
+
+def _threshold_lookup(user_id, lookup, cfg, *, configured: bool = True):
     if user_id is None:
-        return blend_hr_thresholds(cfg), ()
+        return blend_hr_thresholds(cfg), (), None
     if lookup is None:
         # configured=False: 설정상 DB가 없다(AI_DB_URL 없음). 조용히 모집단 기준을 쓴다(시작 로그는 main에서 한 번).
         # configured=True인데 조회기가 없으면 DB 연결 실패이므로 경고를 붙인다.
         if not configured:
-            return blend_hr_thresholds(cfg), ()
-        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,)
+            return blend_hr_thresholds(cfg), (), None
+        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,), None
     try:
         result = lookup.get_for_user(user_id)
     except Exception as exc:
         log_ai_error(HR_THRESHOLD_UNAVAILABLE_WARNING, "/v1/pace/decide", exc, level=logging.WARNING)
-        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,)
+        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,), None
     if not isinstance(result, HrThresholdLookupResult):
-        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,)
+        return blend_hr_thresholds(cfg), (HR_THRESHOLD_UNAVAILABLE_WARNING,), None
     if result.warning:
-        return blend_hr_thresholds(cfg), (result.warning,)
+        return blend_hr_thresholds(cfg), (result.warning,), result
     return blend_hr_thresholds(
         cfg,
         personal_danger_bpm=result.hr_danger_bpm,
         personal_sustain_bpm=result.hr_sustain_bpm,
         run_count=result.hr_threshold_run_count,
-    ), ()
+    ), (), result
 
 
 def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, received_at: datetime,
@@ -178,12 +212,15 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                now: Callable[[], datetime], free_run_grade_policy: str = "reject",
                user_personalization_lookup=None, hr_threshold_lookup=None,
                gru_personalization_enabled: bool = True,
-               hr_threshold_lookup_configured: bool = True, cue_bpm_calc=None, bpm_lookup=None) -> DecideOutcome:
+               hr_threshold_lookup_configured: bool = True, cue_bpm_calc=None, bpm_lookup=None,
+               gru_gb_enabled: bool = False, readiness_lookup=None) -> DecideOutcome:
     """신선도 검사부터 정책 응답까지 수행한다.
 
     gru_personalization_enabled=False면 userId가 있어도 개인화 조회·경고·로그를 하지 않는다.
     hr_threshold_lookup_configured=False면 기준 조회기가 없어도 경고 없이 모집단 기준을 쓴다.
+    gru_gb_enabled=True면 기준선과 같은 행의 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
     기본값 True는 이전 동작(조회기 None = 사용 불가 경고)을 그대로 유지한다.
+    readiness_lookup(S15P31E105-676, READINESS_ADJUST_ENABLED일 때만): 오늘 준비도가 낮으면 허용 심박을 낮춘다.
     """
     begin = time.perf_counter()
     compatibility_warnings = (("HR_REFERENCE_INPUT_IGNORED",)
@@ -234,8 +271,11 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                                   hr_personalized=False if body.user_id is not None else None)
         return _outcome(body, "INPUT_INSUFFICIENT", response, None, None, received_at, at, begin, None, error)
 
-    thresholds, threshold_warnings = _thresholds_for_user(body.user_id, hr_threshold_lookup, cfg,
-                                                          configured=hr_threshold_lookup_configured)
+    thresholds, threshold_warnings, gru_gb, threshold_row = _user_hr_lookup_full(
+        body.user_id, hr_threshold_lookup, cfg, configured=hr_threshold_lookup_configured)
+    thresholds, readiness, readiness_warnings = _apply_readiness(body.user_id, thresholds, threshold_row,
+                                                                 readiness_lookup, received_at)
+    threshold_warnings = tuple(threshold_warnings) + readiness_warnings
 
     hr_now, speed_now, pace_now = recent_inputs(body.history)
     # 걷기·정지는 HR 기준 경고를 유지하고 GRU 개인화 조회·예측과 정책 판단을 건너뛴다.
@@ -273,6 +313,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     personalization_version = None
     personalized = False
     prediction = None
+    gru_gb_used = False
     # 개인화가 설정상 꺼져 있으면 조회·경고·로그 없이 기본 GRU로 예측한다(hrPersonalized=false는 유지).
     if body.user_id is not None and gru_personalization_enabled:
         if user_personalization_lookup is None:
@@ -308,6 +349,11 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     try:
         if prediction is None:
             prediction = np.asarray(model.predict(model_batch()), dtype=float)
+            if gru_gb_enabled:
+                # 개인 g·b는 기본 GRU 출력 기준으로 맞춘 값이라 개인화 head 출력에는 적용하지 않는다.
+                # 기준은 GRU의 hr0(마지막 칸 실측)이다. hr_now(최근 3칸 평균)가 아니다.
+                prediction = apply_gb(prediction, body.history.hr_bpm[-1], gru_gb[0], gru_gb[1])
+                gru_gb_used = not is_identity(gru_gb[0], gru_gb[1])
     except Exception:
         raise ApiError(500, "PREDICTION_FAILED", "모델 출력이 올바르지 않습니다.") from None
     model_ms = (time.perf_counter() - model_start) * 1000.0
@@ -378,7 +424,15 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                       handover_phase=output.handover_phase, plan_weight=output.plan_weight,
                       hr_danger_bpm=output.hr_danger_bpm, hr_sustain_bpm=output.hr_sustain_bpm,
                       hr_threshold_source=output.hr_threshold_source,
-                      hr_threshold_weight=output.hr_threshold_weight),
+                      hr_threshold_weight=output.hr_threshold_weight,
+                      # 641 표시용(켜져 있고 userId가 있을 때만): 개인 g·b 비중 n/(n+k), 적용 안 됐으면 0.
+                      gru_personal_weight=(personal_weight(gru_gb[2], *gru_gb[:2]) if gru_gb_used else 0.0)
+                      if gru_gb_enabled and body.user_id is not None else None,
+                      gru_support_n=gru_gb[2] if gru_gb_enabled and body.user_id is not None else None,
+                      # 676 표시용(켜져 있고 userId가 있을 때만): 오늘 준비도, 허용 심박 감소 bpm, 개인 c 비중.
+                      readiness_score=readiness.score if readiness is not None else None,
+                      readiness_adjust_bpm=round(readiness.drop_bpm, 3) if readiness is not None else None,
+                      readiness_weight=round(readiness.weight, 4) if readiness is not None else None),
         warnings=list(output.warnings) + free_run_warnings(body, free_run_grade_policy)
         + list(threshold_warnings) + list(compatibility_warnings)
         + ([personalization_warning] if personalization_warning else []) + list(cue_warnings),

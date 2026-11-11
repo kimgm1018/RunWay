@@ -540,7 +540,7 @@ test('3.1b adds the next page twice per search and again after a new search', as
   expect(recommendationBodies().at(-1)).toMatchObject({ seed: 25 });
 });
 
-test('3.1 offers distances only up to the 15km C01 makes', async () => {
+test('3.1 offers distances only up to the 21.1km (half marathon) C01 makes', async () => {
   const screen = await openTodayRun();
   // Each condition is a card that opens its ruler or chips (운동 목표 sheet, 담당자 요청).
   await press(screen, '목표 거리 설정');
@@ -548,7 +548,7 @@ test('3.1 offers distances only up to the 15km C01 makes', async () => {
   const slider = screen.root.find(
     node => node.props.label === '목표 거리' && node.props.max !== undefined,
   );
-  expect(slider.props.max).toBe(15);
+  expect(slider.props.max).toBe(21.1);
 });
 
 test('3.1 says why C01 failed from details.reason and keeps the conditions', async () => {
@@ -570,9 +570,7 @@ test('U11의 형태·환경 기본값을 표시하고 변경·추천만으로는
   preferences.filters.river = true;
   preferences.filters.avoid_steps = true;
   const screen = await openTodayRun();
-  await press(screen, '코스 형태 설정');
   expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
-  await press(screen, '조건 목록으로');
   await press(screen, '환경 설정');
   expect(labelled(screen, '강변').props.accessibilityState.checked).toBe(true);
   expect(labelled(screen, '계단 피하기').props.accessibilityState.checked).toBe(
@@ -615,9 +613,7 @@ test('지도 출발·도착 좌표를 확정한 뒤 C01에 전달하고 취소�
   await press(screen, '기준 위치 현재 위치');
   await tap(35.152, 129.119);
   await press(screen, '이 위치로 확정');
-  await press(screen, '코스 형태 설정');
   await press(screen, '편도');
-  await press(screen, '조건 목록으로');
   await press(screen, '도착 위치 선택');
   await act(async () =>
     screen.root
@@ -655,10 +651,8 @@ test('지도 출발·도착 좌표를 확정한 뒤 C01에 전달하고 취소�
 
 test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 도착지를 골라야 한다', async () => {
   const screen = await openTodayRun();
-  await press(screen, '코스 형태 설정');
   await press(screen, '편도');
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
-  await press(screen, '조건 목록으로');
   await press(screen, '환경 설정');
   await press(screen, '큰길 피하기');
   await press(screen, '이 조건을 기본값으로 저장');
@@ -673,7 +667,7 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
   });
   expect(texts(screen)).toContain('추천 기본값을 저장했어요');
   expect(recommendationBodies()).toEqual([]);
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   await press(screen, '도착 위치 선택');
   // 장소 검색(searchPlaces) answers after typing stops (S15P31E105-494).
   await act(async () => {
@@ -696,11 +690,21 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
   });
 });
 
+test('편도 선택 화면에서 바로 도착 위치를 고를 수 있다', async () => {
+  const screen = await openTodayRun();
+  await press(screen, '편도');
+  expect(texts(screen)).toContain('도착 위치 설정하기');
+  expect(texts(screen)).toContain('편도 코스는 도착 위치를 선택해 주세요.');
+  await press(screen, '도착 위치 선택');
+  expect(texts(screen)).toContain('도착 위치 선택');
+  await press(screen, '취소');
+  expect(texts(screen)).toContain('코스 형태');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+});
+
 test('기본값 저장 실패는 선택값을 유지하고 재시도할 수 있다', async () => {
   const screen = await openTodayRun();
-  await press(screen, '코스 형태 설정');
   await press(screen, '왕복');
-  await press(screen, '조건 목록으로');
   await press(screen, '환경 설정');
   await press(screen, '트레일');
   failPreferenceSave = true;
@@ -709,7 +713,7 @@ test('기본값 저장 실패는 선택값을 유지하고 재시도할 수 있�
   expect(labelled(screen, '트레일').props.accessibilityState.checked).toBe(
     true,
   );
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   expect(texts(screen)).toContain('왕복');
   expect(preferences).toEqual(defaultCoursePreferences());
   failPreferenceSave = false;
@@ -727,7 +731,6 @@ test('U11 실패를 기본값 없음으로 숨기지 않고 재조회한다', as
   expect(sent('PUT')).toEqual([]);
   failPreferenceRead = false;
   await press(screen, '기본값 다시 불러오기');
-  await press(screen, '코스 형태 설정');
   expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
 });
@@ -771,8 +774,7 @@ test('저장 중 연속 클릭해도 U12는 한 번만 보낸다', async () => {
   }
 });
 
-// S15P31E105-659: 편도에서는 지도를 눌러 출발·도착을 바로 정한다.
-test('편도에서 지도를 누르면 표시된 카드의 위치가 바뀌고 추천 요청에 그대로 전달된다', async () => {
+test('편도에서 기준·도착 카드를 한 번 누르면 각각 위치 선택 지도가 열린다', async () => {
   const screen = await openTodayRun();
   const tap = async (latitude: number, longitude: number) => {
     await act(async () =>
@@ -782,23 +784,16 @@ test('편도에서 지도를 누르면 표시된 카드의 위치가 바뀌고 �
         .props.onTapMap({ latitude, longitude }),
     );
   };
-  const hasMapTap = () =>
-    screen.root.findAll(node => typeof node.props.onTapMap === 'function')
-      .length > 0;
-  // 순환·왕복에서는 지도를 눌러도 위치가 정해지지 않는다.
-  expect(hasMapTap()).toBe(false);
-  await press(screen, '코스 형태 설정');
   await press(screen, '편도');
-  await press(screen, '조건 목록으로');
-  // 편도를 고르면 도착 카드가 표시되고, 지도를 누르면 선택 화면 없이 도착지가 정해진다.
-  expect(
-    labelled(screen, '도착 위치 선택').props.accessibilityState.selected,
-  ).toBe(true);
+  await press(screen, '도착 위치 선택');
+  expect(texts(screen)).toContain('도착 위치 선택');
   await tap(35.16, 129.14);
+  await press(screen, '이 위치로 확정');
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
-  // 기준 카드를 한 번 눌러 표시하면 다음 터치는 출발지를 바꾸고 도착지는 그대로다.
   await press(screen, '기준 위치 현재 위치');
+  expect(texts(screen)).toContain('출발 위치 선택');
   await tap(35.152, 129.119);
+  await press(screen, '이 위치로 확정');
   await press(screen, '코스 추천 받기');
   expect(recommendationBodies()[0]).toMatchObject({
     latitude: 35.152,

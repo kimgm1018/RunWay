@@ -169,7 +169,7 @@ byte를 돌려준다. `ROUTE_RESPONSE_CACHE=0`(끄기), `ROUTE_RESPONSE_CACHE_SI
 
 | 환경변수 | 읽는 때 | 잘못된 값이면 |
 |---|---|---|
-| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`, `RUNWAY_FAST_ROUTING`, `RUNWAY_GATE_FAST_CONTEXT`, `RUNWAY_ARRAY_PAIR_KERNELS`, `RUNWAY_ADAPTER_REUSE`, `RUNWAY_FAST_EDGE_ARRAYS` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
+| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`, `RUNWAY_FAST_ROUTING`, `RUNWAY_GATE_FAST_CONTEXT`, `RUNWAY_ARRAY_PAIR_KERNELS`, `RUNWAY_ADAPTER_REUSE`, `RUNWAY_FAST_EDGE_ARRAYS`, `RUNWAY_P2P_MASK_FAST`, `RUNWAY_TRAFFIC_DIST_FAST` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
 | `ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, `ROUTE_RESPONSE_CACHE`, `ROUTE_RESPONSE_CACHE_SIZE`, `ROUTE_RESPONSE_CACHE_TTL_S`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
 | `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
 
@@ -188,7 +188,9 @@ API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **ap
 | `RUNWAY_GATE_FAST_CONTEXT=0` | Gate context의 incident 배열 색인 → `usability_gate.build_context` Python 반복(S15P31E105-626) | 같음(첫 요청 느려짐) |
 | `RUNWAY_ARRAY_PAIR_KERNELS=0` | 생성 disk(`build_array_pair`)의 처음 나온 순번·pair별 최단 간선 Numba 훑기, G node 번호 dict 만들기 → np.unique·lexsort·dict comprehension(S15P31E105-645) | 같음(첫 요청 느려짐) |
 | `RUNWAY_ADAPTER_REUSE=0` | 요청 graph(`populate_adapter`)가 G의 node 번호 dict를 같이 쓰고 첫 간선을 창 segment 단위로 고르기 → dict 복사·G 간선 전체 lexsort·searchsorted(S15P31E105-645) | 같음(첫 요청 느려짐) |
+| `RUNWAY_P2P_MASK_FAST=0` | 편도 도착점 찾기(`substrate.DiskMask`)의 prepared 원 판정·pair별 최단 선분 Numba 훑기·bool 표시 정렬 집합·PE5 선 순서용 G node 순번(필요한 node만)·PE1 안 node만 정렬 → 예전 식(S15P31E105-653) | 같음(편도 첫 요청 느려짐) |
 | `RUNWAY_FAST_EDGE_ARRAYS=0` | `prepare_edge_arrays`의 문자열 열 판정을 서로 다른 값 단위로 → edge마다 `np.isin`(S15P31E105-645) | 같음(첫 요청 느려짐) |
+| `RUNWAY_TRAFFIC_DIST_FAST=0` | 큰길 거리(`graph.traffic_node_distance`)의 격자 훑기 Numba(`traffic_kernels.py`, GEOS와 같은 점-선분 거리 식) → STRtree dwithin + `shapely.distance`(S15P31E105-677) | 같음(첫 요청 느려짐) |
 | `RUNWAY_ARRAY_LOOP=0` | LOOP 배열 graph → 기존 NetworkX G/H 준비 | 같음(첫 요청 느려짐), Numba 탐색은 유지 |
 | `RUNWAY_ARRAY_SHAPES=0` | OAB/P2P 생성 disk 배열 graph → networkx | 같음(cold 느려짐) |
 | `RUNWAY_ARRAY_PAIR_FAST=0` | LOOP 배열 graph 생성의 배열/Numba 처리(full_status·component·key) → 기존 Python 반복문 | 같음(LOOP cold 느려짐) |

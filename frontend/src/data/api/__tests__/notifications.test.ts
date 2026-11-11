@@ -155,3 +155,32 @@ test('N02 posts read-all without a body and settles on 204', async () => {
   expect(init.method).toBe('POST');
   expect(init.body).toBeUndefined();
 });
+
+// S15P31E105-678: the leader's 가입 신청 알림 is a known kind, so the inbox shows it with the crew as target.
+test('N01 keeps a CREW_JOIN_REQUESTED item with the crew id as target', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [
+        {
+          id: 9100,
+          kind: 'CREW_JOIN_REQUESTED',
+          message: '「아침 러닝」크루에 지원자님이 가입을 신청했습니다.',
+          createdAt: '2026-11-11T01:00:00Z',
+          read: false,
+          targetId: 42,
+        },
+      ],
+      nextCursor: null,
+      hasNext: false,
+      unreadCount: 1,
+    }),
+  );
+
+  const list = await notificationsApi.list();
+  expect(list.items).toHaveLength(1);
+  expect(list.items[0]).toMatchObject({
+    id: '9100',
+    kind: 'CREW_JOIN_REQUESTED',
+    targetId: '42',
+  });
+});

@@ -56,6 +56,22 @@ public class PostPageQueryRepository {
      */
     public List<Long> findVisiblePostIds(
             long viewerId, boolean following, Long authorId, Long beforeId, Integer limit) {
+        return findVisiblePostIds(viewerId, following, authorId, null, beforeId, limit);
+    }
+
+    /**
+     * {@link #findVisiblePostIds(long, boolean, Long, Long, Integer)}에 지역 필터를 더한다(S15P31E105-687).
+     *
+     * @param regionCode null이 아니면 그 지역 안의 글만. 시/도 코드(시군구 이름이 빈 행)는 그 시/도 전체, 시/군/구 코드는 그 시/군/구와
+     *     하위 구(예: 수원시 → 수원시 장안구)다. {@code regions}에 없는 코드나 지역이 비어 있는 글은 걸리지 않는다.
+     */
+    public List<Long> findVisiblePostIds(
+            long viewerId,
+            boolean following,
+            Long authorId,
+            String regionCode,
+            Long beforeId,
+            Integer limit) {
         StringBuilder sql =
                 new StringBuilder(
                         """
@@ -78,6 +94,16 @@ public class PostPageQueryRepository {
         if (authorId != null) {
             sql.append(" AND p.author_id = ?");
             args.add(authorId);
+        }
+        if (regionCode != null) {
+            sql.append(
+                    """
+                     AND EXISTS (SELECT 1 FROM regions pr JOIN regions sel ON sel.region_code = ?
+                          WHERE pr.region_code = p.region_code AND pr.sido_name = sel.sido_name
+                            AND (sel.sigungu_name = '' OR pr.sigungu_name = sel.sigungu_name
+                                 OR pr.sigungu_name LIKE sel.sigungu_name || ' %'))
+                    """);
+            args.add(regionCode);
         }
         if (beforeId != null) {
             sql.append(" AND p.id < ?");

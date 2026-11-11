@@ -31,8 +31,14 @@ import {
 } from '@mj-studio/react-native-naver-map';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
+import { darkMapLook } from '../../components/mapRoute';
 import type { Post } from '../../data';
-import { bearingOf, routeLengthM, walkAlong, type LngLat } from '../../geo';
+import {
+  bearingOf,
+  distanceM as legLengthM,
+  routeLengthM,
+  type LngLat,
+} from '../../geo';
 import { formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { feedLook, MapBackdrop } from './FeedPage';
@@ -44,8 +50,21 @@ import { Avatar, recordLabel, stamp } from './parts';
 
 // The whole route spans this many screens, so the camera has somewhere to follow.
 const zoom = 3;
-// One playback takes this long, whatever the run's length.
-const playMs = 9000;
+// One playback grows with the run (S15P31E105-672): 6 s plus 1 ms per metre, kept between 8 s and 15 s, so a
+// short jog does not rush past and a long run does not drag.
+const minPlayMs = 8000;
+const maxPlayMs = 15000;
+export function replayPlayMs(distanceM: number) {
+  const metres = Number.isFinite(distanceM) ? Math.max(0, distanceM) : 0;
+  return Math.round(Math.min(maxPlayMs, Math.max(minPlayMs, 6000 + metres)));
+}
+// How many times faster than the run the playback goes, shown as ×N 배속 so the speed-up is plain.
+export function replaySpeedup(durationSec: number, playMs: number) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0 || playMs <= 0) {
+    return null;
+  }
+  return Math.max(1, Math.round((durationSec * 1000) / playMs));
+}
 // The runner stays at this height on the screen while the map moves under them.
 const markerAt = 0.42;
 
@@ -97,6 +116,7 @@ function ShapeReplay({
     () => lay(post.record.shape, canvas.width, canvas.height),
     [post.record.shape, canvas.width, canvas.height],
   );
+  const playMs = replayPlayMs(post.record.distanceM);
   const [shown, setShown] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
@@ -140,7 +160,7 @@ function ShapeReplay({
         }
       });
     },
-    [camera, draw],
+    [camera, draw, playMs],
   );
 
   // The numbers read the path's clock a few times a second; the motion itself never waits for React.
@@ -191,15 +211,17 @@ function ShapeReplay({
   };
 
   // The camera keeps the runner's point at the middle of the screen, a little above centre: one step per point
-  // of the route, at its share of the distance.
-  const steps = route.lengths
-    .map((length, index) => ({
-      at: length / route.total,
-      point: route.points[index],
-    }))
-    .filter((item, index, all) => index === 0 || item.at > all[index - 1].at);
-  const follow =
-    steps.length > 1
+  // of the route, at its share of the distance. Made once per route and screen size (S15P31E105-686): the
+  // numbers re-render this screen many times a second, and new interpolations each time re-wired the native
+  // camera and redrew the path.
+  const follow = useMemo(() => {
+    const steps = route.lengths
+      .map((length, index) => ({
+        at: length / route.total,
+        point: route.points[index],
+      }))
+      .filter((item, index, all) => index === 0 || item.at > all[index - 1].at);
+    return steps.length > 1
       ? {
           x: camera.interpolate({
             inputRange: steps.map(item => item.at),
@@ -211,11 +233,19 @@ function ShapeReplay({
           }),
         }
       : { x: 0, y: 0 };
-  const dashOffset = draw.interpolate({
-    inputRange: [0, 1],
-    outputRange: [route.total, 0],
-  });
-  const line = route.points.map(([px, py]) => `${px},${py}`).join(' ');
+  }, [route, camera, width, height]);
+  const dashOffset = useMemo(
+    () =>
+      draw.interpolate({
+        inputRange: [0, 1],
+        outputRange: [route.total, 0],
+      }),
+    [draw, route.total],
+  );
+  const line = useMemo(
+    () => route.points.map(([px, py]) => `${px},${py}`).join(' '),
+    [route.points],
+  );
   const [startX, startY] = route.points[0] ?? [0, 0];
 
   return (
@@ -260,17 +290,17 @@ function ShapeReplay({
               cx={startX}
               cy={startY}
               r={9}
-              fill={feedLook.route}
-              stroke={feedLook.ground}
+              fill={darkMapLook.ink}
+              stroke={darkMapLook.ribbon}
               strokeWidth={3}
             />
-            {/* The whole route, revealed from the start as the dash slides back. */}
+            {/* The run glows as it is drawn: a soft wide halo, a pale edge, then the mint core. */}
             <AnimatedPolyline
               points={line}
               fill="none"
-              stroke={feedLook.route}
-              strokeOpacity={0.25}
-              strokeWidth={22}
+              stroke={darkMapLook.ink}
+              strokeOpacity={0.18}
+              strokeWidth={19}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -279,8 +309,18 @@ function ShapeReplay({
             <AnimatedPolyline
               points={line}
               fill="none"
-              stroke={feedLook.route}
-              strokeWidth={9}
+              stroke={darkMapLook.ribbon}
+              strokeWidth={11.4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={[route.total, route.total]}
+              strokeDashoffset={dashOffset}
+            />
+            <AnimatedPolyline
+              points={line}
+              fill="none"
+              stroke={darkMapLook.ink}
+              strokeWidth={7.9}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -295,6 +335,7 @@ function ShapeReplay({
           playing={playing}
           done={done}
           onClose={onClose}
+          speedup={replaySpeedup(post.record.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
@@ -303,9 +344,9 @@ function ShapeReplay({
 
 // The real map's camera over the run (S15P31E105-561, 담당자 요청: 실제 지도): zoomed in, leaning back, turned so the
 // way ahead points up.
-const close = { zoom: 16.6, tilt: 50 };
-// On the light real map the path is the deep navy (담당자 요청: 민트 말고 진한 네이비).
-const replayNavy = '#02050E';
+// Leaning back about 60° (S15P31E105-672) so the buildings stand up around the runner; the Naver map allows that
+// tilt at this zoom.
+const close = { zoom: 16.6, tilt: 60 };
 // The opening view: the whole course from above, flat and north up, before the camera swoops in to the start
 // (레퍼런스 시작 부분).
 const flat = { tilt: 0, bearing: 0 };
@@ -314,10 +355,16 @@ const introMs = 2200;
 const holdMs = 1500;
 // A map that never says it is ready still starts after this long.
 const readyLimitMs = 4000;
+// A restart swoops back in from the closing overview after this short pause.
+const againMs = 300;
+// At the end the camera waits a beat on the finish, then pulls back to the whole course.
+const outroDelayMs = 600;
+const outroMs = 2400;
 const tickMs = 100;
-// How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it.
+// How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it: a
+// gentle rate, so corners turn the map over several ticks instead of snapping.
 const lookAhead = 0.025;
-const turnRate = 0.3;
+const turnRate = 0.22;
 
 // The camera that fits the whole course in the part of the screen above the numbers (the camera's middle sits at
 // `markerAt` of the height, see mapPadding).
@@ -347,11 +394,39 @@ function overviewOf(route: LngLat[], width: number, height: number) {
   return { latitude, longitude, zoom: fitted, ...flat };
 }
 
-// The point `progress` (0–1) of the way along the route, by distance.
-function pointAt(route: LngLat[], progress: number): LngLat {
-  const total = routeLengthM(route);
-  const path = walkAlong(route, total * Math.min(1, Math.max(0, progress)));
-  return path[path.length - 1] ?? route[0];
+// Each leg's length and the whole length, measured once per route (S15P31E105-686): the playback asks for a
+// point and two headings ten times a second, and measuring every leg again each time slowed long runs.
+const measured = new WeakMap<LngLat[], { legs: number[]; total: number }>();
+function measure(route: LngLat[]) {
+  let found = measured.get(route);
+  if (!found) {
+    const legs = route
+      .slice(1)
+      .map((point, index) => legLengthM(route[index], point));
+    found = { legs, total: routeLengthM(route) };
+    measured.set(route, found);
+  }
+  return found;
+}
+
+// The point `progress` (0–1) of the way along the route, by distance: the end of walkAlong's path, from the
+// measured legs.
+export function pointAt(route: LngLat[], progress: number): LngLat {
+  const { legs, total } = measure(route);
+  let left = total * Math.min(1, Math.max(0, progress));
+  if (route.length < 2 || left <= 0) {
+    return route[0];
+  }
+  for (let index = 1; index < route.length; index += 1) {
+    const [from, to] = [route[index - 1], route[index]];
+    const length = legs[index - 1];
+    if (left <= length) {
+      const t = length === 0 ? 0 : left / length;
+      return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+    }
+    left -= length;
+  }
+  return route[route.length - 1];
 }
 
 // The heading `progress` of the way along, looking a little ahead (back from the end).
@@ -379,15 +454,15 @@ function MapReplay({
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const playMs = replayPlayMs(post.record.distanceM);
   const coords = useMemo(
     () => route.map(([longitude, latitude]) => ({ latitude, longitude })),
     [route],
   );
   const size = useRef({ width, height });
   size.current = { width, height };
-  const [camera, setCamera] = useState(() =>
-    overviewOf(route, width, height),
-  );
+  const [camera, setCamera] = useState(() => overviewOf(route, width, height));
   const [motion, setMotion] = useState<{
     duration: number;
     easing: 'EaseOut' | 'Linear';
@@ -399,6 +474,8 @@ function MapReplay({
   const [outline, setOutline] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
+  // Each play from the start: 0 on opening, one more on every restart, so the swoop runs again.
+  const [round, setRound] = useState(0);
   const at = useRef(0);
   const heading = useRef(0);
   const openedAt = useRef(0);
@@ -419,6 +496,7 @@ function MapReplay({
     setPlaying(false);
     setIntro(true);
     setOutline(true);
+    setRound(0);
     setMotion({ duration: 0, easing: 'Linear' });
     setCamera(
       overviewOf(path.current, size.current.width, size.current.height),
@@ -438,6 +516,8 @@ function MapReplay({
       return;
     }
     const [first] = path.current;
+    // The first play holds on the overview so it is seen; a restart is already looking at it.
+    const wait = round === 0 ? holdMs : againMs;
     const swoop = setTimeout(() => {
       setOutline(false);
       setMotion({ duration: introMs, easing: 'EaseOut' });
@@ -447,16 +527,16 @@ function MapReplay({
         ...close,
         bearing: heading.current,
       });
-    }, holdMs);
+    }, wait);
     const go = setTimeout(() => {
       setIntro(false);
       setPlaying(true);
-    }, holdMs + introMs);
+    }, wait + introMs);
     return () => {
       clearTimeout(swoop);
       clearTimeout(go);
     };
-  }, [visible, ready]);
+  }, [visible, ready, round]);
 
   // Playback: each tick moves the camera to the next point over the tick's length, so the moves join into one
   // glide; progress follows the clock, so a slow phone keeps the same pace.
@@ -486,22 +566,43 @@ function MapReplay({
     step();
     const timer = setInterval(step, tickMs);
     return () => clearInterval(timer);
-  }, [visible, playing]);
+  }, [visible, playing, playMs]);
+
+  // The outro: a beat on the finish, then the camera rises, levels and turns north to the whole course, now drawn.
+  useEffect(() => {
+    if (!visible || !done) {
+      return;
+    }
+    const outro = setTimeout(() => {
+      setMotion({ duration: outroMs, easing: 'EaseOut' });
+      setCamera(
+        overviewOf(path.current, size.current.width, size.current.height),
+      );
+    }, outroDelayMs);
+    return () => clearTimeout(outro);
+  }, [visible, done]);
 
   const toggle = () => {
     if (intro || Date.now() - openedAt.current < 500) {
       return;
     }
     if (done) {
+      // Again from the start: the course is wiped and the camera swoops back in from the overview.
       at.current = 0;
       heading.current = headingAt(route, 0);
       setShown(0);
       setDone(false);
-      setPlaying(true);
+      setIntro(true);
+      setOutline(true);
+      setRound(value => value + 1);
       return;
     }
     setPlaying(value => !value);
   };
+
+  // Every replay line draws only the part already run: the rest is fully transparent (a part-see-through colour
+  // drew solid black on Android), and all of them share `progress`.
+  const reveal = { color: darkMapLook.unpassed, progress: shown };
 
   return (
     <Modal
@@ -533,8 +634,23 @@ function MapReplay({
             animationDuration={motion.duration}
             animationEasing={motion.easing}
             mapType="Basic"
+            lightness={darkMapLook.lightness}
+            layerGroups={{
+              BUILDING: true,
+              TRAFFIC: false,
+              TRANSIT: false,
+              BICYCLE: false,
+              MOUNTAIN: false,
+              CADASTRAL: false,
+            }}
+            buildingHeight={1}
+            isLiteModeEnabled={false}
             // The camera's middle sits where the runner's pin is, above the numbers.
             mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
+            // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
+            // still bright, instead of the foot where the dark band and the numbers cover it.
+            logoAlign="TopLeft"
+            logoMargin={{ left: 18, top: insets.top + 86 }}
             isScrollGesturesEnabled={false}
             isZoomGesturesEnabled={false}
             isTiltGesturesEnabled={false}
@@ -545,30 +661,49 @@ function MapReplay({
             isShowCompass={false}
             locale="ko"
           >
-            {/* The whole course, shown only up to the runner: the passed part in the route colour. */}
-            <NaverMapPathOverlay
-              coords={coords}
-              width={14}
-              color="rgba(0,0,0,0)"
-              passedColor="rgba(2,5,14,0.22)"
-              progress={shown}
-            />
-            {outline ? (
-              // The whole course, thin and grey (an opaque colour: the map drew the see-through one solid black).
-              <NaverMapPathOverlay
-                coords={coords}
-                width={4}
-                color="#8C95A6"
-                outlineWidth={0}
-              />
+            {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+                later, and removing them first (a feed switch) crashed in its getChildAt. */}
+            {ready ? (
+              <>
+                {outline ? (
+                  // The whole course, thin and grey, over the opening overview; under the run's lines.
+                  <NaverMapPathOverlay
+                    coords={coords}
+                    width={3}
+                    color={darkMapLook.outline}
+                    outlineWidth={0}
+                    zIndex={0}
+                  />
+                ) : null}
+                {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowOuterWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowOuter}
+                  outlineWidth={0}
+                  zIndex={1}
+                />
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowInnerWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowInner}
+                  outlineWidth={0}
+                  zIndex={2}
+                />
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.coreWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.ink}
+                  outlineColor={darkMapLook.unpassed}
+                  passedOutlineColor={darkMapLook.ribbon}
+                  outlineWidth={darkMapLook.coreEdge}
+                  zIndex={3}
+                />
+              </>
             ) : null}
-            <NaverMapPathOverlay
-              coords={coords}
-              width={6}
-              color="rgba(0,0,0,0)"
-              passedColor={replayNavy}
-              progress={shown}
-            />
           </NaverMapView>
         </View>
         <ReplayChrome
@@ -577,7 +712,8 @@ function MapReplay({
           playing={playing || intro}
           done={done}
           onClose={onClose}
-          accent={replayNavy}
+          accent={darkMapLook.ink}
+          speedup={replaySpeedup(post.record.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
@@ -598,15 +734,22 @@ export function RouteReplay(props: {
   );
 }
 
+// The runner's pulse: one ring this wide, spreading every this long.
+const pulseSize = 28;
+const pulseMs = 1400;
+
 // What both replays draw over their map: the dark bands, the runner's pin, the title with 공유 · 닫기, and at the
 // foot the average pace big with the distance, time and steps counting up (담당자 요청: 페이스가 주).
+// The playback re-renders this many times a second, so only the counters follow `shown`: the bands, the pin and
+// the title are kept apart and drawn again only when what they show changes (S15P31E105-686).
 function ReplayChrome({
   post,
   shown,
   playing,
   done,
   onClose,
-  accent = feedLook.route,
+  accent = darkMapLook.ink,
+  speedup = null,
 }: {
   post: Post;
   shown: number;
@@ -615,9 +758,11 @@ function ReplayChrome({
   onClose: () => void;
   // The path's colour, for the dot under the pin.
   accent?: string;
+  // How many times faster than the run this plays (×N 배속); null when the run's time is unknown.
+  speedup?: number | null;
 }) {
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const percent = Math.round(Math.min(1, Math.max(0, shown)) * 100);
   const record = post.record;
   const km = ((record.distanceM * shown) / 1000).toFixed(2);
   const seconds = record.durationSec * shown;
@@ -625,96 +770,18 @@ function ReplayChrome({
     record.cadence === null
       ? null
       : Math.round((record.cadence * seconds) / 60);
-  const share = () =>
-    Share.share({
-      message: `${post.author.handle}님의 러닝 · ${recordLabel(
-        record,
-        post.courseShared,
-      )} · 평균 페이스 ${formatPace(record.averagePaceSecPerKm)}/km`,
-    }).catch(() => undefined);
   return (
     <>
-      {/* Darker toward the foot, so the counters read over the map (레퍼런스). */}
-      <Svg
-        pointerEvents="none"
-        width={width}
-        height={height}
-        style={StyleSheet.absoluteFill}
-      >
-        <Defs>
-          <LinearGradient id="replayTop" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset={0} stopColor="#000000" stopOpacity={0.6} />
-            <Stop offset={1} stopColor="#000000" stopOpacity={0} />
-          </LinearGradient>
-          <LinearGradient id="replayFoot" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset={0} stopColor="#000000" stopOpacity={0} />
-            <Stop offset={1} stopColor="#000000" stopOpacity={0.92} />
-          </LinearGradient>
-        </Defs>
-        <Rect width={width} height={180} fill="url(#replayTop)" />
-        <Rect
-          y={height * 0.55}
-          width={width}
-          height={height * 0.45}
-          fill="url(#replayFoot)"
-        />
-      </Svg>
-
-      {/* The runner: their avatar in a pin over the end of the path. */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.pin,
-          { left: width / 2 - 26, top: height * markerAt - 66 },
-        ]}
-      >
-        <View style={styles.pinHead}>
-          <Avatar
-            nickname={post.author.nickname}
-            userId={post.author.userId}
-            photo={post.author.profileImageUrl}
-            mine={post.isMine}
-            size={44}
-          />
-        </View>
-        <View style={styles.pinTip} />
-        <View style={[styles.pinDot, { backgroundColor: accent }]} />
-      </View>
-
-      <View
-        style={[styles.header, { top: insets.top + 10 }]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.headerText} pointerEvents="none">
-          <AppText style={styles.title} numberOfLines={1}>
-            {recordLabel(record, post.courseShared)}
-          </AppText>
-          <AppText style={styles.byline} numberOfLines={1}>
-            {post.author.handle}
-          </AppText>
-          <AppText style={styles.date} numberOfLines={1}>
-            {stamp(record.startedAt)}
-          </AppText>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="공유"
-          onPress={share}
-          hitSlop={6}
-          style={({ pressed }) => [styles.round, pressed && styles.pressed]}
-        >
-          <Icon name="share" color={feedLook.white} size={18} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="코스 재생 닫기"
-          onPress={onClose}
-          hitSlop={6}
-          style={({ pressed }) => [styles.round, pressed && styles.pressed]}
-        >
-          <Icon name="close" color={feedLook.white} size={18} />
-        </Pressable>
-      </View>
+      <ReplayBands />
+      <ReplayPin
+        nickname={post.author.nickname}
+        userId={post.author.userId}
+        photo={post.author.profileImageUrl}
+        mine={post.isMine}
+        playing={playing}
+        accent={accent}
+      />
+      <ReplayHeader post={post} onClose={onClose} />
 
       <View
         style={[styles.foot, { paddingBottom: insets.bottom + 24 }]}
@@ -746,6 +813,29 @@ function ReplayChrome({
             <AppText style={styles.cellLabel}>걸음</AppText>
           </View>
         </View>
+        {/* How far through the replay, and honestly how sped up it is. */}
+        <View
+          style={styles.progress}
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={`재생 진행 ${percent}%`}
+          accessibilityValue={{ min: 0, max: 100, now: percent }}
+        >
+          <View style={styles.track}>
+            <View
+              style={[
+                styles.fill,
+                {
+                  width: `${percent}%` as `${number}%`,
+                  backgroundColor: accent,
+                },
+              ]}
+            />
+          </View>
+          {speedup ? (
+            <AppText style={styles.speed}>{`×${speedup} 배속`}</AppText>
+          ) : null}
+        </View>
         <AppText style={styles.hint}>
           {done
             ? '탭하면 다시 재생'
@@ -757,6 +847,176 @@ function ReplayChrome({
     </>
   );
 }
+
+// Darker toward the foot, so the counters read over the map (레퍼런스).
+const ReplayBands = memo(function Bands() {
+  const { width, height } = useWindowDimensions();
+  return (
+    <Svg
+      pointerEvents="none"
+      width={width}
+      height={height}
+      style={StyleSheet.absoluteFill}
+    >
+      <Defs>
+        <LinearGradient id="replayTop" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset={0} stopColor="#000000" stopOpacity={0.6} />
+          <Stop offset={1} stopColor="#000000" stopOpacity={0} />
+        </LinearGradient>
+        <LinearGradient id="replayFoot" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset={0} stopColor="#000000" stopOpacity={0} />
+          <Stop offset={1} stopColor="#000000" stopOpacity={0.92} />
+        </LinearGradient>
+      </Defs>
+      <Rect width={width} height={180} fill="url(#replayTop)" />
+      <Rect
+        y={height * 0.55}
+        width={width}
+        height={height * 0.45}
+        fill="url(#replayFoot)"
+      />
+    </Svg>
+  );
+});
+
+// The runner: their avatar in a pin over the end of the path, and a soft ring that keeps spreading from under
+// it while the run plays.
+const ReplayPin = memo(function Pin({
+  nickname,
+  userId,
+  photo,
+  mine,
+  playing,
+  accent,
+}: {
+  nickname: Post['author']['nickname'];
+  userId: Post['author']['userId'];
+  photo: Post['author']['profileImageUrl'];
+  mine: boolean;
+  playing: boolean;
+  accent: string;
+}) {
+  const { width, height } = useWindowDimensions();
+  // The runner's dot pulses while the replay plays; the loop stops when it pauses, ends or closes.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!playing) {
+      pulse.setValue(0);
+      return;
+    }
+    const beat = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: pulseMs,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+    beat.start();
+    return () => beat.stop();
+  }, [playing, pulse]);
+  return (
+    <>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.pulse,
+          {
+            left: width / 2 - pulseSize / 2,
+            top: height * markerAt - pulseSize / 2,
+            backgroundColor: accent,
+            opacity: pulse.interpolate({
+              inputRange: [0, 1],
+              outputRange: [playing ? 0.55 : 0, 0],
+            }),
+            transform: [
+              {
+                scale: pulse.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.6, 2.4],
+                }),
+              },
+            ],
+          },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.pin,
+          { left: width / 2 - 26, top: height * markerAt - 66 },
+        ]}
+      >
+        <View style={styles.pinHead}>
+          <Avatar
+            nickname={nickname}
+            userId={userId}
+            photo={photo}
+            mine={mine}
+            size={44}
+          />
+        </View>
+        <View style={styles.pinTip} />
+        <View style={[styles.pinDot, { backgroundColor: accent }]} />
+      </View>
+    </>
+  );
+});
+
+// The title with 공유 · 닫기.
+const ReplayHeader = memo(function Header({
+  post,
+  onClose,
+}: {
+  post: Post;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const record = post.record;
+  const share = () =>
+    Share.share({
+      message: `${post.author.handle}님의 러닝 · ${recordLabel(
+        record,
+        post.courseShared,
+      )} · 평균 페이스 ${formatPace(record.averagePaceSecPerKm)}/km`,
+    }).catch(() => undefined);
+  return (
+    <View
+      style={[styles.header, { top: insets.top + 10 }]}
+      pointerEvents="box-none"
+    >
+      <View style={styles.headerText} pointerEvents="none">
+        <AppText style={styles.title} numberOfLines={1}>
+          {recordLabel(record, post.courseShared)}
+        </AppText>
+        <AppText style={styles.byline} numberOfLines={1}>
+          {post.author.handle}
+        </AppText>
+        <AppText style={styles.date} numberOfLines={1}>
+          {stamp(record.startedAt)}
+        </AppText>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="공유"
+        onPress={share}
+        hitSlop={6}
+        style={({ pressed }) => [styles.round, pressed && styles.pressed]}
+      >
+        <Icon name="share" color={feedLook.white} size={18} />
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="코스 재생 닫기"
+        onPress={onClose}
+        hitSlop={6}
+        style={({ pressed }) => [styles.round, pressed && styles.pressed]}
+      >
+        <Icon name="close" color={feedLook.white} size={18} />
+      </Pressable>
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden', backgroundColor: feedLook.ground },
@@ -866,8 +1126,36 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: feedLook.sub,
   },
+  pulse: {
+    position: 'absolute',
+    width: pulseSize,
+    height: pulseSize,
+    borderRadius: pulseSize / 2,
+  },
+  progress: {
+    marginTop: 20,
+    alignSelf: 'stretch',
+    marginHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  track: {
+    flex: 1,
+    height: 3,
+    borderRadius: 1.5,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  fill: { height: 3, borderRadius: 1.5 },
+  speed: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: feedLook.sub,
+  },
   hint: {
-    marginTop: 22,
+    marginTop: 14,
     fontFamily: fontFamily.medium,
     fontSize: 14,
     lineHeight: 18,

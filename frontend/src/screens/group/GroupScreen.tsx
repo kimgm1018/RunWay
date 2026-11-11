@@ -30,18 +30,20 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing } from '../../theme';
 import {
   canEnterRoom,
+  CrewPhoto,
   dDay,
   formatSchedule,
   startsIn,
   useGroupRunDraft,
 } from './parts';
 import { groupTone, NumText, Raised, SearchField } from './look';
+import { ColorBar, crewColor, stand, StandTag } from './stand';
 
 const loadMine = (repositories: Repositories, _version: number) =>
   repositories.groupRuns.listMine();
 
-// runway-group-screen-designs 01 내 크루 (S15P31E105-594 담당자 시안): dark navy cards on the mist, white text,
-// mint for 곧 출발, 대기방 입장, 참가하기 and the + button.
+// 그룹런 시안 6.0 내 크루 (S15P31E105-673): no cards, each crew a heading with its colour bar over a heavier line and
+// its runs as rows between thin lines; 곧 출발 lit in mint on top.
 
 // The run starting next (6.0-UpcomingRunBanner): 곧 출발, the crew, time and place, then 대기방 입장 past a line.
 function UpcomingCard({ run }: { run: GroupRunSummary }) {
@@ -56,13 +58,12 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
     >
-      <Raised tone="night" style={styles.upcoming}>
+      <View style={styles.upcoming}>
+        <ColorBar color={crewColor(run.crewId)} height={52} />
         <View style={styles.flex}>
           {/* Crew, time and place only (담당자 요청). The run's title is on 6.4, and the title and how soon it
               starts stay in the label for screen readers. */}
-          <View style={[styles.chip, styles.chipMint, styles.soonChip]}>
-            <AppText style={styles.chipTextMint}>곧 출발</AppText>
-          </View>
+          <StandTag label="곧 출발" style={styles.soonChip} />
           <AppText style={styles.upcomingTitle} numberOfLines={1}>
             {run.crewName}
           </AppText>
@@ -75,20 +76,18 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
           />
         </View>
         {canEnterRoom(run, now) ? (
-          <View style={styles.enterSide}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="대기방 입장"
-              onPress={() =>
-                navigation.navigate('WaitingRoom', { groupRunId: run.id })
-              }
-              style={styles.enter}
-            >
-              <AppText style={styles.enterText}>대기방 입장</AppText>
-            </PressableScale>
-          </View>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="대기방 입장"
+            onPress={() =>
+              navigation.navigate('WaitingRoom', { groupRunId: run.id })
+            }
+            style={styles.enter}
+          >
+            <AppText style={styles.enterText}>대기방 입장</AppText>
+          </PressableScale>
         ) : null}
-      </Raised>
+      </View>
     </PressableScale>
   );
 }
@@ -97,13 +96,10 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
 // how many joined; 참가 중 (mint outline) or 참가하기 (mint) on the right.
 function RunCard({
   run,
-  first,
   busy,
   onToggle,
 }: {
   run: GroupRunSummary;
-  // Every run but the first has a line above it.
-  first: boolean;
   busy: boolean;
   onToggle: () => void;
 }) {
@@ -119,11 +115,12 @@ function RunCard({
       onPress={() =>
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
-      style={[styles.run, !first && styles.runLine]}
+      style={styles.run}
     >
       <View style={styles.dayBox}>
         <NumText style={styles.dayText} text={day} />
       </View>
+      <ColorBar color={crewColor(run.crewId)} style={styles.runBar} />
       <View style={styles.flex}>
         <AppText style={styles.runTitle} numberOfLines={1}>
           {run.title}
@@ -136,7 +133,7 @@ function RunCard({
         />
         {/* hostNickname shows only here (6.4 has no host line), so it stays on the list. */}
         <NumText
-          style={styles.small}
+          style={styles.muted}
           numberOfLines={1}
           text={`${
             run.isHost ? '내가 만듦' : `${run.hostNickname}님이 만듦`
@@ -187,8 +184,10 @@ function CrewPanel({
   const [open, setOpen] = useState(initiallyOpen);
   if (crew.membership === 'PENDING') {
     return (
-      <View style={styles.crewHeader}>
+      <View style={[styles.crewHeader, styles.pendingHeader]}>
         {/* Not faded: half opacity was hard to read. '승인 대기' tells the state. */}
+        <ColorBar color={crewColor(crew.id)} height={18} />
+        <CrewPhoto photo={crew.imageUrl} size={40} />
         <View style={styles.flex}>
           <AppText style={styles.crewName} numberOfLines={1}>
             {crew.name}
@@ -197,9 +196,7 @@ function CrewPanel({
             크루장이 승인하면 그룹런이 보여요
           </AppText>
         </View>
-        <View style={[styles.chip, styles.chipSlate]}>
-          <AppText style={styles.chipTextLight}>승인 대기</AppText>
-        </View>
+        <StandTag label="승인 대기" tone="outline" style={styles.center} />
       </View>
     );
   }
@@ -210,10 +207,13 @@ function CrewPanel({
           accessibilityRole="button"
           accessibilityLabel={`${crew.name} 크루 상세`}
           onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-          style={styles.flex}
+          style={[styles.flex, styles.photoRow]}
         >
-          {/* Name only: the area and the member count are on 6.2 (담당자 요청). */}
-          <AppText style={styles.crewName} numberOfLines={1}>
+          <ColorBar color={crewColor(crew.id)} height={18} />
+          {/* Name only: the area and the member count are on 6.2 (담당자 요청). The crew photo sits left of
+              it when the crew has one (S15P31E105-636). */}
+          <CrewPhoto photo={crew.imageUrl} size={40} />
+          <AppText style={[styles.crewName, styles.flex]} numberOfLines={1}>
             {crew.name}
           </AppText>
         </Pressable>
@@ -225,7 +225,9 @@ function CrewPanel({
           }
           style={styles.plus}
         >
-          <Icon name="plus" color={groupTone.onAccent} size={16} />
+          <View style={styles.plusDot}>
+            <Icon name="plus" color={stand.onMint} size={16} />
+          </View>
         </PressableScale>
         <PressableScale
           accessibilityRole="button"
@@ -240,18 +242,17 @@ function CrewPanel({
         >
           {/* Down to open, up to close. */}
           <View style={open ? styles.flip : null}>
-            <Icon name="chevronDown" color={groupTone.text} size={20} />
+            <Icon name="chevronDown" color={stand.text} size={20} />
           </View>
         </PressableScale>
       </View>
       {open ? (
         runs.length ? (
           <View style={styles.runs}>
-            {runs.map((run, index) => (
+            {runs.map(run => (
               <RunCard
                 key={run.id}
                 run={run}
-                first={index === 0}
                 busy={!!joinBusy[run.id]}
                 onToggle={() => onToggleJoin(run)}
               />
@@ -462,7 +463,7 @@ export function MyCrewsPage({
               return (
                 // The same raised white card as 곧 출발 above (S15P31E105-563), so the run lines use the
                 // app's light theme with navy text.
-                <Raised key={crew.id} tone="night" style={styles.crewCard}>
+                <View key={crew.id}>
                   <CrewPanel
                     crew={crew}
                     runs={listed.map(withJoin)}
@@ -471,7 +472,7 @@ export function MyCrewsPage({
                     joinBusy={joinBusy}
                     onToggleJoin={toggle}
                   />
-                </Raised>
+                </View>
               );
             })}
         </ScrollView>
@@ -484,165 +485,154 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  // Every card, 곧 출발 included, sits 12 apart.
+  // 곧 출발 14 under the tabs, each crew 10 under the one before (그룹런 시안).
   content: {
-    paddingHorizontal: 16,
-    paddingTop: spacing.md,
-    gap: 12,
+    paddingHorizontal: 19,
+    paddingTop: 14,
+    gap: 10,
   },
-  center: { textAlign: 'center' },
+  center: { alignSelf: 'center' },
   sub: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: groupTone.sub,
-  },
-  small: {
     fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 18,
-    color: groupTone.sub,
+    color: stand.sub,
   },
-  lineGap: { marginTop: 6 },
-  // Text straight on the mist (찾는 크루가 없어요).
-  onMist: { color: groupTone.sub },
+  small: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
+  },
+  muted: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.muted,
+  },
+  lineGap: { marginTop: 2 },
+  // Text straight on the page (찾는 크루가 없어요).
+  onMist: { color: stand.sub },
   noMatch: { textAlign: 'center', paddingVertical: spacing.xxxl },
-  chip: {
-    alignSelf: 'flex-start',
-    height: 24,
-    paddingHorizontal: 9,
-    borderRadius: 8,
-    justifyContent: 'center',
-  },
-  chipMint: { backgroundColor: groupTone.accent },
-  chipSlate: { alignSelf: 'center', backgroundColor: groupTone.quiet },
-  chipTextMint: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupTone.onAccent,
-  },
-  chipTextLight: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupTone.text,
-  },
-  soonChip: { marginBottom: 8 },
+  soonChip: { marginBottom: 3 },
+  // 곧 출발: a faint mint row with a mint line under it, reaching 10 past the page's sides.
   upcoming: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 20,
+    gap: 10,
+    minHeight: 92,
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    backgroundColor: stand.meFill,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.meLine,
   },
   upcomingTitle: {
-    marginBottom: 4,
-    fontFamily: fontFamily.bold,
-    fontSize: 19,
-    lineHeight: 25,
-    letterSpacing: -0.4,
-    color: groupTone.text,
-  },
-  // 대기방 입장 past a thin line.
-  enterSide: {
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    paddingLeft: 14,
-    borderLeftWidth: 1,
-    borderLeftColor: groupTone.line,
+    fontFamily: fontFamily.black,
+    fontSize: 18,
+    lineHeight: 24,
+    color: stand.text,
   },
   enter: {
-    height: 40,
-    paddingHorizontal: 16,
-    borderRadius: 14,
+    width: 112,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupTone.button,
+    backgroundColor: stand.mint,
   },
   enterText: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 14,
     lineHeight: 19,
-    color: groupTone.onButton,
+    color: stand.onMint,
   },
-  crewCard: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 20 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // A crew's heading over a heavier line.
   crewHeader: {
-    minHeight: 40,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
   },
+  pendingHeader: { minHeight: 66, gap: 10 },
   crewName: {
-    fontFamily: fontFamily.bold,
-    fontSize: 19,
-    lineHeight: 25,
-    letterSpacing: -0.4,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 17,
+    lineHeight: 23,
+    color: stand.text,
   },
-  // + as a mint button with a navy plus (mint on white reads only as a fill), the fold as a bare chevron (담당자 시안).
+  // + as a 30 mint circle with a navy plus in a 44 touch area, the fold as a bare chevron.
   plus: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: groupTone.accent,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fold: { width: 28, alignItems: 'center' },
+  plusDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: stand.mint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fold: {
+    width: 40,
+    height: 44,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   flip: { transform: [{ rotate: '180deg' }] },
-  runs: { marginTop: 12 },
+  runs: {},
+  // A run: 오늘 or D-4 on the left, the crew's colour bar, the lines, then 참가 중 or 참가하기.
   run: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
+    minHeight: 74,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
   },
-  runLine: { borderTopWidth: 1, borderTopColor: groupTone.line },
-  dayBox: {
-    minWidth: 46,
-    height: 30,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: groupTone.quiet,
-  },
+  dayBox: { width: 52 },
   dayText: {
     fontFamily: fontFamily.bold,
     fontSize: 13,
     lineHeight: 17,
-    color: groupTone.text,
+    color: stand.text,
   },
+  runBar: { marginLeft: 6, marginRight: 12 },
   runTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 15.5,
     lineHeight: 21,
-    letterSpacing: -0.3,
-    color: groupTone.text,
+    color: stand.text,
   },
   joinButton: {
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    marginLeft: 8,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 참가 중 as a quiet chip, 참가하기 in mint.
-  joinOn: { backgroundColor: groupTone.quiet },
-  joinOff: { backgroundColor: groupTone.accent },
+  // 참가 중 as an outlined tag, 참가하기 in mint.
+  joinOn: { borderWidth: 1, borderColor: stand.rule },
+  joinOff: { backgroundColor: stand.mint },
   joinTextOn: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 12,
+    lineHeight: 16,
+    color: stand.sub,
   },
   joinTextOff: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupTone.onAccent,
+    fontFamily: fontFamily.black,
+    fontSize: 12,
+    lineHeight: 16,
+    color: stand.onMint,
   },
   noRuns: {
     alignItems: 'center',

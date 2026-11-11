@@ -109,6 +109,10 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   // 날짜를 고르면 그날의 준비도), and the card names today as 오늘의 준비도 with the day.
   expect(home).toContain('10월 19일 월요일');
   expect(home).toContain('오늘의 준비도');
+  // Today's score: its band and the band's one line, one sentence per line (S15P31E105-657).
+  expect(home).toContain('준비도 최상');
+  expect(home).toContain('몸 상태가 좋아요.');
+  expect(home).toContain('계획한 강도로 달려도 좋아요.');
   expect(labelled(screen, '달력 열기')).toBeTruthy();
   expect(stateOf(screen, '10월 19일')?.selected).toBe(true);
   // The menu: three pills, each its name with an icon; 기록 상세 is no longer one of them.
@@ -134,7 +138,7 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   // week's load by day against the usual week, 왜 82점인가요? with the item scores, and 러닝 시작하기 at the foot.
   for (const text of [
     // The score's grade on top, the load against the usual week under it (S15P31E105-594 담당자 요청).
-    '준비도 양호',
+    '준비도 최상',
     '최근 운동량이 평소보다 많아요.',
     '82',
     '100점 기준',
@@ -307,8 +311,10 @@ test('the home has no background photo and keeps the profile photo as the avatar
     node =>
       node.props.source?.uri !== undefined && typeof node.type === 'string',
   );
-  // Only the greeting and the 프로필 tab show the photo (S15P31E105-522·-564).
+  // Only the greeting and the 프로필 tab show the photo (S15P31E105-522·-564); the tab draws it twice, pale and
+  // chosen, for the fade between them (S15P31E105-657).
   expect(images.map(node => node.props.source.uri)).toEqual([
+    'file:///profile.jpg',
     'file:///profile.jpg',
     'file:///profile.jpg',
   ]);
@@ -525,14 +531,15 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(free, '자유 러닝');
   expect(texts(free)).toContain('민락수변공원 입구');
   expect(texts(free)).toContain('GPS 양호');
-  // 운동 목표 (S15P31E105-517): the chip opens the goal cards; 페이서 works the pace out of a distance and a time.
+  // 자유 러닝 목표는 한 화면에서 거리·시간을 체크해 조합한다.
   expect(texts(free)).toContain('목표 설정');
   await press(free, '목표 설정');
-  for (const text of ['운동 목표', '목표 없음', '거리', '시간', '페이서']) {
+  for (const text of ['운동 목표', '선택하지 않으면 목표 없이 달려요', '거리', '시간']) {
     expect(texts(free)).toContain(text);
   }
   expect(texts(free)).not.toContain('칼로리');
-  await press(free, '페이서 목표');
+  await press(free, '거리 목표 선택');
+  await press(free, '시간 목표 선택');
   expect(texts(free)).toContain('거리와 시간으로 계산한 페이스');
   expect(texts(free)).toContain('6′00″/km');
   // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.

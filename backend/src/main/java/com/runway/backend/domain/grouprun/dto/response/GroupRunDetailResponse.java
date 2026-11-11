@@ -22,7 +22,18 @@ public record GroupRunDetailResponse(
         Integer groupGuidePaceSecPerKm,
         Cancellation cancellation,
         ComfortRange comfortRange,
-        MyFit myFit) {
+        MyFit myFit,
+        String groupPaceMode,
+        Integer aiRecommendedPaceSecPerKm,
+        PaceBasis paceBasis,
+        Boolean paceCalculating,
+        Integer slowerThanGoalCount) {
+
+    /**
+     * 적용 공동 페이스의 근거(S15P31E105-680). type: MEMBER(AI 추천 회원), GOAL(목표 페이스), MEDIAN(계산 전 중앙값 대체). nickname은
+     * AI 추천의 기준 회원이며 type이 GOAL이어도 AI 추천이 있으면 채운다.
+     */
+    public record PaceBasis(String type, String nickname) {}
 
     /**
      * 취소된 그룹런의 취소 정보(G03). 취소되지 않은 그룹은 응답의 {@code cancellation}이 null이다. {@code message}는 알림 전용이라 저장하지 않으므로 항상

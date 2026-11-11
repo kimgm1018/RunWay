@@ -35,6 +35,7 @@ import {
   type ExerciseUploadDeps,
 } from './samsungExerciseLoad';
 import { samsungExerciseNative } from './samsungExerciseNative';
+import { healthRecordsUploaded } from './healthRecordsUploaded';
 
 export const sleepUploadIntervalMs = 30 * 60 * 1000;
 
@@ -82,6 +83,40 @@ export function exerciseUploadDeps(
   };
 }
 
+// S15P31E105-675: the W06 uploads of Samsung Health, telling 2.1 to read today's readiness again once a request of this
+// run stored at least one new record (accepted). Nothing new, a failure or a run joined from another caller says nothing.
+export async function uploadSamsungHealthRecords(
+  native: SleepNative = samsungSleepNative,
+  heart: SleepNative = samsungHeartNative,
+  exercise: ExerciseNative = samsungExerciseNative,
+) {
+  let accepted = false;
+  const counted = <
+    T extends { send: (body: never) => Promise<SleepSyncResponse> },
+  >(
+    deps: T,
+  ): T => ({
+    ...deps,
+    send: (async (body: Parameters<T['send']>[0]) => {
+      const response = await deps.send(body);
+      if ((response?.acceptedCount ?? 0) > 0) {
+        accepted = true;
+      }
+      return response;
+    }) as T['send'],
+  });
+  try {
+    return await uploadSamsungHealth(
+      counted(sleepUploadDeps(native, heart)),
+      counted(exerciseUploadDeps(exercise)),
+    );
+  } finally {
+    if (accepted) {
+      healthRecordsUploaded();
+    }
+  }
+}
+
 // S15P31E105-572·600: Samsung Health sleep and the phone's resting heart rate go to W06 in one request while signed in
 // against the server: on sign-in, on returning to the foreground and every 30 minutes. S15P31E105-599: the exercise
 // heart rate summaries follow right after, never at the same time. Signing out clears the sent marks so the next
@@ -109,10 +144,7 @@ export function useSamsungSleepUpload(
       return;
     }
     const upload = () => {
-      void uploadSamsungHealth(
-        sleepUploadDeps(native, heart),
-        exerciseUploadDeps(exercise),
-      );
+      void uploadSamsungHealthRecords(native, heart, exercise);
     };
     upload();
     let previous = AppState.currentState;
@@ -232,10 +264,7 @@ export function useSamsungSleep(
           next.exercise === 'granted') &&
         appConfig.dataSource === 'api'
       ) {
-        void uploadSamsungHealth(
-          sleepUploadDeps(native, heart),
-          exerciseUploadDeps(exercise),
-        );
+        void uploadSamsungHealthRecords(native, heart, exercise);
       }
     } finally {
       if (mounted.current) {

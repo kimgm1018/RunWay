@@ -40,15 +40,17 @@ import { GlassIconButton } from '../../components/GlassIconButton';
 import { frostCard, recordsFrame, recordsLook } from '../records/look';
 import { StartBackground } from '../onboarding/StartScreen';
 import { kstDay, kstMonth } from '../records/parts';
-import {
-  CalendarPanel,
-  DateLine,
-  WeekStrip,
-} from '../records/DatePicker';
+import { CalendarPanel, DateLine, WeekStrip } from '../records/DatePicker';
 import { AnalysisPanel } from './AnalysisPanel';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
+import { onHealthRecordsUploaded } from '../../health/healthRecordsUploaded';
 import { RecordsPanel } from './RecordsPanel';
+import {
+  RevealTopContext,
+  revealOffset,
+  type RevealTop,
+} from '../records/revealTop';
 
 // 2.1 홈 (S15P31E105-564, 담당자 레퍼런스; S15P31E105-574 수정사항): 인사말, the date, what the menu shows, and the
 // menu over the tab bar. 준비도 is today only; 러닝 기록 and 러닝 분석 share one chosen date. 기록 상세 is a step inside
@@ -79,7 +81,12 @@ const loadToday = (repositories: Repositories) =>
   repositories.home.getTodayCondition();
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
-const loadWatch = (repositories: Repositories) => repositories.watch.getConnection();
+const loadWatch = (repositories: Repositories) =>
+  repositories.watch.getConnection();
+
+// S15P31E105-675: the server scores today after the uploaded health records are stored, on its own, so 2.1 reads
+// today's readiness again a short while after an upload and once more later, a bounded number of times.
+export const readinessRecheckDelaysMs = [2_000, 8_000];
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
 function Greeting({
@@ -254,7 +261,12 @@ function CardMessage({
   return (
     <View style={styles.message}>
       <View style={styles.messageIcon}>
-        <Icon name={icon} color={recordsLook.onCard} size={22} strokeWidth={1.7} />
+        <Icon
+          name={icon}
+          color={recordsLook.onCard}
+          size={22}
+          strokeWidth={1.7}
+        />
       </View>
       <AppText style={styles.messageTitle}>{title}</AppText>
       {description ? (
@@ -274,7 +286,15 @@ function CardMessage({
 }
 
 // 2.1 준비도 on a past day (S15P31E105-594): that day's score when it has one, else a line saying it has none.
-function DayReadiness({ day, today, watchReady }: { day: string; today: string; watchReady: boolean }) {
+function DayReadiness({
+  day,
+  today,
+  watchReady,
+}: {
+  day: string;
+  today: string;
+  watchReady: boolean;
+}) {
   const condition = useResource(
     useCallback(
       (repositories: Repositories) => repositories.home.getConditionOn(day),
@@ -303,7 +323,13 @@ function DayReadiness({ day, today, watchReady }: { day: string; today: string; 
       />
     );
   }
-  return <ReadinessPanel today={condition.data} todayDay={today} watchReady={watchReady} />;
+  return (
+    <ReadinessPanel
+      today={condition.data}
+      todayDay={today}
+      watchReady={watchReady}
+    />
+  );
 }
 
 export function HomeScreen() {
@@ -323,24 +349,52 @@ export function HomeScreen() {
   const watchReady = watch.status === 'ready' && isWatchReady(watch.data);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
   // (leaving 2.9 marks all read). The first focus is the first load.
+  // S15P31E105-675: today's readiness is read again on the same occasions (back to 2.1, back to the app), keeping the
+  // card on screen meanwhile and when that read fails.
   const refreshMe = me.refresh;
   const refreshNotifications = notifications.refresh;
   const reloadWatch = watch.reload;
+  const refreshCondition = condition.refresh;
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (focused.current) {
         void refreshMe();
         void refreshNotifications();
+        void refreshCondition({ keepOnError: true });
         reloadWatch();
       }
       focused.current = true;
+      let previous = AppState.currentState;
       const subscription = AppState.addEventListener('change', state => {
-        if (state === 'active') reloadWatch();
+        if (state === 'active') {
+          reloadWatch();
+          if (previous !== 'active') {
+            void refreshCondition({ keepOnError: true });
+          }
+        }
+        previous = state;
       });
       return () => subscription.remove();
-    }, [refreshMe, refreshNotifications, reloadWatch]),
+    }, [refreshMe, refreshNotifications, refreshCondition, reloadWatch]),
   );
+  // S15P31E105-675: once this phone's health records reached W06, read today's readiness again after the server had
+  // time to score it. A newer upload restarts the waits; nothing is read while no upload stored anything new.
+  useEffect(() => {
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    const stop = onHealthRecordsUploaded(() => {
+      timers.forEach(clearTimeout);
+      timers = readinessRecheckDelaysMs.map(ms =>
+        setTimeout(() => {
+          void refreshCondition({ keepOnError: true });
+        }, ms),
+      );
+    });
+    return () => {
+      stop();
+      timers.forEach(clearTimeout);
+    };
+  }, [refreshCondition]);
   // Notifications that did not load only leave the bell without its dot.
   const unread = (notifications.data?.unreadCount ?? 0) > 0;
 
@@ -356,6 +410,29 @@ export function HomeScreen() {
   };
 
   const card = useRef<ScrollView>(null);
+  // The card's own scroll position and content, so a card inside can ask to have its top shown (S15P31E105-689).
+  const cardScrollY = useRef(0);
+  const cardContent = useRef<View>(null);
+  const reduceCardMotion = useReduceMotion();
+  const revealTop = useCallback<RevealTop>(
+    target => {
+      const content = cardContent.current;
+      if (!target || !content) {
+        return;
+      }
+      target.measureLayout(
+        content,
+        (_x, y) => {
+          const to = revealOffset(y, cardScrollY.current);
+          if (to !== null) {
+            card.current?.scrollTo({ y: to, animated: !reduceCardMotion });
+          }
+        },
+        () => undefined,
+      );
+    },
+    [reduceCardMotion],
+  );
   // A run opens on 러닝 분석 on its own day (S15P31E105-594 담당자 결정: 기록 상세 화면은 없앰); a group run opens 6.7.
   const showRun = (runDay: string, id: string) => {
     setCalendar(false);
@@ -536,6 +613,10 @@ export function HomeScreen() {
             ref={card}
             contentContainerStyle={styles.cardContent}
             showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={event => {
+              cardScrollY.current = event.nativeEvent.contentOffset.y;
+            }}
             refreshControl={
               <RefreshControl
                 refreshing={pending > 0}
@@ -545,25 +626,29 @@ export function HomeScreen() {
               />
             }
           >
-            {menu === 'records' ? (
-              <FadeIn appearKey="month">
-                <RecordsPanel day={day} onOpen={openRun} />
-              </FadeIn>
-            ) : (
-              <FadeIn appearKey={menu}>
-                {menu === 'readiness' ? (
-                  readiness
+            <RevealTopContext.Provider value={revealTop}>
+              <View ref={cardContent} collapsable={false}>
+                {menu === 'records' ? (
+                  <FadeIn appearKey="month">
+                    <RecordsPanel day={day} onOpen={openRun} />
+                  </FadeIn>
                 ) : (
-                  <AnalysisPanel
-                    day={day}
-                    runId={runId}
-                    onRun={setRunId}
-                    onOpen={openRun}
-                    onShowList={() => pickMenu('records')}
-                  />
+                  <FadeIn appearKey={menu}>
+                    {menu === 'readiness' ? (
+                      readiness
+                    ) : (
+                      <AnalysisPanel
+                        day={day}
+                        runId={runId}
+                        onRun={setRunId}
+                        onOpen={openRun}
+                        onShowList={() => pickMenu('records')}
+                      />
+                    )}
+                  </FadeIn>
                 )}
-              </FadeIn>
-            )}
+              </View>
+            </RevealTopContext.Provider>
           </ScrollView>
         </View>
         <MenuBar value={menu} onChange={pickMenu} />
@@ -639,7 +724,12 @@ const styles = StyleSheet.create({
   },
   cardContent: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 },
   loading: { marginTop: 120 },
-  message: { alignItems: 'center', gap: 10, paddingHorizontal: 24, paddingVertical: 96 },
+  message: {
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 96,
+  },
   messageIcon: {
     width: 56,
     height: 56,

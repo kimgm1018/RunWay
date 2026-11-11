@@ -14,7 +14,7 @@
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
 | `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
-| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
+| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master ARM64 debug·release APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh`, `jenkins/update-git-reference.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
 | `jenkins/Jenkinsfile.backend` | dev·master 대상 MR의 임시 병합 검사·테스트·JAR 생성 |
@@ -133,12 +133,22 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 ### 백엔드
 
 - **MR 검사:** 백엔드 변경 시 통합 CI에서 검사·테스트·JAR 빌드를 수행한다.
+  체크아웃은 `backend/`·`docs/design/db/`·`ai/service/tests/fixtures/`·`infra/jenkins/`만 풀고, Git 객체는 백엔드 에이전트 참조 저장소에서
+  재사용한다. `backend/`와 함께 위 `docs/design/db/`·`ai/service/tests/fixtures/`만 바뀐 MR도 백엔드를 검사한다.
+  `./gradlew --no-daemon --build-cache --init-script ../ci-no-test-cache.gradle clean build`는 컴파일 결과만 에이전트 Gradle 빌드 캐시
+  (`~/.gradle/caches/build-cache-1`)에서 재사용한다. init script는 Jenkinsfile이 만들어 모든 Test 태스크의 캐시를 막으므로,
+  검사하는 코드(master 대상 MR 등)의 `build.gradle`과 관계없이 DB 통합 테스트를 포함한 전체 테스트를 매번 실행한다.
+  `~/.gradle`은 영속 볼륨이 아니라 에이전트 컨테이너를 다시 만들면 캐시가 비고 첫 실행만 전체 컴파일한다.
+  캐시가 의심되면 백엔드 에이전트에서 해당 폴더를 지운다. 다음 실행은 캐시 없이 전체 컴파일하며 결과는 같다.
 - **배포:** `runway-backend-cd`는 SCM `*/dev`의 `infra/jenkins/Jenkinsfile.backend-cd`를 사용하며 master Push로 배포한다.
   이미지 교체에 실패하면 이전 이미지로 복구한다.
 - **결과·보관:** JUnit 결과와 JAR을 보관한다. 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답을 확인한다.
   상태 API는 컨테이너 루프백 8082에만 제공한다.
 - **설정·주의:** 새 배포는 항상 readiness로 검사한다. 이미지 롤백은 DB 마이그레이션을 되돌리지 않는다.
   검사 이미지 `python:3.12-alpine`은 기존 서비스 교체 전에 준비한다.
+  장소 검색은 배포 전에 EC2의 `~/runway/secrets/backend/place-search.env`를 준비한다. 파일 소유자는 `10001:10001`, 권한은 `400`으로 설정한다.
+  [백엔드 README](../backend/README.md)의 장소 검색 변수 5개를 줄마다 `이름=값` 형식으로 입력한다. 값에 따옴표는 붙이지 않는다.
+  API HUB·Maps 키 4개를 모두 채운 뒤 `BACKEND_PLACE_SEARCH_ENABLED=true`로 켠다. 키 준비 전에는 `false`로 둔다.
 
 최초 readiness 전환 때만 `BACKEND_LEGACY_HEALTH_IMAGE_ID`에 기존 컨테이너의 정확한 `sha256:...` 이미지 ID를 지정할 수 있다.
 해당 이미지의 배포 전·복구 검사에만 기존 시작 로그·404 확인을 허용하며, 미설정·ID 불일치 시 우회하지 않는다.
@@ -149,8 +159,8 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 - **MR 검사:** 타입·린트·전체 Jest는 매번 실행한다. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 소스만
   바뀌면 APK 대신 Android 릴리스 JS 번들을 생성한다(`Mobile JS Bundle`). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀌면
   APK·JS 번들을 모두 생략한다. 네이티브·의존성·빌드 설정·그 밖의 프론트엔드 경로 변경과 공통 설정 변경·수동 검사는 APK를 빌드한다.
-- **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug APK를 생성·보관한다.
-  정식 출시 서명·스토어 배포는 제외하며 x86 에뮬레이터·32비트 기기는 대상이 아니다.
+- **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug·release APK를 생성·보관한다.
+  랜딩 배포에는 팀 테스트 서명을 사용한다. 대상은 ARM64 안드로이드 폰이다.
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
   Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
   Jest는 MR·master 작업 모두 에이전트 CPU 상한에 맞춘 워커 2개(`--maxWorkers=2`)로 전체 테스트를 실행한다.
@@ -170,15 +180,24 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 ### 워치
 
 - **MR 검사:** 제품 `wear/app`의 단위 테스트·Lint·debug APK를 검사한다. 실험용 `wear/demo`·기기 연결 테스트는 별도다.
-- **배포:** `runway-watch-apk`는 `infra/jenkins/Jenkinsfile.watch-apk`로 master Push 후 제품 APK를 생성·보관한다.
+- **배포:** `runway-watch-apk`는 `infra/jenkins/Jenkinsfile.watch-apk`로 master Push 후 제품 워치 debug·release APK를 생성·보관한다.
 - **결과·보관:** JUnit·Lint·Gradle profile과 단계별 시간(`build-time-<단계>.txt`)을 보관한다.
   SDK·작업·Gradle 캐시는 모바일과 분리한다.
 - **설정·주의:** 테스트·Lint·APK는 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료한다.
   Kotlin도 같은 데몬 안에서 컴파일하며, 정리 단계가 실행되지 못하면 데몬은 10분 유휴 후 종료한다.
   체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 받고 작업 폴더는 매번 비운다.
 
-워치 참조 저장소는 `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`이다.
-`update-git-reference.sh`가 체크아웃 직후 갱신해 새 Git 객체만 받으며, 참조 저장소 손상 시 지운 뒤 참조 없이 한 번 더 체크아웃한다.
+### Git 참조 저장소(워치·통합 CI 준비·백엔드)
+
+참조 저장소는 각 에이전트 작업 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`이며 에이전트끼리 공유하지 않는다.
+워치 검사는 `watch_agent_work`, 백엔드 검사는 `backend_agent_work` 볼륨의 참조 저장소를 쓴다.
+준비(Prepare) 단계는 먼저 비는 검사 노드(`backend || mobile || watch || ai`)에서 실행되므로 그 노드 볼륨의 참조 저장소를 쓴다.
+노드마다 executor가 1개라 한 노드의 참조 저장소를 두 실행이 동시에 갱신하지 않는다.
+`update-git-reference.sh`가 체크아웃 직후 갱신해 다음 실행은 새 Git 객체만 받는다. 이 스크립트가 없는 오래된 MR 코드는 갱신만 건너뛴다.
+참조 체크아웃이 실패하면(중단·시간 초과 제외) 참조 저장소 이름을 바꾼 뒤 지우고 참조 없이 한 번 더 체크아웃한다.
+준비 단계는 변경 파일 확인·병합 검사를 위해 전체를 풀고, 백엔드 검사는 "백엔드" 절의 경로만 푼다.
+참조 저장소는 자동 gc를 끄고 객체를 추가만 하므로 계속 커진다. 크기가 문제되면 진행 중인 CI가 없을 때 폴더를 지운다.
+다음 실행이 원격에서 전체를 받아 다시 만든다.
 
 ### AI
 
@@ -223,6 +242,25 @@ curl -s https://k15e105.p.ssafy.io/ | sha256sum
 
 두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
 `nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
+
+### 랜딩 폰·워치 APK 갱신
+
+master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼저 보관한다. 공개용 release APK는 폰 `artifacts/runway.apk`, 워치 `artifacts/runway-watch.apk`로 추가 보관하며 랜딩에 복사하는 대상이다. 두 빌드 유형은 같은 팀 테스트 서명을 사용하고, 버전 코드는 각 작업의 Jenkins 빌드 번호를 사용한다.
+
+EC2의 갱신 작업은 `runway-mobile-apk`와 `runway-watch-apk`의 마지막 성공 빌드를 확인한다. SHA-256이 일치한 APK만 각각 `/downloads/runway.apk`와 `/downloads/runway-watch.apk`에 반영한다. Jenkins 산출물 경로와 공개 다운로드 경로는 각각 인증·정적 파일 응답으로 제공한다.
+
+최초 적용 시 EC2의 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.
+
+```bash
+sudo install -d -m 0755 frontend/landing/downloads /usr/local/libexec
+sudo install -m 0644 infra/jenkins/publish-apks.py /usr/local/libexec/runway-publish-apks.py
+sudo install -m 0644 infra/jenkins/runway-publish-apks.service infra/jenkins/runway-publish-apks.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now runway-publish-apks.timer
+sudo systemctl start runway-publish-apks.service
+```
+
+운영 Nginx 설정을 적용하고 `nginx -t`를 통과한 뒤 reload한다. 첫 release 빌드가 성공하면 랜딩과 Jenkins에서 내려받은 APK의 SHA-256이 같은지 확인한다. 폰과 워치의 APK를 각각 설치하고 기기 간 연결을 확인한다.
 
 ## 폰·워치 연결 검증
 
@@ -286,3 +324,13 @@ python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로
 
 참고: [PostgreSQL 17](https://www.postgresql.org/docs/17/backup-dump.html) · [ThinBackup](https://plugins.jenkins.io/thinBackup/) ·
 [Jenkins 백업 기준](https://www.jenkins.io/doc/book/system-administration/backing-up/) (2026-11-02 확인, GPG 2.4.4).
+
+## 컨테이너 모니터링
+
+EC2의 systemd 타이머가 Docker에서 컨테이너별 CPU·메모리와 Nginx·백엔드 로그를 읽는다. 지표는 Node Exporter가 읽는 `containers.prom`에 저장하고, 로그는 Nginx의 요청 방식·상태 코드와 백엔드의 경고 등급·로거 이름만 남긴다. Alloy는 가공된 로그 폴더만 읽어 Loki로 전달한다.
+
+Compose 실행 전에 `collect-container-observability.py`를 `/usr/local/libexec/runway/`에, `runway-container-observability.{service,timer}`를 `/etc/systemd/system/`에 설치한다. `sudo systemctl daemon-reload` 후 `sudo systemctl start runway-container-observability.service`로 첫 수집을 확인하고 `sudo systemctl enable --now runway-container-observability.timer`로 예약한다. 새 서버에서는 `runway-monitoring_alloy_data` 볼륨의 데이터 디렉터리를 Alloy 실행 계정(UID/GID 473)이 쓸 수 있도록 준비한다.
+
+API 경로 목록은 백엔드 통합 테스트가 실제 Spring MVC 등록 정보에서 `build/generated/monitoring/api-routes.json`으로 추출한다. CD는 이 파일로 Nginx 분류와 수집기 허용 목록을 함께 갱신하며, 배포 실패 시 이전 목록을 복구한다. 경로 문법을 지원하지 않으면 배포 전에 차단한다.
+
+최초 적용 전 EC2에 `/var/lib/runway-monitoring/routes`를 준비하고, 검증한 목록으로 `route_catalog.py`의 `install` 동작을 실행해 초기 버전을 생성한다. Nginx에는 이 폴더만 `/etc/nginx/runway-routes`로 읽기 전용 연결한다. 이후 목록은 CD가 관리하며, 미등록 주소는 `unknown`으로 표시한다.

@@ -128,6 +128,7 @@ test('M01 searches by name and maps membership and region', async () => {
     capacity: 30,
     memberCount: 3,
     myMembership: 'MEMBER',
+    imageUrl: null,
   });
   expect(found.map(item => [item.area, item.myMembership])).toEqual([
     ['부산 수영구', 'MEMBER'],
@@ -186,6 +187,7 @@ test('M01 stays empty when /regions omits items instead of crashing the list', a
       capacity: 30,
       memberCount: 3,
       myMembership: null,
+      imageUrl: null,
     },
   ]);
 });
@@ -235,6 +237,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: true,
       isMe: true,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
     {
       userId: '9',
@@ -242,6 +245,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: false,
       isMe: false,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
     {
       userId: '12',
@@ -249,6 +253,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: false,
       isMe: false,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
   ]);
 });
@@ -300,6 +305,27 @@ test('M04 on a 바로 가입 crew makes me a member at once', async () => {
   await expect(api().crews.requestJoin('45')).resolves.toBe('MEMBER');
 });
 
+// M13 (S15P31E105-678): the waiting request is deleted, and a decided one answers NOT_PENDING.
+test('M13 withdraws my waiting join request', async () => {
+  let called = false;
+  serve((path, init) => {
+    if (path === '/crews/44/join-requests/me' && init.method === 'DELETE') {
+      called = true;
+      return respond(204, undefined);
+    }
+    return undefined;
+  });
+  await expect(api().crews.cancelJoinRequest('44')).resolves.toBeUndefined();
+  expect(called).toBe(true);
+});
+
+test('M13 on a decided request passes NOT_PENDING on', async () => {
+  serve(() => respond(409, { code: 'NOT_PENDING', message: '', details: {} }));
+  await expect(api().crews.cancelJoinRequest('44')).rejects.toMatchObject({
+    code: 'NOT_PENDING',
+  });
+});
+
 test('a refused join policy change reaches the screen', async () => {
   serve((path, init) =>
     path === '/crews/42' && init.method === 'PATCH'
@@ -346,6 +372,7 @@ test('M05 requests keep only the nickname and the time', async () => {
       recent5kPaceSecPerKm: null,
       firstCrew: false,
       requestedAt: '2026-11-02T01:00:00Z',
+      profileImageUrl: null,
     },
   ]);
 });
@@ -620,6 +647,7 @@ test('M10 lists my crews with members before waiting requests', async () => {
       area: '부산 수영구',
       memberCount: 3,
       membership: 'MEMBER',
+      imageUrl: null,
     },
     {
       id: '44',
@@ -627,6 +655,7 @@ test('M10 lists my crews with members before waiting requests', async () => {
       area: '지역 미정',
       memberCount: 5,
       membership: 'PENDING',
+      imageUrl: null,
     },
   ]);
 });

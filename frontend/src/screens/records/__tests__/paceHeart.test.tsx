@@ -1,8 +1,16 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { ToastProvider } from '../../../components';
 import type { RunRecordDetail, RunSplit } from '../../../data';
 import { compareWithGoal, kmBands, measured } from '../paceHeart';
 import { goalLine, RecordView } from '../RecordView';
+import { RevealTopContext, revealOffset } from '../revealTop';
+
+// The card's 목표와 비교하기 toasts on a run without a target (S15P31E105-685), so it renders inside the toast layer.
+jest.mock(
+  'react-native-safe-area-context',
+  () => require('react-native-safe-area-context/jest/mock').default,
+);
 
 // S15P31E105-615: 2.1 홈 러닝 분석 — a card that turns: 앞면 러닝 결과 (both lines by km, the figures), 뒷면 목표와 비교
 // (the API's splits against the run's own target pace, ±10초/km). Values are synthetic.
@@ -159,16 +167,22 @@ const record = (change: Partial<RunRecordDetail> = {}): RunRecordDetail => ({
 
 async function card(change: Partial<RunRecordDetail> = {}) {
   const onOpen = jest.fn();
+  // The home card's scroll, asked to show the card's top after a turn (S15P31E105-689).
+  const revealTop = jest.fn();
   let screen!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     screen = TestRenderer.create(
-      <RecordView
-        layout="home"
-        record={record(change)}
-        chartHeight={0}
-        onOpen={onOpen}
-        openLabel="아침 러닝 열기"
-      />,
+      <ToastProvider>
+        <RevealTopContext.Provider value={revealTop}>
+          <RecordView
+            layout="home"
+            record={record(change)}
+            chartHeight={0}
+            onOpen={onOpen}
+            openLabel="아침 러닝 열기"
+          />
+        </RevealTopContext.Provider>
+      </ToastProvider>,
     );
   });
   const faceOf = (testID: string) =>
@@ -198,6 +212,7 @@ async function card(change: Partial<RunRecordDetail> = {}) {
   return {
     screen,
     onOpen,
+    revealTop,
     press,
     front: () => faceOf('flip-front'),
     back: () => faceOf('flip-back'),
@@ -284,6 +299,34 @@ test('without a target pace the back says so and shows no figures or verdicts', 
     expect(words).not.toContain(text);
   }
   expect(words.join(' ')).not.toContain('범위 안');
+});
+
+// S15P31E105-685: nothing to compare, so 목표와 비교하기 keeps the card on its front and a toast says why.
+test('without a target pace 목표와 비교하기 does not turn the card and says there is no target', async () => {
+  const { screen, front, back, press } = await card({
+    targetPaceSecPerKm: null,
+  });
+  await press('목표와 비교하기');
+  expect(front().props.pointerEvents).toBe('auto');
+  expect(back().props.pointerEvents).toBe('none');
+  const shown = screen.root
+    .findAll(node => typeof node.props.children === 'string')
+    .map(node => node.props.children as string);
+  expect(shown).toContain(
+    '목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요',
+  );
+});
+
+test('with a target pace there is no such toast and the card turns', async () => {
+  const { screen, front, press } = await card();
+  await press('목표와 비교하기');
+  expect(front().props.pointerEvents).toBe('none');
+  const shown = screen.root
+    .findAll(node => typeof node.props.children === 'string')
+    .map(node => node.props.children as string);
+  expect(shown).not.toContain(
+    '목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요',
+  );
 });
 
 test('a run without heart rate keeps the pace comparison and says the heart rate was not measured', async () => {
@@ -397,4 +440,32 @@ test('뒷면 막대: a split faster than the target rises above the target line,
   expect(faster.props.y).toBeLessThan(middle);
   // Slower: the bar starts at the line and runs down.
   expect(slower.props.y).toBeCloseTo(middle);
+});
+
+// S15P31E105-689: the turn buttons sit at each face's foot, so a turn asks the home scroll to show the card's top.
+test('each turn asks the scroll to show the card top; a run without a target does not', async () => {
+  jest.useFakeTimers();
+  const { revealTop, press } = await card();
+  await press('목표와 비교하기');
+  expect(revealTop).toHaveBeenCalledTimes(1);
+  expect(revealTop.mock.calls[0][0]).not.toBeNull();
+  await act(async () => {
+    jest.advanceTimersByTime(500);
+  });
+  await press('러닝 결과 보기');
+  expect(revealTop).toHaveBeenCalledTimes(2);
+  jest.useRealTimers();
+
+  const noGoal = await card({ targetPaceSecPerKm: null });
+  await noGoal.press('목표와 비교하기');
+  expect(noGoal.revealTop).not.toHaveBeenCalled();
+});
+
+test('the scroll moves only when the card top is above the view', () => {
+  // Top already shown below the current position: stay.
+  expect(revealOffset(400, 300)).toBeNull();
+  expect(revealOffset(300, 300)).toBeNull();
+  // Scrolled past the top: back to it with a little room, never above the content.
+  expect(revealOffset(400, 900)).toBe(388);
+  expect(revealOffset(5, 600)).toBe(0);
 });

@@ -17,6 +17,7 @@ def test_samples_use_current_policy_and_candidates(tmp_path):
     assert any(c["passed"] is False for t in with_candidates for c in t["candidates"])        # 탈락 후보가 보인다
     assert any(t["decision"]["reason"] == "SLOW_DOWN_HR" for t in personal["traces"] if t["decision"])
     assert [c["deltaSecPerKm"] for c in group["traces"][0]["group"]["candidates"]] == list(DELTAS)
+    assert len(group["traces"][0]["group"]["members"]) == 2                               # 시연 인원 2명이 기본
     assert personal["snapshot"]["course"]["points"]                                        # 코스 지도가 있다
     index = (tmp_path / "index.js").read_text(encoding="utf-8")
     names = json.loads(index.split("=", 1)[1].rstrip().rstrip(";"))

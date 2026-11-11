@@ -83,6 +83,8 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | `AI_DB_URL` | (없음) | 개인 계획과 AI04 학습 기준 조회에 쓰는 PostgreSQL **읽기 전용** 접속 문자열. AI04 학습 기준 조회는 실패해도 일반화 기준으로 계속 판단한다(`HR_THRESHOLD_LOOKUP_UNAVAILABLE`). 값이 아예 없으면 설정상 DB 없음으로 보고 경고 없이 일반화 기준을 쓰며 시작 로그에만 한 번 남긴다. 개인 계획 DB 오류는 503이다. GRU 개인화 DB 조회는 스위치가 켜져 있고 DB 주소가 있을 때만 사용한다. 주소·비밀번호는 로그에 남기지 않는다. |
 | `GRU_PERSONALIZATION_ENABLED` | `false` | AI06 GRU head 계산과 AI03/AI04 GRU 개인 출력층 사용 스위치. 꺼져 있으면 AI06은 head를 계산하지 않고 `null`과 `GRU_PERSONALIZATION_DISABLED`를 반환한다. AI03/AI04는 `userId`가 와도 조회·경고·호출별 로그 없이 기본 GRU로 예측하고 `hrPersonalized=false`만 돌려준다(시작 로그 한 번). 켰는데 DB 주소가 없거나 조회에 실패하면 `GRU_PERSONALIZATION_UNAVAILABLE` 등 경고를 붙인다. |
 | `GRU_PERSONALIZATION_MAX_WINDOWS` | `2000` | GRU 개인화 학습에 사용할 최대 window 수. 최신 러닝부터 선택한다. 상한을 넘는 과거 window는 계산에서 빠져 결과가 달라질 수 있다. |
+| `GRU_GB_PERSONALIZATION_ENABLED` | `false`(코드) / `true`(배포 compose) | ODE식 GRU 개인 보정 g·b 스위치(S15P31E105-641). 켜면 AI06이 기본 GRU의 과거 런 예측으로 `pred' = hr0 + g·(pred − hr0) + b`의 g(0.5~2.0)·b(±8 bpm)를 최소제곱으로 맞추고 n/(n+50)로 줄여 `summaryU` 안 `gruGain`·`gruOffsetBpm`·`gruSupportN`으로 돌려준다(백엔드는 summaryU를 그대로 저장, ODE는 27개 이름만 읽음). AI04·AI10은 학습 심박 기준선과 같은 행(같은 조회)에서 두 값을 읽어 기본 GRU 출력에 적용한다(AI10은 회원별). 값이 없거나 범위 밖이면 보정 없음. 꺼져 있으면 계산·적용을 하지 않아 출력이 이전과 같다. 개인화 head(`GRU_PERSONALIZATION_ENABLED`) 출력에는 적용하지 않는다. |
+| `GRU_GB_MAX_WINDOWS` | `3000` | AI06 g·b 계산에 쓰는 최대 window 수. 최신 러닝부터 고르고 상한에 닿으면 더 오래된 러닝은 쓰지 않는다(`gruSupportN` = 쓴 러닝 수). |
 | `GRU_PERSONALIZATION_CACHE_TTL_SEC` | `300` | 사용자 GRU head 캐시 시간(초) |
 | `GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC` | `60` | 개인화 행 없음·테이블 없음 캐시 시간(초) |
 | `GRU_PERSONALIZATION_CACHE_MAX_USERS` | `1024` | 메모리 캐시 최대 사용자 수 |

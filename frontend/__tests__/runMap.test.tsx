@@ -6,6 +6,7 @@ import {
   RunMap,
   zoomFor,
 } from '../src/components/RunMap';
+import { darkMapLook } from '../src/components/mapRoute';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -98,6 +99,61 @@ test('a card map (compact) is a lite map with small poles; a screen map is not',
   expect(
     screen.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
   ).toBe(false);
+});
+
+test('a compact tilted map keeps its building layer out of lite mode', () => {
+  const root = render(<RunMap route={route} compact view="lean" />);
+  const map = root.find(
+    node => 'layerGroups' in node.props && 'buildingHeight' in node.props,
+  );
+  expect(map.props.layerGroups.BUILDING).toBe(true);
+  expect(map.props.buildingHeight).toBe(1);
+  expect(map.props.isLiteModeEnabled).toBe(false);
+});
+
+// S15P31E105-672 review: on the dark tilted map the course under a run is a dim, thinner guide with a grey edge,
+// so only the run reads as the mint line.
+test('while running on a tilted map the course is a dim, thin guide under the mint run', () => {
+  const root = render(
+    <RunMap route={route} trail={route.slice(0, 2)} view="heading" />,
+  );
+  const [guide] = overlays(root, 'naver-map-multipath');
+  const run = overlays(root, 'naver-map-path').find(props => props.zIndex === 2);
+  expect(run?.outlineColor).toBe(darkMapLook.ribbon);
+  expect(guide.pathParts[0].outlineColor).toBe(darkMapLook.guideOutline);
+  expect(guide.pathParts[0].outlineColor).not.toBe(run?.outlineColor);
+  expect(guide.pathParts[0].color).toBe(darkMapLook.guide);
+  expect(guide.width).toBeLessThan(run?.width);
+  expect(guide.outlineWidth).toBeLessThan(run?.outlineWidth);
+});
+
+// S15P31E105-691: the dark map's course line is the designated neon mint, as on the feed, not the 672 lime.
+test('the dark map course line is the designated neon mint', () => {
+  expect(darkMapLook.ink).toBe('#4DFFD2');
+  expect(darkMapLook.ribbon).toBe('#B3FFEC');
+  expect([darkMapLook.shadow, darkMapLook.glowInner, darkMapLook.glowOuter]).toEqual([
+    '#00785A',
+    '#00785A',
+    '#003A2C',
+  ]);
+});
+
+// S15P31E105-691: the dark map's lines sit halfway between 672's and the running screen's 8.8 dp centre with a
+// 1.6 dp edge, so the border reads thinner.
+test('the dark map lines are halfway to the running screen line', () => {
+  const replayEdge = (darkMapLook.glowOuterWidth - darkMapLook.coreWidth) / 2;
+  expect(darkMapLook.coreWidth).toBeCloseTo((5 + 8.8) / 2, 1);
+  expect(replayEdge).toBeCloseTo(((24 - 5) / 2 + 1.6) / 2, 1);
+  expect(darkMapLook.coreWidth + 2 * darkMapLook.coreEdge).toBeLessThan(
+    darkMapLook.glowInnerWidth,
+  );
+  expect(darkMapLook.glowInnerWidth).toBeLessThan(darkMapLook.glowOuterWidth);
+  const detailEdge = (darkMapLook.shadowWidth - darkMapLook.centre) / 2;
+  expect(darkMapLook.centre).toBeCloseTo((3.2 + 8.8) / 2, 1);
+  expect(detailEdge).toBeCloseTo(((12 - 3.2) / 2 + 1.6) / 2, 1);
+  expect(darkMapLook.centre + 2 * darkMapLook.edge).toBeLessThan(
+    darkMapLook.shadowWidth,
+  );
 });
 
 test('a cancelled course is grey and casts no shadow', () => {

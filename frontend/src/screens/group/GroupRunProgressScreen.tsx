@@ -33,8 +33,8 @@ import {
   type MusicCommand,
 } from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
-import { FooterButton } from './GroupRunDetailScreen';
 import { groupTone, NumText } from './look';
+import { ColorBar, stand, StandButton, standingBarColor } from './stand';
 import { MissingTarget } from './MissingTarget';
 
 type Tab = 'summary' | 'group';
@@ -98,7 +98,7 @@ function GroupPage({
   return (
     <View style={styles.page}>
       {live?.loadAlert ? <LoadAlert alert={live.loadAlert} /> : null}
-      <View style={styles.tile}>
+      <View style={styles.guide}>
         <AppText style={styles.label}>
           {guide === goal ? '공동 목표 페이스' : '지금 안내 페이스'}
         </AppText>
@@ -132,7 +132,7 @@ function GroupPage({
       </View>
       {/* 조회 상태 (S15P31E105-594 담당자 시안): the line on a tile with an icon before it. */}
       {liveError ? (
-        <View style={[styles.tile, styles.noteRow]}>
+        <View style={[styles.errorRow, styles.noteRow]}>
           <Icon name="alert" color={liveLook.sub} size={18} />
           <AppText
             style={[styles.sub, styles.flex]}
@@ -143,7 +143,7 @@ function GroupPage({
         </View>
       ) : null}
       {live ? (
-        <View style={[styles.tile, styles.table]}>
+        <View style={styles.table}>
           <View style={[styles.row, styles.headRow]}>
             <AppText style={[styles.head, styles.flex]}>
               순위 · 최신 현황
@@ -171,9 +171,10 @@ function GroupPage({
                   member.isMe && styles.meRow,
                 ]}
               >
-                <NumText
-                  text={role}
-                  style={[styles.role, member.isMe && styles.mint]}
+                <NumText text={role} style={styles.role} />
+                <ColorBar
+                  color={standingBarColor(index, rows.length)}
+                  style={styles.bar}
                 />
                 <AppText
                   style={[styles.name, styles.flex, member.isMe && styles.mint]}
@@ -447,6 +448,7 @@ function GroupRunProgressContent({
       history,
       rival: null,
       guidance: null,
+      group: true,
     }),
     {
       key: 'group',
@@ -467,6 +469,7 @@ function GroupRunProgressContent({
       <RunLiveFrame
         // A long course name shrinks in the title; the group size keeps its own line.
         title={config.plan ? config.plan.name : '그룹런'}
+        group
         status={statusOf(mode)}
         subtitle={`그룹런 ${live?.members.length ?? 1}명`}
         pages={pages}
@@ -480,6 +483,7 @@ function GroupRunProgressContent({
             trailParts={trailParts ?? undefined}
             area={area}
             logo={logo}
+            group
           />
         )}
         mapSummary={[
@@ -547,32 +551,37 @@ function GroupRunProgressContent({
             onResume={resume}
             onFinish={toResult}
             finishHint="종료는 1초 길게 · 내 기록만 끝나요"
+            group
           />
         }
       />
       {/* 그룹 전체 종료 확인, centred as in 담당자 시안 (S15P31E105-594 담당자 시안): the red pink alert, the question, the
           line, then 돌아가기 and 전체 종료 side by side. */}
-      <BottomSheet visible={confirming} onClose={() => setConfirming(false)}>
-        <View
-          style={[styles.sheetIcon, { backgroundColor: groupTone.dangerSoft }]}
-        >
-          <Icon name="alert" color={groupTone.danger} size={22} />
+      <BottomSheet
+        visible={confirming}
+        onClose={() => setConfirming(false)}
+        background={stand.sheet}
+      >
+        <View style={[styles.sheetIcon, { backgroundColor: stand.dangerFill }]}>
+          <Icon name="alert" color={stand.danger} size={22} />
         </View>
-        <AppText
-          variant="title"
-          accessibilityRole="header"
-          style={styles.sheetTitle}
-        >
+        <AppText accessibilityRole="header" style={styles.sheetTitle}>
           그룹런을 모두 끝낼까요?
         </AppText>
-        <AppText variant="body" tone="textSecondary" style={styles.center}>
+        <AppText style={styles.sheetText}>
           달리고 있는 멤버의 기록도 지금까지로 끝나요. 완주로 바뀌지는 않아요.
         </AppText>
         <View style={styles.sheetButtons}>
-          <FooterButton title="돌아가기" onPress={() => setConfirming(false)} />
-          <FooterButton
+          <StandButton
+            title="돌아가기"
+            tone="outline"
+            style={styles.flex}
+            onPress={() => setConfirming(false)}
+          />
+          <StandButton
             title="전체 종료"
-            danger
+            tone="danger"
+            style={styles.flex}
             onPress={async () => {
               if (finishing.current || !run.config.groupRunId) {
                 return;
@@ -613,121 +622,141 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { textAlign: 'center' },
   ground: { backgroundColor: liveLook.ground },
-  page: { flex: 1, paddingHorizontal: 20, gap: 12 },
-  tile: {
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: liveLook.tile,
-    gap: 6,
-  },
+  page: { flex: 1, paddingHorizontal: 19, gap: 12 },
+  // 그룹런 시안 (S15P31E105-673): the guide pace in mint, big, over a line and the spread.
+  guide: { gap: 4 },
   label: {
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: liveLook.sub,
+    color: stand.mint,
   },
   bigLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  // Group screen numbers in Archivo (S15P31E105-662).
-  // The guide pace in the 시안's mint (S15P31E105-594 담당자 시안); the run screen is dark, so mint digits read.
   big: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 48,
-    lineHeight: 54,
-    color: groupTone.accent,
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 54,
+    lineHeight: 64,
+    letterSpacing: -1.5,
+    color: stand.mint,
   },
   bigUnit: {
-    fontFamily: fontFamily.numberSemiBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 18,
     lineHeight: 22,
-    color: liveLook.muted,
+    color: stand.sub,
   },
   sub: {
     fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 20,
-    color: liveLook.sub,
+    fontSize: 13,
+    lineHeight: 19,
+    color: stand.sub,
   },
   spread: {
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 21,
-    color: liveLook.sub,
+    color: stand.text,
   },
-  warn: { color: liveLook.paused },
-  rule: { height: 1, marginVertical: 4, backgroundColor: liveLook.line },
+  warn: { color: stand.danger },
+  rule: { height: 1, marginVertical: 8, backgroundColor: stand.line },
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  errorRow: {
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: stand.field,
+  },
   alert: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     padding: 14,
-    borderRadius: 18,
-    backgroundColor: groupTone.dangerSoft,
+    borderRadius: 10,
+    backgroundColor: stand.dangerFill,
   },
   alertTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: liveLook.text,
+    color: stand.text,
   },
-  // The table runs edge to edge in its tile, its rows a line apart.
-  table: { paddingVertical: 4, gap: 0 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40 },
-  headRow: { minHeight: 34 },
-  rowLine: { borderTopWidth: 1, borderTopColor: liveLook.line },
-  // My row lit as in the 시안: a faint mint band with my place, name and pace in mint; a member ahead (↑) in mint.
+  // The standings as a table: its head over a heavier line, a thin line under each member.
+  table: {},
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 54,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
+  },
+  headRow: {
+    minHeight: 32,
+    gap: 8,
+    borderBottomColor: stand.rule,
+  },
+  rowLine: {},
+  // My row lit in mint, reaching 10 past the page's sides.
   meRow: {
-    marginHorizontal: -14,
-    paddingHorizontal: 14,
-    backgroundColor: groupTone.accentSoft,
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    backgroundColor: stand.meFill,
+    borderBottomColor: stand.meLine,
   },
-  mint: { color: groupTone.accent },
+  mint: { color: stand.mint },
   head: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
+    fontFamily: fontFamily.regular,
+    fontSize: 13.5,
     lineHeight: 18,
-    color: liveLook.muted,
+    color: stand.sub,
   },
   role: {
-    width: 44,
+    width: 56,
     fontFamily: fontFamily.bold,
     fontSize: 14,
-    lineHeight: 18,
-    color: liveLook.sub,
+    lineHeight: 19,
+    color: stand.text,
   },
+  bar: { marginRight: 12 },
   name: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: liveLook.text,
+    fontFamily: fontFamily.black,
+    fontSize: 18.5,
+    lineHeight: 25,
+    color: stand.text,
   },
   value: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: liveLook.text,
+    fontFamily: fontFamily.resultExtraBold,
+    fontSize: 16.5,
+    lineHeight: 22,
+    color: stand.text,
     textAlign: 'right',
   },
   gapCol: { width: 100, textAlign: 'right' },
-  paceCol: { width: 64, textAlign: 'right' },
+  paceCol: { width: 76, textAlign: 'right' },
+  // The pause notice: the line beside an icon between thin lines, its action under it, centred and underlined.
   notice: {
-    padding: 14,
+    paddingTop: 10,
     gap: 10,
-    borderRadius: 18,
-    backgroundColor: liveLook.tile,
+    borderTopWidth: 1,
+    borderTopColor: stand.line,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
+    paddingBottom: 10,
   },
   noticeText: {
     fontFamily: fontFamily.medium,
-    fontSize: 14,
+    fontSize: 13.5,
     lineHeight: 20,
-    color: liveLook.sub,
+    color: stand.text,
   },
-  noticeButton: { alignSelf: 'center' },
+  noticeButton: {
+    alignSelf: 'center',
+    minHeight: 32,
+    justifyContent: 'center',
+  },
   noticeAction: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 14,
     lineHeight: 20,
-    color: liveLook.text,
+    color: stand.text,
     textDecorationLine: 'underline',
   },
   sheetIcon: {
@@ -738,8 +767,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetTitle: { fontFamily: fontFamily.medium, textAlign: 'center' },
-  // 돌아가기 over 전체 종료, as in the 시안.
-  // Side by side like the other confirm sheets: FooterButton grows (flex 1), which a stack would not measure.
-  sheetButtons: { flexDirection: 'row', gap: 10 },
+  sheetTitle: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontFamily: fontFamily.black,
+    fontSize: 22,
+    lineHeight: 30,
+    color: stand.text,
+  },
+  sheetText: {
+    marginTop: 8,
+    textAlign: 'center',
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: stand.sub,
+  },
+  // 돌아가기 and 전체 종료 side by side, as in the 시안.
+  sheetButtons: { flexDirection: 'row', gap: 8, marginTop: 18 },
 });

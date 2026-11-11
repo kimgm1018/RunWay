@@ -43,6 +43,7 @@ import {
   type Repositories,
   type RunnerProfile,
   type RunRecordSummary,
+  type SavedCourse,
   type SelfReportedLevel,
 } from '../../data';
 import {
@@ -55,7 +56,10 @@ import { FollowRequestSheet } from './FollowRequestSheet';
 import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
-import { CourseMapThumb } from '../course/SavedCoursesScreen';
+import {
+  CourseMapThumb,
+  useOpenSavedCourse,
+} from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -445,6 +449,138 @@ function RunTile({
   );
 }
 
+// A section title with 더보기 at its right end, when there is a full list to open (S15P31E105-682).
+function SectionHeader({
+  title,
+  onMore,
+}: {
+  title: string;
+  onMore?: () => void;
+}) {
+  return (
+    <View style={styles.sectionRow}>
+      <AppText
+        style={[styles.section, styles.sectionInRow]}
+        accessibilityRole="header"
+      >
+        {title}
+      </AppText>
+      {onMore ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${title} 더보기`}
+          hitSlop={8}
+          onPress={onMore}
+          style={({ pressed }) => pressed && styles.tilePressed}
+        >
+          <AppText style={styles.more}>더보기</AppText>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// A saved course as a tile beside the runs: the course on its map, its name and distance · time.
+function CourseTile({
+  course,
+  width,
+  onPress,
+}: {
+  course: SavedCourse;
+  width: number;
+  onPress: () => void;
+}) {
+  const title = course.myAlias ?? course.name;
+  const detail = `${formatKm(course.distanceM, 1)}km · ${
+    course.expectedMinutes
+  }분`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}, ${detail}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.tile,
+        { width, height: Math.round(width * 1.18) },
+        pressed && styles.tilePressed,
+      ]}
+    >
+      <CourseMapThumb
+        route={course.route}
+        basemap={course.basemap}
+        shape={course.shape}
+        km={course.distanceM / 1000}
+        area={{ top: 0.08, bottom: 0.5 }}
+        shadeFrom={0.42}
+      />
+      <View style={styles.tileText}>
+        <AppText style={styles.tileTitle} numberOfLines={2}>
+          {title}
+        </AppText>
+        <AppText style={styles.tileDetail} numberOfLines={1}>
+          {detail}
+        </AppText>
+      </View>
+    </Pressable>
+  );
+}
+
+// 7.4b shows this many of my runs and saved courses; 더보기 shows only when there are more
+// (5.1 전체 기록 · 3.1c 저장한 코스, S15P31E105-682).
+const shownMyRuns = 4;
+const shownCourses = 4;
+const loadSaved = (repositories: Repositories) =>
+  repositories.courses.getSaved();
+
+// 7.4b 저장한 코스 under 최근 기록 (S15P31E105-682): my bookmarked courses, newest first; one opens the course run.
+function SavedCoursesSection({ tileWidth }: { tileWidth: number }) {
+  const navigation = useNavigation();
+  const open = useOpenSavedCourse();
+  const saved = useResource(useCallback(loadSaved, []));
+  const { reload } = saved;
+  // A course saved or unsaved elsewhere shows on coming back.
+  useFocusEffect(useCallback(() => reload(), [reload]));
+  const items = saved.status === 'ready' ? saved.data : null;
+  return (
+    <>
+      <SectionHeader
+        title="저장한 코스"
+        onMore={
+          items && items.length > shownCourses
+            ? () => navigateTo(navigation, 'SavedCourses')
+            : undefined
+        }
+      />
+      {saved.status === 'error' ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="저장한 코스 다시 불러오기"
+          onPress={reload}
+        >
+          <AppText style={styles.empty}>
+            저장한 코스를 불러오지 못했어요 · 다시 시도
+          </AppText>
+        </Pressable>
+      ) : !items ? (
+        <ActivityIndicator color={look.ink} />
+      ) : items.length === 0 ? (
+        <AppText style={styles.empty}>아직 저장한 코스가 없어요</AppText>
+      ) : (
+        <View style={styles.tiles}>
+          {items.slice(0, shownCourses).map(course => (
+            <CourseTile
+              key={course.id}
+              course={course}
+              width={tileWidth}
+              onPress={() => open(course)}
+            />
+          ))}
+        </View>
+      )}
+    </>
+  );
+}
+
 function Profile({
   profile,
   onFollow,
@@ -622,14 +758,23 @@ function Profile({
                   }`}
                 </AppText>
               </View>
-              <AppText style={styles.section} accessibilityRole="header">
-                {profile.isMe ? '최근 기록' : '공유한 러닝 결과'}
-              </AppText>
+              {/* 7.4b: four of my runs, 더보기 to 5.1 전체 기록 when there are more (S15P31E105-682). */}
+              <SectionHeader
+                title={profile.isMe ? '최근 기록' : '공유한 러닝 결과'}
+                onMore={
+                  profile.isMe && profile.records.length > shownMyRuns
+                    ? () => navigateTo(navigation, 'Records')
+                    : undefined
+                }
+              />
               {profile.records.length === 0 ? (
                 <AppText style={styles.empty}>아직 기록이 없어요</AppText>
               ) : (
                 <View style={styles.tiles}>
-                  {profile.records.map(({ record, postId }) => (
+                  {(profile.isMe
+                    ? profile.records.slice(0, shownMyRuns)
+                    : profile.records
+                  ).map(({ record, postId }) => (
                     <RunTile
                       key={record.id}
                       record={record}
@@ -662,6 +807,9 @@ function Profile({
                   ))}
                 </View>
               )}
+              {profile.isMe ? (
+                <SavedCoursesSection tileWidth={tileWidth} />
+              ) : null}
             </>
           )}
         </View>
@@ -909,6 +1057,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
     color: look.ink,
+  },
+  sectionRow: {
+    marginTop: 28,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionInRow: { marginTop: 0, marginBottom: 0 },
+  more: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: look.inkSub,
   },
   empty: {
     fontFamily: fontFamily.regular,

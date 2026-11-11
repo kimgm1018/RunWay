@@ -26,6 +26,7 @@ import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.RegionExistsRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.crew.repository.UserExistsRepository.UserDisplay;
 import com.runway.backend.domain.image.ImagePurpose;
 import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.notification.NotificationType;
@@ -40,6 +41,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -238,7 +240,40 @@ public class CrewService {
         }
         crewMembershipRepository.flush();
         entityManager.refresh(membership);
+        if (!instant) {
+            String nickname = userExistsRepository.findNickname(userId).orElse("알 수 없음");
+            notifications.create(
+                    crew.getOwnerId(),
+                    NotificationType.CREW_JOIN_REQUESTED,
+                    crewId,
+                    "「" + crew.getName() + "」크루에 " + nickname + "님이 가입을 신청했습니다.",
+                    joinRequestedKey(crewId, userId, membership.getRequestedAt()));
+        }
         return JoinRequestResponse.from(membership);
+    }
+
+    /** M13: 본인의 대기 중 가입 신청을 철회한다. 신청 행과 크루장에게 간 신청 알림을 함께 지운다. */
+    @Transactional
+    public void cancelJoinRequest(long userId, long crewId) {
+        requireExistingUser(userId);
+        // 크루장 승인·거절(M06)과 같은 크루 행 잠금으로 직렬화한다.
+        requireActiveCrewForUpdate(crewId);
+        CrewMembership membership =
+                crewMembershipRepository
+                        .findByCrewIdAndUserId(crewId, userId)
+                        .orElseThrow(CrewService::notPending);
+        if (membership.getStatus() != CrewMembershipStatus.PENDING) {
+            throw notPending();
+        }
+        crewMembershipRepository.delete(membership);
+        crewMembershipRepository.flush();
+        notifications.deleteByDedupeKey(
+                joinRequestedKey(crewId, userId, membership.getRequestedAt()));
+    }
+
+    private static String joinRequestedKey(long crewId, long userId, Instant requestedAt) {
+        long micros = requestedAt.getEpochSecond() * 1_000_000L + requestedAt.getNano() / 1_000L;
+        return "CREW_JOIN_REQUESTED:" + crewId + ":" + userId + ":" + micros;
     }
 
     @Transactional(readOnly = true)
@@ -250,8 +285,8 @@ public class CrewService {
         CrewMembershipStatus filter = resolveJoinRequestStatus(status);
         List<CrewMembership> memberships =
                 crewMembershipRepository.findByCrewIdAndStatus(crewId, filter);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         memberships.stream().map(CrewMembership::getUserId).toList());
 
         List<JoinRequestItemResponse> items =
@@ -259,7 +294,7 @@ public class CrewService {
                         .map(
                                 m ->
                                         JoinRequestItemResponse.from(
-                                                m, nicknames.getOrDefault(m.getUserId(), null)))
+                                                m, users.get(m.getUserId())))
                         .toList();
         return new JoinRequestListResponse(items);
     }
@@ -352,8 +387,8 @@ public class CrewService {
         List<CrewMembership> memberships =
                 crewMembershipRepository.findByCrewIdAndStatus(
                         crewId, CrewMembershipStatus.APPROVED);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         memberships.stream().map(CrewMembership::getUserId).toList());
         List<MemberItemResponse> items =
                 memberships.stream()
@@ -361,7 +396,7 @@ public class CrewService {
                                 m ->
                                         MemberItemResponse.from(
                                                 m,
-                                                nicknames.getOrDefault(m.getUserId(), null),
+                                                users.get(m.getUserId()),
                                                 crew.isOwnedBy(m.getUserId())))
                         .toList();
         return new MemberListResponse(items);

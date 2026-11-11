@@ -8,11 +8,12 @@
 
 | 변수 | 용도 |
 | --- | --- |
-| `BACKEND_NAVER_SEARCH_CLIENT_ID` | 네이버 개발자센터 검색 API 애플리케이션 ID |
-| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 애플리케이션 Secret |
+| `BACKEND_NAVER_SEARCH_CLIENT_ID` | NAVER API HUB 검색(지역) Application의 Client ID (`X-NCP-APIGW-API-KEY-ID`) |
+| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 Application의 Client Secret (`X-NCP-APIGW-API-KEY`) |
 | `BACKEND_NAVER_MAPS_KEY_ID` | 네이버 클라우드 Maps Geocoding API Key ID |
 | `BACKEND_NAVER_MAPS_KEY` | 위 애플리케이션 API Key |
 
+네이버 개발자센터 검색 API는 2026-07-31부터 신규 애플리케이션 등록이 막혀, 지역 검색은 NAVER API HUB(`https://naverapihub.apigw.ntruss.com/search/v1/local`)로 호출한다. 개발자센터 키는 API HUB에서 쓸 수 없다.
 검색 API와 Maps API의 인증은 별개다. Maps 애플리케이션에는 Geocoding 사용 권한이 필요하다.
 활성화했는데 필수 값이 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다.
 실제 값은 사용자가 로컬 실행 환경 또는 인프라 Secret으로 주입하며 앱 번들·Git에 넣지 않는다.
@@ -222,6 +223,14 @@ Spring 컨텍스트는 설정(속성·Mock·Spy·`@Import`·웹 환경)이 같�
 - DB 대기 상한(연결·잠금·쿼리·소켓)의 동작 테스트는 같은 설정 키에 짧은 테스트 값을 넣어 실제 대기를 줄이고, 원인은 SQLState 등 결과로
   확인한다. 운영 기본값의 적용은 `RunningSessionDbTimeoutDefaultsIntegrationTest`가 확인한다.
 컨테이너를 멈추는 장애 테스트와 Redis 테스트는 자체 컨테이너를 쓴다. 테스트 클래스 안의 병렬 실행은 쓰지 않는다.
+
+Gradle 빌드 캐시(`--build-cache`)를 켜면 컴파일 결과만 재사용한다. 모든 `Test` 태스크는 `build.gradle`에서 캐시 저장·재사용을
+막아 DB 통합 테스트를 매번 실제로 실행한다. 통합 CI는 같은 차단을 Jenkinsfile이 만든 init script로도 강제하고
+`./gradlew --no-daemon --build-cache --init-script ../ci-no-test-cache.gradle clean build`를 실행한다. 소스가 바뀌면 해당 컴파일만 다시 한다.
+`lombok.config`처럼 Gradle 입력으로 잡히지 않는 컴파일 설정 파일을 추가하면 `--no-build-cache`로 한 번 확인한다. 캐시 결과가 의심되면 `--no-build-cache`로 다시 실행하거나 백엔드 에이전트의
+`~/.gradle/caches/build-cache-1`을 지운다(infra/README.md "백엔드" 참고).
+백엔드 테스트가 `backend/` 밖 파일을 새로 읽으면 `infra/jenkins/Jenkinsfile.ci`의 `backendSparsePaths()`에 경로를 추가한다.
+CI는 그 경로만 체크아웃하므로 빠뜨리면 해당 테스트가 파일 없음으로 실패한다.
 
 DB와 무관한 부분만 개발 중 확인할 때:
 

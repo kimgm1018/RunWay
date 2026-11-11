@@ -18,6 +18,8 @@ import type { ApiRequest } from './request';
 
 // appConfig.apiBaseUrl이 /api/v1까지 포함한다(S15P31E105-299 http.ts).
 const BASE = '/running-sessions';
+// S01 요청 상한(S15P31E105-533). 백엔드 AI09 전체 상한 40초(AiPersonalPacePlanConfig)보다 길게 둔다.
+export const CREATE_TIMEOUT_MS = 50_000;
 
 const ACTION_PATH: Record<ControlAction, string> = {
   START: 'start',
@@ -145,18 +147,24 @@ export function createApiSessionRepository(
   request: ApiRequest,
 ): Omit<Repositories['session'], 'uploadBatch' | 'subscribeEvents'> {
   return {
+    // S01은 서버가 AI 계획(재시도 포함 최대 40초)을 받은 뒤 응답하므로 그보다 긴 상한으로 기다린다(S15P31E105-533).
     create: async ({ controlDeviceId, relayDeviceId, goal }) =>
       sessionView(
-        await request<ServerSession>('POST', BASE, {
-          controlDeviceId: id(controlDeviceId),
-          relayDeviceId: id(relayDeviceId),
-          courseId: goal.courseId === null ? null : id(goal.courseId),
-          comparisonSessionId:
-            goal.comparisonSessionId === null ? null : id(goal.comparisonSessionId),
-          targetDistanceM: goal.targetDistanceM,
-          targetDurationSec: goal.targetDurationSec,
-          targetPaceSecPerKm: goal.targetPaceSecPerKm,
-        }),
+        await request<ServerSession>(
+          'POST',
+          BASE,
+          {
+            controlDeviceId: id(controlDeviceId),
+            relayDeviceId: id(relayDeviceId),
+            courseId: goal.courseId === null ? null : id(goal.courseId),
+            comparisonSessionId:
+              goal.comparisonSessionId === null ? null : id(goal.comparisonSessionId),
+            targetDistanceM: goal.targetDistanceM,
+            targetDurationSec: goal.targetDurationSec,
+            targetPaceSecPerKm: goal.targetPaceSecPerKm,
+          },
+          { timeoutMs: CREATE_TIMEOUT_MS },
+        ),
       ),
 
     get: async sessionId => sessionView(await request<ServerSession>('GET', `${BASE}/${sessionId}`)),

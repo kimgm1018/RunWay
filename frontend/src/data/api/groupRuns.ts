@@ -1,5 +1,7 @@
 import { DataError } from '../errors';
 import type {
+  GroupPaceInfo,
+  GroupPaceMode,
   GroupRunDetail,
   GroupRunDraft,
   GroupRunLive,
@@ -12,6 +14,7 @@ import type {
   WaitingRoom,
 } from '../types';
 import { apiRequest } from './http';
+import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { searchPlaces } from './places';
 
@@ -41,7 +44,30 @@ type DetailResponse = {
   comfortRange?: { fastSecPerKm: number; slowSecPerKm: number } | null;
   myFit?: GroupRunDetail['myFit'];
   cancellation?: GroupRunDetail['cancellation'];
+  // S15P31E105-680. Absent while group pace is off.
+  groupPaceMode?: GroupPaceMode | null;
+  aiRecommendedPaceSecPerKm?: number | null;
+  paceBasis?: { type: GroupPaceInfo['basis']; nickname: string | null } | null;
+  paceCalculating?: boolean | null;
+  slowerThanGoalCount?: number | null;
 };
+
+// G03 → 공동 페이스 카드. null while the server does not send the mode (feature off).
+export function paceInfoOf(run: DetailResponse): GroupPaceInfo | null {
+  if (!run.groupPaceMode) {
+    return null;
+  }
+  return {
+    mode: run.groupPaceMode,
+    appliedSecPerKm: run.groupGuidePaceSecPerKm ?? null,
+    aiSecPerKm: run.aiRecommendedPaceSecPerKm ?? null,
+    goalSecPerKm: run.goalPaceSecPerKm ?? null,
+    basis: run.paceBasis?.type ?? 'MEDIAN',
+    basisNickname: run.paceBasis?.nickname ?? null,
+    calculating: run.paceCalculating === true,
+    slowerThanGoalCount: run.slowerThanGoalCount ?? null,
+  };
+}
 
 type ParticipantItem = {
   userId: number;
@@ -50,6 +76,8 @@ type ParticipantItem = {
   isHost: boolean;
   readyStatus: 'READY' | 'WAITING';
   readinessScore?: number | null;
+  // F02 path of the participant's photo, null without one (S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 type CourseResponse = {
@@ -228,6 +256,7 @@ export function createGroupRunsApi({
         readyStatus: item.readyStatus,
         // 준비도는 기존 화면에서 본인 값만 표시한다.
         readinessScore: item.readinessScore ?? null,
+        profileImageUrl: imageAddress(item.profileImageUrl),
       }));
     const participantCount = roster.participantCount ?? items.length;
     const readyCount =
@@ -423,6 +452,7 @@ export function createGroupRunsApi({
         participants: loaded.participants,
         myFit: loaded.run.myFit ?? null,
         cancellation: loaded.run.cancellation ?? null,
+        pace: paceInfoOf(loaded.run),
       };
       return detail;
     },
@@ -485,6 +515,15 @@ export function createGroupRunsApi({
       if (!isServerId(groupRunId)) return mock.start(groupRunId);
       // G09는 본문을 허용하지 않는다. 응답의 PENDING을 실제 출발로 간주하지 않는다.
       await apiRequest(`/group-runs/${groupRunId}/start`, { method: 'POST' });
+    },
+    setPaceMode: async (groupRunId, mode) => {
+      if (!isServerId(groupRunId)) {
+        return mock.setPaceMode?.(groupRunId, mode);
+      }
+      await apiRequest(`/group-runs/${groupRunId}/pace-mode`, {
+        method: 'PUT',
+        body: { paceMode: mode },
+      });
     },
     cancel: async (groupRunId, reason, message) => {
       if (!isServerId(groupRunId))

@@ -9,7 +9,10 @@ import com.runway.backend.domain.crew.entity.CrewStatus;
 import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.crew.repository.UserExistsRepository.UserDisplay;
 import com.runway.backend.domain.grouprun.dto.request.CancelGroupRunRequest;
+import com.runway.backend.domain.grouprun.dto.request.GroupPaceModeRequest;
+import com.runway.backend.domain.grouprun.dto.response.GroupPaceModeResponse;
 import com.runway.backend.domain.grouprun.dto.request.CreateGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
@@ -28,6 +31,7 @@ import com.runway.backend.domain.grouprun.dto.response.StartGroupRunResponse;
 import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
+import com.runway.backend.domain.grouprun.pace.GroupPaceRepository;
 import com.runway.backend.domain.grouprun.pace.GroupPaceService;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
@@ -245,6 +249,12 @@ public class GroupRunService {
         return toDetail(row, participantCount, comfortRange, myFit);
     }
 
+    // 사용자 행이 없으면 닉네임은 기존처럼 빈 문자열, 사진은 null(S15P31E105-636).
+    private static UserDisplay displayOf(Map<Long, UserDisplay> users, long userId) {
+        UserDisplay user = users.get(userId);
+        return user == null ? new UserDisplay("", null) : user;
+    }
+
     private static Integer toScore(BigDecimal score) {
         return score == null ? null : score.setScale(0, RoundingMode.HALF_UP).intValue();
     }
@@ -402,8 +412,8 @@ public class GroupRunService {
         requireApprovedActiveCrewMember(row.crewId(), userId);
         List<GroupRunParticipantRow> participants =
                 participantJdbcRepository.findByGroupRunId(groupRunId);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         participants.stream().map(GroupRunParticipantRow::userId).toList());
         // readyStatus(대기방 준비 버튼)와 별개로 각 참가자의 최신 준비도를 붙인다. 미산출·미동의는 null.
         Map<Long, BigDecimal> readiness =
@@ -417,10 +427,11 @@ public class GroupRunService {
                                                 p.userId(),
                                                 p.sessionId(),
                                                 p.joinedAt(),
-                                                nicknames.getOrDefault(p.userId(), ""),
+                                                displayOf(users, p.userId()).nickname(),
                                                 p.userId() == row.hostId(),
                                                 ReadyStatus.fromReady(p.ready()).name(),
-                                                toScore(readiness.get(p.userId()))))
+                                                toScore(readiness.get(p.userId())),
+                                                displayOf(users, p.userId()).profileImageUrl()))
                         .toList();
         // 대기방 인원 = 참가 행 전체(session null 포함). readyCount는 그중 준비 완료(S15P31E105-499).
         int readyCount = (int) participants.stream().filter(GroupRunParticipantRow::ready).count();
@@ -773,6 +784,9 @@ public class GroupRunService {
                     ? stored.get().startPace()
                     : "RUNNING".equals(row.status()) ? stored.get().pace() : null;
             if (pace != null) return pace;
+            // GOAL starts at the host's goal even when the start calculation has not finished or gave up.
+            Integer goal = GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
+            if ("SCHEDULED".equals(row.status()) && stored.get().goalMode() && goal != null) return goal;
         }
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
             Instant measuredAtCeiling =
@@ -941,6 +955,9 @@ public class GroupRunService {
             int participantCount,
             GroupRunDetailResponse.ComfortRange comfortRange,
             GroupRunDetailResponse.MyFit myFit) {
+        Integer goalPace =
+                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
+        PaceCard card = paceCard(row);
         return new GroupRunDetailResponse(
                 row.id(),
                 row.title(),
@@ -956,11 +973,92 @@ public class GroupRunService {
                 row.goalDuration(),
                 row.meetingName(),
                 row.meetingAddress(),
-                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
+                goalPace,
                 resolveGroupGuidePace(row),
                 toCancellation(row),
                 comfortRange,
-                myFit);
+                myFit,
+                card.mode(),
+                card.aiPace(),
+                card.basis(),
+                card.calculating(),
+                card.slowerThanGoal());
+    }
+
+    private record PaceCard(
+            String mode,
+            Integer aiPace,
+            GroupRunDetailResponse.PaceBasis basis,
+            Boolean calculating,
+            Integer slowerThanGoal) {}
+
+    /**
+     * 공동 페이스 카드(S15P31E105-680). 기능이 꺼져 있으면 모두 null. 상태 행이 아직 없으면 기본 모드·중앙값 근거다. 계산 중은 SCHEDULED에서
+     * 재계산 요청 뒤 60초 안에 아직 결과가 없을 때만 true다.
+     */
+    private PaceCard paceCard(GroupRunRow row) {
+        if (!groupPaceService.isEnabled()) {
+            return new PaceCard(null, null, null, null, null);
+        }
+        var state = groupPaceService.stored(row.id()).orElse(null);
+        if (state == null) {
+            return new PaceCard(
+                    GroupPaceRepository.MODE_TOGETHER,
+                    null,
+                    new GroupRunDetailResponse.PaceBasis("MEDIAN", null),
+                    false,
+                    null);
+        }
+        boolean calculating =
+                GroupRunStatus.SCHEDULED.name().equals(row.status()) && state.calculating();
+        Integer goal =
+                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
+        // GOAL needs a goal pace; if the host later removed the goal, the effective mode is TOGETHER (A-6).
+        boolean goalMode = state.goalMode() && goal != null;
+        String type;
+        if (goalMode || (state.startPace() != null && state.startPace().equals(goal)
+                && !state.startPace().equals(state.aiPace()))) {
+            type = "GOAL";
+        } else if (state.startPace() == null) {
+            type = "MEDIAN";
+        } else {
+            // A member's plan; rows stored before V33 have no AI value or nickname.
+            type = "MEMBER";
+        }
+        String nickname = state.aiPace() == null ? null : state.basisNickname();
+        return new PaceCard(
+                goalMode ? GroupPaceRepository.MODE_GOAL : GroupPaceRepository.MODE_TOGETHER,
+                state.aiPace(),
+                new GroupRunDetailResponse.PaceBasis(type, nickname),
+                calculating,
+                state.slowerThanGoalCount());
+    }
+
+    /** G17 방장 페이스 모드 변경(S15P31E105-680). 출발 전(SCHEDULED)에만, GOAL은 목표 페이스가 있어야 한다. */
+    @Transactional
+    public GroupPaceModeResponse changePaceMode(
+            long userId, long groupRunId, GroupPaceModeRequest request) {
+        String mode = request == null ? null : request.paceMode();
+        if (!GroupPaceRepository.MODE_TOGETHER.equals(mode)
+                && !GroupPaceRepository.MODE_GOAL.equals(mode)) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        // Same row lock as start/cancel, so a mode change cannot land after the run has started.
+        lockGroupRunOrThrow(groupRunId);
+        GroupRunRow row = requireGroupRun(groupRunId);
+        if (row.hostId() != userId) {
+            throw new ApiException(ErrorCode.NOT_HOST);
+        }
+        if (!GroupRunStatus.SCHEDULED.name().equals(row.status())) {
+            throw new ApiException(ErrorCode.EDIT_NOT_ALLOWED);
+        }
+        if (GroupPaceRepository.MODE_GOAL.equals(mode)
+                && GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration())
+                        == null) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        groupPaceService.changeMode(groupRunId, mode);
+        return new GroupPaceModeResponse(groupRunId, mode, groupPaceService.isEnabled());
     }
 
     /** CANCELLED 그룹만 취소 정보를 만든다. 남긴 말은 저장하지 않으므로 null, 취소자는 host_id 기준 HOST다. */

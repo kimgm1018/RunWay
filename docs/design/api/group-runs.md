@@ -17,6 +17,7 @@
 | [G13](#g13-그룹런-취소) | 그룹런 취소 | POST | `/group-runs/{groupRunId}/cancel` | 1차 MVP | 회원 |
 | [G14](#g14-그룹런-결과-조회) | 그룹런 결과 조회 | GET | `/group-runs/{groupRunId}/results` | 1차 MVP | 회원 |
 | [G16](#g16-그룹런-대기방-준비-완료) | 그룹런 대기방 준비 완료 | POST | `/group-runs/{groupRunId}/participants/me/ready` | 1차 MVP | 회원 |
+| [G17](#g17-그룹런-페이스-모드-변경) | 그룹런 페이스 모드 변경 | PUT | `/group-runs/{groupRunId}/pace-mode` | 1차 MVP | 방장 |
 | [PLS01](#pls01-만남-장소-검색) | 만남 장소 검색 | GET | `/places/search` | 1차 MVP | 회원 |
 
 ## PLS01 만남 장소 검색
@@ -421,6 +422,13 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `myFit` | object / null | O | **요청자 본인**의 "내 페이스와 잘 맞아요" 근거(파생값, S15P31E105-470). 다른 참가자 값은 담지 않는다. 최근 완료 기록 페이스가 없으면 null. |
 | `myFit.recentPaceSecPerKm` | integer | 조건부 | 본인 `COMPLETED` 세션 `average_pace` 최신 최대 5개 산술평균(반올림). 프로필 usualPace 미사용. |
 | `myFit.readinessScore` | integer / null | 조건부 | 본인 최신 준비도(R02와 같은 기준, 반올림 정수). 미산출·건강정보 미동의면 null. |
+| `groupPaceMode` | string / null | O | 적용 중인 페이스 모드(S15P31E105-680). `TOGETHER`(함께 완주, 기본) / `GOAL`(목표 페이스). `GOAL`로 저장했어도 방장 목표가 없어지면 `TOGETHER`로 응답한다(목표가 다시 생기면 `GOAL`). 기능 OFF면 null. 변경은 G17. |
+| `aiRecommendedPaceSecPerKm` | integer / null | O | AI 추천: 출발 추천 계산 대상 중 가장 느린 AI09 계획 페이스. 계산 전·재계산 중·실패·OFF면 null. |
+| `paceBasis` | object / null | O | 적용 공동 페이스(`groupGuidePaceSecPerKm`)의 근거. OFF면 null. |
+| `paceBasis.type` | string | 조건부 | `MEMBER`(AI 추천 회원의 계획), `GOAL`(방장 목표), `MEDIAN`(저장된 출발 추천이 없어 중앙값 대체). |
+| `paceBasis.nickname` | string / null | 조건부 | AI 추천 기준 회원 닉네임. `type`이 `GOAL`이어도 AI 추천이 있으면 채운다. 그 회원이 탈퇴·비활성이거나 건강정보 동의를 철회했거나 AI 추천이 없으면 null. |
+| `paceCalculating` | boolean / null | O | `SCHEDULED`에서 생성·참가·탈퇴·목표/코스·모드 변경 뒤 120초 안(DB 시계)에 아직 출발 추천 결과가 없으면 true. 앱은 이때 중앙값 대신 "계산 중"을 보이고 다시 조회한다. OFF면 null. |
+| `slowerThanGoalCount` | integer / null | O | 계산 대상 중 AI09 계획이 방장 목표보다 느린 회원 수(가장 느린 3명 + 기록 없는 동의자 기준이라 전체 참가자 수의 하한). 목표가 없거나 계산 전이면 null. GOAL 모드 경고 문구에 쓴다. |
 
 **사용 흐름과 응답 판단**
 
@@ -446,7 +454,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 ### 처리 규칙
 
 - 대기방 `groupGuidePaceSecPerKm`: 플래그 OFF는 기존 참가자 프로필 중앙값이다. ON은 `group_run_pace_state.start_recommended_pace_sec_per_km`을 읽고, 저장값이 없으면 기존 중앙값(유효 0명이면 null)이다. GET은 쓰기·AI 호출·알림·SSE를 하지 않는다.
-- ON에서 생성·참가·탈퇴·목표/코스 변경 커밋 후 비동기로 출발 추천을 계산한다. 동의자만 대상으로 최근 완료 세션 최대 5건 각각에 Riegel `T2=T1·(D2/D1)^1.06`을 적용하고 환산 페이스를 평균해 느린 3명과 유효 기록 없는 동의자 전원을 고른다. 선택된 동의자의 AI09를 거리만으로 호출하며, 미동의자는 출발 계획을 호출하지 않는다(러닝 중 AI10의 미동의자 보호 규칙은 유지). 추천 = max(방장 목표 페이스, 후보 중 가장 느린 AI 페이스). 전원 미동의이거나 어느 호출이든 실패하면 저장하지 않고 중앙값을 사용한다. 일일 캐시는 적용하지 않는다. 각 AI 호출 직후 상태 토큰을 재확인하며, 상태가 없거나 토큰이 달라지면 변경 중 도착한 오래된 결과를 버리고 남은 호출도 중단한다.
+- ON에서 생성·참가·탈퇴·목표/코스 변경 커밋 후 비동기로 출발 추천을 계산한다. 동의자만 대상으로 최근 완료 세션 최대 5건 각각에 Riegel `T2=T1·(D2/D1)^1.06`을 적용하고 환산 페이스를 평균해 느린 3명과 유효 기록 없는 동의자 전원을 고른다. 선택된 동의자의 AI09를 거리만으로 호출하며, 미동의자는 출발 계획을 호출하지 않는다(러닝 중 AI10의 미동의자 보호 규칙은 유지). AI 추천 = 후보 중 가장 느린 AI 페이스(그 회원이 `paceBasis`). 적용 = `TOGETHER`는 max(방장 목표 페이스, AI 추천), `GOAL`(목표가 있을 때)은 방장 목표 페이스이며 계산 전·실패해도 목표를 쓴다(S15P31E105-680). `GOAL` 그룹의 러닝 중 첫 AI10 평가는 실측 중앙값 대신 목표 페이스에서 시작한다. 전원 미동의이거나 어느 호출이든 실패하면 저장하지 않고 중앙값을 사용하며 계산 중 상태를 끝낸다. 출발 직전 자동 재계산은 하지 않는다. 일일 캐시는 적용하지 않는다. 각 AI 호출 직후 상태 토큰을 재확인하며, 상태가 없거나 토큰이 달라지면 변경 중 도착한 오래된 결과를 버리고 남은 호출도 중단한다.
 
 #### 페이스 적합도·편한 범위 계산 (S15P31E105-470)
 
@@ -867,7 +875,8 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
       "nickname": "러너",
       "isHost": true,
       "readyStatus": "READY",
-      "readinessScore": null
+      "readinessScore": null,
+      "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
     }
   ],
   "participantCount": 1,
@@ -901,6 +910,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].nickname` | string | O | 참가자 회원 표시명. |
+| `items[].profileImageUrl` | string / null | O | 회원 프로필 사진 [F02](files.md#f02-이미지-조회) 경로. U21·커뮤니티 작성자와 같은 `users.profile_image_key` 기준이며 없으면(탈퇴 회원 포함) null(S15P31E105-636). 비공개 계정도 프로필 사진은 최소 정보로 노출할 수 있다([계정 공개 정책](users.md#계정-공개-정책의-공통-적용-범위), 2026-11-05 확정). |
 | `items[].isHost` | boolean | O | group_runs.host_id 비교 결과. |
 | `items[].readyStatus` | string | O | `group_run_participants.ready` 기준. true→READY, false→WAITING. G16에서 변경. |
 
@@ -1806,6 +1816,43 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 - [ ] 준비 완료 전 방장 출발 허용 여부
 - [ ] 응답 필드는 ERD 확정 후 갱신
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+
+## G17 그룹런 페이스 모드 변경
+
+`PUT /api/v1/group-runs/{groupRunId}/pace-mode` · S15P31E105-680. 방장이 출발 전에 공동 페이스 모드를 고른다.
+
+| 모드 | 출발 페이스 | 달리는 중(AI10) |
+| --- | --- | --- |
+| `TOGETHER` 함께 완주(기본) | max(방장 목표, AI 추천) | 기존 규칙: 허용선을 넘으면 늦추고 목표까지 회복 |
+| `GOAL` 목표 페이스 | 방장 목표 | 목표 유지. 누군가의 예측이 위험 심박 이상일 때만 늦추고 회복은 목표까지만. AI10 요청에 `paceMode=GOAL` |
+
+**Request Body**
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `paceMode` | string | O | `TOGETHER` / `GOAL` |
+
+**Response 200**
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `groupRunId` | integer | 그룹런 ID |
+| `paceMode` | string | 저장된 모드 |
+| `paceCalculating` | boolean | 재계산을 시작했으면 true(기능 OFF면 false) |
+
+**오류 응답**
+
+| HTTP·코드 | 발생 조건 |
+| --- | --- |
+| `400 VALIDATION_ERROR` | `paceMode`가 없거나 두 값이 아님, 또는 `GOAL`인데 방장 목표 페이스(거리·시간)가 없음 |
+| `403 NOT_HOST` | 방장이 아님 |
+| `409 EDIT_NOT_ALLOWED` | `SCHEDULED`가 아님(출발 후 변경 불가) |
+| `404 GROUP_NOT_FOUND` | 그룹런 없음 |
+
+**처리 규칙**
+
+- G09 시작과 같은 그룹 행 잠금 안에서 상태를 확인하고 `group_run_pace_state.pace_mode`를 저장한다. 같은 트랜잭션에서 출발 추천을 무효화하고 커밋 후 G03 규칙대로 비동기 재계산한다.
+- 같은 모드로 다시 보내도 재계산한다. 대기방(`SCHEDULED`)도 같은 API를 쓴다. 그룹 간격 알림(S15P31E105-629)은 모드와 관계없이 그대로다.
 
 ## 그룹 자동 처리와 전달
 
