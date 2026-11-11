@@ -33,8 +33,6 @@ import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
 import { parseClock } from '../onboarding/validation';
 import { ErrorNotice } from '../onboarding/parts';
 import { RunMap } from '../../components/RunMap';
-import type { LngLat } from '../../geo';
-import { placeNameOf } from '../../data/placeName';
 import { CoursePlacePicker } from './CoursePlacePicker';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
@@ -244,63 +242,8 @@ export function TodayRunScreen() {
   }, [locate]);
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
   const openPicker = (kind: 'origin' | 'destination') => setPicking(kind);
-  // 편도 (S15P31E105-659): the card marked on the map is the end point a tap on the map sets, so the start
-  // and the finish are chosen right on the map. A marked card pressed again opens the search.
-  const [marked, setMarked] = useState<'origin' | 'destination' | null>(null);
-  // After the user's first touch the camera stays where they put it, so a tap does not shift the map.
-  const [mapTouched, setMapTouched] = useState(false);
   const oneWay = preferences?.shape === 'point_to_point';
-  const oneWayBefore = useRef(false);
-  useEffect(() => {
-    // Choosing 편도 asks for the finish first; leaving it clears the mark (and the finish marker with it).
-    if (oneWay && !oneWayBefore.current) {
-      setMarked('destination');
-      setMapTouched(false);
-    } else if (!oneWay) {
-      setMarked(null);
-    }
-    oneWayBefore.current = oneWay;
-  }, [oneWay]);
-  const pressEndpoint = (kind: 'origin' | 'destination') => {
-    if (!oneWay || marked === kind) {
-      openPicker(kind);
-    } else {
-      setMarked(kind);
-    }
-  };
-  const setEndpoint = (kind: 'origin' | 'destination', position: LngLat) => {
-    const named = { name: '지도에서 고른 위치', position };
-    if (kind === 'destination') {
-      setDestination(named);
-    } else {
-      locationVersion.current += 1;
-      setLocating(false);
-      setLocationNotice(null);
-      setOrigin(named);
-    }
-    placeNameOf(position).then(name => {
-      if (!name) return;
-      const rename = (current: Place | null) =>
-        current?.position === position ? { ...current, name } : current;
-      if (kind === 'destination') setDestination(rename);
-      else setOrigin(rename);
-    });
-  };
-  const tapMap = (position: LngLat) => {
-    if (
-      !marked ||
-      !Number.isFinite(position[0]) ||
-      !Number.isFinite(position[1]) ||
-      Math.abs(position[0]) > 180 ||
-      Math.abs(position[1]) > 90
-    ) {
-      return;
-    }
-    setMapTouched(true);
-    setEndpoint(marked, position);
-  };
   const pickPlace = (value: Place) => {
-    setMapTouched(false);
     if (picking === 'destination') {
       setDestination(value);
     } else {
@@ -433,12 +376,9 @@ export function TodayRunScreen() {
         // The NAVER logo just over the sheet, on the left (S15P31E105-429).
         logo={{ above: 0.715 }}
         view="lean"
-        onTapMap={oneWay && marked ? tapMap : undefined}
-        onUserMove={oneWay ? () => setMapTouched(true) : undefined}
-        cameraLocked={oneWay && mapTouched}
         style={StyleSheet.absoluteFill}
       />
-      {/* Touches outside the tabs, the buttons and the sheet reach the map below (지도에서 선택). */}
+      {/* Keep the tabs and controls interactive above the map. */}
       <SafeAreaView
         edges={['top']}
         style={styles.flex}
@@ -506,10 +446,9 @@ export function TodayRunScreen() {
                 <PanelContent
                   place={place}
                   locating={locating}
-                  onPickOrigin={() => pressEndpoint('origin')}
+                  onPickOrigin={() => openPicker('origin')}
                   destination={destination}
-                  onPickDestination={() => pressEndpoint('destination')}
-                  marked={marked}
+                  onPickDestination={() => openPicker('destination')}
                   distanceKm={distanceKm}
                   setDistanceKm={setDistanceKm}
                   goal={goal}
@@ -521,22 +460,16 @@ export function TodayRunScreen() {
                   setPreferences={setPreferences}
                   conditionsDisabled={!preferences || saving || loading}
                 />
-                {oneWay && marked ? (
-                  <AppText style={styles.hint}>
-                    {`지도를 눌러 ${
-                      marked === 'origin' ? '기준' : '도착'
-                    } 위치를 정해요. 표시된 카드를 한 번 더 누르면 검색해요.`}
-                  </AppText>
-                ) : oneWay && !destination ? (
-                  <AppText style={styles.hint}>
-                    편도 코스는 도착 위치를 선택해 주세요.
-                  </AppText>
-                ) : null}
                 {notice ? (
                   <ErrorNotice title={notice.title} detail={notice.detail} />
                 ) : null}
               </ScrollView>
               <View style={styles.actions}>
+                {oneWay && !destination ? (
+                  <AppText style={styles.hint}>
+                    편도 코스는 도착 위치를 선택해 주세요.
+                  </AppText>
+                ) : null}
                 <Button
                   title={
                     saving ? '기본값 저장 중…' : '이 조건을 기본값으로 저장'
@@ -578,12 +511,11 @@ export function TodayRunScreen() {
   );
 }
 
-type ConditionDetail = 'distance' | 'goal' | 'shape' | 'environment';
+type ConditionDetail = 'distance' | 'goal' | 'environment';
 
 const detailTitles: Record<ConditionDetail, string> = {
   distance: '목표 거리',
   goal: '목표',
-  shape: '코스 형태',
   environment: '환경',
 };
 
@@ -666,7 +598,6 @@ function PanelContent({
   destination,
   onPickDestination,
   locating,
-  marked,
 }: {
   place: Place | null;
   // 현재 위치 is being looked for; otherwise an empty origin asks to be picked.
@@ -686,15 +617,10 @@ function PanelContent({
   conditionsDisabled: boolean;
   destination: Place | null;
   onPickDestination: () => void;
-  // 편도: the card whose point a tap on the map sets.
-  marked: 'origin' | 'destination' | null;
 }) {
   const { colors } = useTheme();
   const [detail, setDetail] = useState<ConditionDetail | null>(null);
   const ruler = whiteRuler;
-  const shapeLabel =
-    courseShapeOptions.find(option => option.value === preferences?.shape)
-      ?.label ?? '– –';
   const environment = preferences
     ? courseFilterOptions
         .filter(option => preferences.filters[option.key])
@@ -706,14 +632,14 @@ function PanelContent({
       <View style={styles.detail}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="조건 목록으로"
+          accessibilityLabel="코스 조건으로"
           onPress={() => setDetail(null)}
           hitSlop={8}
           style={styles.back}
         >
           <Icon name="back" color={colors.textSecondary} size={16} />
           <AppText variant="captionStrong" tone="textSecondary">
-            {`조건 목록 · ${detailTitles[detail]}`}
+            {`코스 조건 · ${detailTitles[detail]}`}
           </AppText>
         </Pressable>
         {detail === 'distance' ? (
@@ -780,24 +706,6 @@ function PanelContent({
             </WhiteBox>
           </>
         ) : null}
-        {detail === 'shape' ? (
-          <View style={styles.chips} accessibilityRole="radiogroup">
-            {courseShapeOptions.map(option => (
-              <Chip
-                key={option.value}
-                label={option.label}
-                role="radio"
-                selected={preferences?.shape === option.value}
-                disabled={conditionsDisabled}
-                onPress={() =>
-                  setPreferences(current =>
-                    current ? { ...current, shape: option.value } : current,
-                  )
-                }
-              />
-            ))}
-          </View>
-        ) : null}
         {detail === 'environment' ? (
           <View style={styles.chips}>
             {courseFilterOptions.map(option => (
@@ -829,6 +737,23 @@ function PanelContent({
 
   return (
     <View style={styles.list}>
+      <AppText variant="label" tone="textSecondary">코스 형태</AppText>
+      <View style={styles.chips} accessibilityRole="radiogroup">
+        {courseShapeOptions.map(option => (
+          <Chip
+            key={option.value}
+            label={option.label}
+            role="radio"
+            selected={preferences?.shape === option.value}
+            disabled={conditionsDisabled}
+            onPress={() =>
+              setPreferences(current =>
+                current ? { ...current, shape: option.value } : current,
+              )
+            }
+          />
+        ))}
+      </View>
       <ConditionRow
         icon="mapPin"
         kicker="기준 위치"
@@ -837,7 +762,6 @@ function PanelContent({
           (locating ? '위치를 찾는 중이에요' : '기준 위치 설정하기')
         }
         accessibilityLabel={`기준 위치 ${place?.name ?? ''}`}
-        selected={marked === 'origin'}
         onPress={onPickOrigin}
       />
       {preferences?.shape === 'point_to_point' ? (
@@ -846,7 +770,6 @@ function PanelContent({
           kicker="도착 위치"
           value={destination?.name ?? '도착 위치 설정하기'}
           accessibilityLabel={`도착 위치 ${destination?.name ?? '선택'}`}
-          selected={marked === 'destination'}
           onPress={onPickDestination}
         />
       ) : null}
@@ -874,13 +797,6 @@ function PanelContent({
         }
         accessibilityLabel="목표 설정"
         onPress={() => setDetail('goal')}
-      />
-      <ConditionRow
-        icon="compass"
-        kicker="코스 형태"
-        value={shapeLabel}
-        accessibilityLabel="코스 형태 설정"
-        onPress={() => setDetail('shape')}
       />
       <ConditionRow
         icon="trend"
@@ -1073,16 +989,5 @@ const styles = StyleSheet.create({
   },
   startOff: { opacity: 0.45 },
   startText: { fontFamily: fontFamily.bold, fontSize: 17, lineHeight: 22 },
-  // 지도에서 선택: a small light bar at the foot instead of the sheet.
-  mapPickArea: { flex: 1, justifyContent: 'flex-end' },
-  mapPickBar: {
-    margin: 14,
-    padding: 18,
-    gap: 6,
-    borderRadius: 28,
-    backgroundColor: 'rgba(246,247,248,0.95)',
-    boxShadow: '0 -8px 30px rgba(2,5,14,0.16)',
-  },
-  mapPickButtons: { flexDirection: 'row', gap: 10, marginTop: 10 },
   dim: { opacity: 0.5 },
 });
