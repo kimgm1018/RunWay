@@ -31,6 +31,9 @@ const scopes: { value: FeedScope; label: string }[] = [
   { value: 'FOLLOWING', label: '팔로잉' },
 ];
 
+// A list mounted for a new scope or region starts at its first post (S15P31E105-699).
+const firstPost = { x: 0, y: 0 };
+
 // The header row floats over the pages, under the status bar.
 const headerHeight = 48;
 // Where a page's own content starts, under the floating header.
@@ -76,6 +79,33 @@ export function CommunityScreen() {
   // keeps a map up.
   const [shownPage, setShownPage] = useState(0);
   useEffect(() => setShownPage(0), [scope, region.code]);
+  // A new scope or region shows its list from the first post (S15P31E105-699). The list is mounted again for it
+  // (its key), but Android can hand the new list the old one's scroll offset, so the feed is also put back at
+  // the top when the choice is made and again once the new first page is on screen.
+  const toTop = useRef(false);
+  const showFirst = useCallback(() => {
+    toTop.current = true;
+    setShownPage(0);
+    list.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+  useEffect(() => {
+    if (toTop.current && feed.status === 'ready') {
+      toTop.current = false;
+      list.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, [feed.status, scope, region.code]);
+  const pickScope = (next: FeedScope) => {
+    if (next !== scope) {
+      showFirst();
+      setScope(next);
+    }
+  };
+  const pickRegion = (next: FeedRegion) => {
+    if (next.code !== region.code) {
+      showFirst();
+    }
+    setRegion(next);
+  };
   // Coming back from 7.2, a profile or another tab keeps the posts read so far and the page on screen. Only after
   // a post was written (7.3), edited (7.3e) or deleted elsewhere is the first page read again, the last list on
   // screen until it comes; then the feed is back at its first post. The first focus is the first load itself, so
@@ -175,6 +205,7 @@ export function CommunityScreen() {
           // A new scope or region starts at its first post.
           key={`${scope}:${region.code ?? ''}`}
           ref={list}
+          contentOffset={firstPost}
           data={feed.posts}
           keyExtractor={post => post.id}
           // Two pages before the end the next 20 are read; nothing after the last page.
@@ -263,7 +294,7 @@ export function CommunityScreen() {
                 accessibilityRole="tab"
                 accessibilityLabel={option.label}
                 accessibilityState={{ selected }}
-                onPress={() => setScope(option.value)}
+                onPress={() => pickScope(option.value)}
                 hitSlop={6}
                 style={({ pressed }) => pressed && styles.pressed}
               >
@@ -320,7 +351,7 @@ export function CommunityScreen() {
         visible={regionsOpen}
         selected={region}
         onClose={() => setRegionsOpen(false)}
-        onSelect={setRegion}
+        onSelect={pickRegion}
       />
       <CommentSheet
         post={commentsFor}
