@@ -4,6 +4,7 @@
 // - backend/만 변경 → 백엔드 에이전트에서 테스트·빌드하고 JAR 보관.
 // - frontend/만 변경 → 타입·린트·전체 테스트. JS·TS 소스만 변경한 MR은 APK 대신 JS 번들 생성,
 //   테스트 파일만 변경한 MR은 둘 다 생략. 네이티브·의존성·빌드 설정 변경은 APK 빌드.
+//   소개 랜딩(frontend/landing/)은 모바일 검사 대상에서 제외한다.
 // - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
 // - AI 서비스·GRU 실행 소스·AI 인프라 변경 → AI 에이전트에서 API 테스트·이미지 빌드 검사.
 // - Route 서비스·Route 인프라 변경 → AI 에이전트에서 데이터 없는 Route API·오류 처리 검사.
@@ -18,6 +19,12 @@
 // 서로 다른 MR의 실행은 동시에 시작하고 영역 노드에서만 차례를 기다린다. 영역 노드를 받았을 때 같은 MR에
 // 새 커밋이 있으면 이전 커밋 검사는 중단한다.
 // 여기서 만든 APK는 빌드 검증용이며, 팀 배포용 APK 보관은 master 작업에서 수행한다.
+
+// 모바일 앱 검사 대상 경로. frontend/landing/은 Nginx가 정적으로 제공하는 소개 랜딩으로
+// 앱 빌드·타입·린트·Jest와 무관하므로 제외한다.
+def mobileAppFile(String path) {
+    return path.startsWith('frontend/') && !path.startsWith('frontend/landing/')
+}
 
 // 알려진 Jest 테스트 파일. APK·JS 번들 검사 없이 타입·린트·전체 Jest로 검사한다.
 def mobileTestFile(String path) {
@@ -34,7 +41,7 @@ def mobileJsSource(String path) {
 // 수동 실행과 공통 CI 변경은 파일 목록과 관계없이 APK도 검사한다.
 def mobileNeedsApk(List files, boolean forceBuild) {
     return forceBuild || files.any {
-        it.startsWith('frontend/') && !mobileTestFile(it) && !mobileJsSource(it)
+        mobileAppFile(it) && !mobileTestFile(it) && !mobileJsSource(it)
     }
 }
 
@@ -275,8 +282,9 @@ pipeline {
                                                 it.startsWith('docs/design/db/') ||
                                                 it.startsWith('ai/service/tests/fixtures/')
                                             }
-                                            // 프론트엔드 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
-                                            checkMobile = common || files.any { it.startsWith('frontend/') }
+                                            // 프론트엔드 앱 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
+                                            // 소개 랜딩(frontend/landing/)만 바뀐 MR은 모바일 검사 없이 병합 가능 여부만 확인한다.
+                                            checkMobile = common || files.any { mobileAppFile(it) }
                                             checkMobileApk = mobileNeedsApk(files, common)
                                             checkMobileBundle = mobileNeedsBundle(files, common)
                                             // 워치 코드 또는 폰·워치 공통 테스트 서명 변경 시 워치도 검사한다.
