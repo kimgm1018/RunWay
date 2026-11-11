@@ -146,6 +146,9 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
   상태 API는 컨테이너 루프백 8082에만 제공한다.
 - **설정·주의:** 새 배포는 항상 readiness로 검사한다. 이미지 롤백은 DB 마이그레이션을 되돌리지 않는다.
   검사 이미지 `python:3.12-alpine`은 기존 서비스 교체 전에 준비한다.
+  장소 검색은 배포 전에 EC2의 `~/runway/secrets/backend/place-search.env`를 준비한다. 파일 소유자는 `10001:10001`, 권한은 `400`으로 설정한다.
+  [백엔드 README](../backend/README.md)의 장소 검색 변수 5개를 줄마다 `이름=값` 형식으로 입력한다. 값에 따옴표는 붙이지 않는다.
+  API HUB·Maps 키 4개를 모두 채운 뒤 `BACKEND_PLACE_SEARCH_ENABLED=true`로 켠다. 키 준비 전에는 `false`로 둔다.
 
 최초 readiness 전환 때만 `BACKEND_LEGACY_HEALTH_IMAGE_ID`에 기존 컨테이너의 정확한 `sha256:...` 이미지 ID를 지정할 수 있다.
 해당 이미지의 배포 전·복구 검사에만 기존 시작 로그·404 확인을 허용하며, 미설정·ID 불일치 시 우회하지 않는다.
