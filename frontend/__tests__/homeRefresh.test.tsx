@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshControl, Text } from 'react-native';
+import { AppState, RefreshControl, Text, type AppStateStatus } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import {
@@ -158,4 +158,65 @@ test('2.1 refresh hides watch sync after actual readiness, and restores it when 
   await settle();
   expect(texts(screen)).toContain('워치 동기화');
   expect(texts(screen)).not.toContain('불러오지 못했어요');
+});
+
+// S15P31E105-675: 2.1 loaded today's readiness before the phone's health records reached W06 and kept yesterday's
+// result. It now reads it again after an upload stored something and on coming back to the app, without the card
+// turning into a spinner or an error meanwhile.
+
+// Today's score once the server scored the uploaded records (the mock's first one is 82).
+const scored = (condition: TodayCondition): TodayCondition => ({
+  ...condition,
+  readinessScore: 64,
+});
+
+test('2.1 reads today’s readiness again on coming back to the app and keeps the card meanwhile and on failure', async () => {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _type: string,
+    listener: (state: AppStateStatus) => void,
+  ) => {
+    listeners.push(listener);
+    return { remove: () => {} };
+  }) as never);
+  const comeBack = async () => {
+    await act(async () =>
+      listeners.forEach(listener => listener('background')),
+    );
+    await act(async () => listeners.forEach(listener => listener('active')));
+  };
+  try {
+    const repositories = createMockRepositories({ latencyMs: 0 });
+    const first = await repositories.home.getTodayCondition();
+    const today = jest
+      .spyOn(repositories.home, 'getTodayCondition')
+      .mockResolvedValue(first);
+    const screen = await launch(repositories);
+    expect(texts(screen)).toContain('82 점');
+
+    // Held so the card can be checked mid-read: yesterday's card stays, no spinner.
+    let release = () => {};
+    today.mockImplementationOnce(
+      () =>
+        new Promise<TodayCondition>(resolve => {
+          release = () => resolve(scored(first));
+        }),
+    );
+    await comeBack();
+    await settle();
+    expect(texts(screen)).toContain('82 점');
+    await act(async () => release());
+    await settle();
+    expect(texts(screen)).toContain('64 점');
+
+    // A read that fails on the way back keeps the last card instead of an error.
+    today.mockRejectedValueOnce(offline());
+    await comeBack();
+    await settle();
+    await settle();
+    expect(texts(screen)).toContain('64 점');
+    expect(texts(screen)).not.toContain('오늘 컨디션을 불러오지 못했어요');
+  } finally {
+    jest.restoreAllMocks();
+  }
 });

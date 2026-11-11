@@ -30,10 +30,16 @@ export function useRepositories() {
   return value;
 }
 
+export type RefreshOptions = {
+  // S15P31E105-675: a refresh the user did not ask for (back to the screen, new health records) keeps the data on
+  // screen when it fails, instead of turning the card into an error.
+  keepOnError?: boolean;
+};
+
 type Reloads = {
   reload: () => void;
   // Loads again while the current data stays on screen; settles when the new load does.
-  refresh: () => Promise<void>;
+  refresh: (options?: RefreshOptions) => Promise<void>;
 };
 
 export type Resource<T> =
@@ -47,14 +53,20 @@ export function useResource<T>(
 ) {
   const repositories = useRepositories();
   const [attempt, setAttempt] = useState(0);
-  const reload = useCallback(() => setAttempt(value => value + 1), []);
-  // Set by refresh for the next load only, with the callers waiting for it.
+  // Set for the next load only: keep by refresh, keepOnError only while every caller of that load asked for it.
   const keep = useRef(false);
+  const keepOnError = useRef<boolean | null>(null);
+  const reload = useCallback(() => {
+    keepOnError.current = false;
+    setAttempt(value => value + 1);
+  }, []);
   const waiting = useRef<(() => void)[]>([]);
   const refresh = useCallback(
-    () =>
+    (options?: RefreshOptions) =>
       new Promise<void>(resolve => {
         keep.current = true;
+        keepOnError.current =
+          (keepOnError.current ?? true) && options?.keepOnError === true;
         waiting.current.push(resolve);
         setAttempt(value => value + 1);
       }),
@@ -71,6 +83,8 @@ export function useResource<T>(
       setState({ status: 'loading' });
     }
     keep.current = false;
+    const quiet = keepOnError.current === true;
+    keepOnError.current = null;
     // Only the refreshes that asked for this load wait for it, not one that a later refresh replaced.
     const waiters = waiting.current.splice(0);
     const settle = () => waiters.forEach(resolve => resolve());
@@ -83,10 +97,15 @@ export function useResource<T>(
       },
       error => {
         if (active) {
-          setState({
-            status: 'error',
-            error: error instanceof Error ? error : new Error(String(error)),
-          });
+          setState(previous =>
+            quiet && previous.status === 'ready'
+              ? previous
+              : {
+                  status: 'error',
+                  error:
+                    error instanceof Error ? error : new Error(String(error)),
+                },
+          );
         }
         settle();
       },

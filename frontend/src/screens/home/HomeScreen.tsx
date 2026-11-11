@@ -48,6 +48,7 @@ import {
 import { AnalysisPanel } from './AnalysisPanel';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
+import { onHealthRecordsUploaded } from '../../health/healthRecordsUploaded';
 import { RecordsPanel } from './RecordsPanel';
 
 // 2.1 홈 (S15P31E105-564, 담당자 레퍼런스; S15P31E105-574 수정사항): 인사말, the date, what the menu shows, and the
@@ -80,6 +81,10 @@ const loadToday = (repositories: Repositories) =>
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
 const loadWatch = (repositories: Repositories) => repositories.watch.getConnection();
+
+// S15P31E105-675: the server scores today after the uploaded health records are stored, on its own, so 2.1 reads
+// today's readiness again a short while after an upload and once more later, a bounded number of times.
+export const readinessRecheckDelaysMs = [2_000, 8_000];
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
 function Greeting({
@@ -323,24 +328,52 @@ export function HomeScreen() {
   const watchReady = watch.status === 'ready' && isWatchReady(watch.data);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
   // (leaving 2.9 marks all read). The first focus is the first load.
+  // S15P31E105-675: today's readiness is read again on the same occasions (back to 2.1, back to the app), keeping the
+  // card on screen meanwhile and when that read fails.
   const refreshMe = me.refresh;
   const refreshNotifications = notifications.refresh;
   const reloadWatch = watch.reload;
+  const refreshCondition = condition.refresh;
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (focused.current) {
         void refreshMe();
         void refreshNotifications();
+        void refreshCondition({ keepOnError: true });
         reloadWatch();
       }
       focused.current = true;
+      let previous = AppState.currentState;
       const subscription = AppState.addEventListener('change', state => {
-        if (state === 'active') reloadWatch();
+        if (state === 'active') {
+          reloadWatch();
+          if (previous !== 'active') {
+            void refreshCondition({ keepOnError: true });
+          }
+        }
+        previous = state;
       });
       return () => subscription.remove();
-    }, [refreshMe, refreshNotifications, reloadWatch]),
+    }, [refreshMe, refreshNotifications, refreshCondition, reloadWatch]),
   );
+  // S15P31E105-675: once this phone's health records reached W06, read today's readiness again after the server had
+  // time to score it. A newer upload restarts the waits; nothing is read while no upload stored anything new.
+  useEffect(() => {
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    const stop = onHealthRecordsUploaded(() => {
+      timers.forEach(clearTimeout);
+      timers = readinessRecheckDelaysMs.map(ms =>
+        setTimeout(() => {
+          void refreshCondition({ keepOnError: true });
+        }, ms),
+      );
+    });
+    return () => {
+      stop();
+      timers.forEach(clearTimeout);
+    };
+  }, [refreshCondition]);
   // Notifications that did not load only leave the bell without its dot.
   const unread = (notifications.data?.unreadCount ?? 0) > 0;
 
