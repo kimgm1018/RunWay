@@ -92,6 +92,7 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | `GRU_GB_PERSONALIZATION_ENABLED` | `false`(코드) / `true`(배포 compose) | ODE식 GRU 개인 보정 g·b(S15P31E105-641). 켜면 AI06이 `summaryU`에 `gruGain`·`gruOffsetBpm`·`gruSupportN`을 넣고, AI04·AI10이 학습 심박 기준선 행에서 읽어 기본 GRU 출력에 `hr0 + g·(pred − hr0) + b`로 적용. 꺼져 있으면 출력이 이전과 같음 |
 | `GRU_GB_MAX_WINDOWS` | `3000` | AI06 g·b 계산 최대 window 수(최신 러닝부터) |
 | `AI_DB_URL` | (없음) | 읽기 전용 PostgreSQL 주소. 비면 AI03/AI04의 DB 개인화 조회는 자동 OFF이며, 개인 계획의 기존 503 동작은 유지 |
+| `BPM_LOOKUP_CACHE_ENABLED` | `true` | AI04 목표 BPM 세션 캐시. 첫 1분을 찾은 세션은 세션 SQL을 다시 읽지 않고, 일정 구간이 없을 때는 BPM 변경 기록을 읽지 않음. `false`면 매 호출 예전 조회 경로 그대로(결과는 같음) |
 | `GRU_PERSONALIZATION_CACHE_TTL_SEC` | `300` | 사용자 head 캐시 시간 |
 | `GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC` | `60` | 행 없음·개인화 테이블 없음 캐시 시간 |
 | `GRU_PERSONALIZATION_CACHE_MAX_USERS` | `1024` | 캐시 최대 사용자 수 |
@@ -308,6 +309,7 @@ AI04는 추천 페이스를 사용자의 목표 BPM으로 바꿔 `decision.cueBp
 - 그 구간의 BPM: `session_control_events`의 적용된(`APPLIED`) `SET_BPM`·`COACHING` `target_bpm`을 시간순으로 되짚는다. 러닝 시작 때 처음 튼 BPM은 DB에 남지 않으므로 첫 BPM 변경 전 구간과 구간 안에서 BPM이 바뀐 구간은 쓰지 않는다.
 - 이번 러닝 첫 1분: 이번 세션의 첫 일정 구간. 아직 BPM을 바꾼 적이 없으면 `running_sessions.current_bpm`을 그때 BPM으로 본다.
 - 캐시: 지난 기록은 사용자별 300초, 첫 1분은 찾으면 세션 동안 기억한다. DB 조회 제한 시간은 한 번에 300ms다.
+- 세션 캐시(`BPM_LOOKUP_CACHE_ENABLED`, 기본 켬): `user_id`는 바뀌지 않고 `current_bpm`은 첫 1분을 찾기 전에만 쓰므로, 첫 1분을 찾은 세션은 세션 조회를 다시 하지 않는다(세션 최대 1024개, 3600초 만료). 일정 구간이 아직 없으면 BPM 변경 기록도 읽지 않는다. 결과는 끈 경로와 같다.
 - DB 권한: `runway_ai`는 `running_metric_samples`의 `running_session_id`·`measured_at`·`elapsed_duration`·`speed`·`cadence`, `session_control_events`의 `session_id`·`action`·`target_bpm`·`result`·`applied_at` 칸만 읽는다(`infra/ai/grant-readonly.sh`). 심박 등 다른 칸은 읽지 않는다.
 
 보정 규칙:

@@ -9,6 +9,7 @@
 """
 import logging
 import math
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -24,6 +25,14 @@ MAX_SPEED_CV = 0.05      # 속도 변동계수 상한(페이스가 일정한 구
 MAX_CADENCE_SD = 5.0     # 케이던스 표준편차 상한(spm)
 FETCH_RUNS = 40          # select_records가 BPM을 따라간 구간이 있는 최근 20회를 고르므로 여유 있게 읽는다
 MAX_RECORDS = 2000       # context.bpm.records 상한과 같다. 최근 러닝 구간부터 담는다
+SESSION_CACHE_ENV = "BPM_LOOKUP_CACHE_ENABLED"
+SESSION_TTL_SEC = 3600   # 세션→사용자 기억 시간. user_id는 바뀌지 않지만 메모리를 무한히 잡지 않게 만료시킨다
+
+
+def session_cache_enabled() -> bool:
+    """BPM_LOOKUP_CACHE_ENABLED(기본 켬). 끄면 매 호출 세션 SQL을 읽는 예전 경로를 그대로 탄다."""
+    value = os.getenv(SESSION_CACHE_ENV)
+    return True if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _num(value) -> float | None:
@@ -70,17 +79,27 @@ class BpmLookupResult:
 
 
 class CachedDbBpmLookup:
-    """지난 기록은 사용자별 300초 캐시, 이번 세션 첫 1분은 찾으면 세션별로 기억한다. DB 조회 제한 300ms."""
+    """지난 기록은 사용자별 300초 캐시, 이번 세션 첫 1분은 찾으면 세션별로 기억한다. DB 조회 제한 300ms.
+
+    세션 캐시(BPM_LOOKUP_CACHE_ENABLED, 기본 켬): running_sessions.user_id는 바뀌지 않고(updatable=false),
+    current_bpm은 첫 1분을 찾기 전에만 쓴다. 그래서 첫 1분을 기억한 세션은 세션 SQL을 다시 읽지 않는다.
+    첫 1분을 찾기 전에는 current_bpm이 바뀔 수 있으므로 매번 세션 SQL을 읽는다(결과 동일).
+    또 일정 구간이 아직 없으면 BPM 변경 기록(BPM_EVENTS_SQL)은 쓰이지 않으므로 읽지 않는다.
+    """
 
     def __init__(self, db, *, ttl_sec: float = 300, max_entries: int = 1024, timeout_ms: int = 300,
-                 monotonic=time.monotonic):
+                 monotonic=time.monotonic, session_cache: bool | None = None,
+                 session_ttl_sec: float = SESSION_TTL_SEC):
         self.db = db
         self.ttl_sec = max(0.0, float(ttl_sec))
         self.max_entries = max(0, int(max_entries))
         self.timeout_ms = max(1, int(timeout_ms))
         self.monotonic = monotonic
+        self.session_cache = session_cache_enabled() if session_cache is None else bool(session_cache)
+        self.session_ttl_sec = max(0.0, float(session_ttl_sec))
         self._records: OrderedDict[int, tuple[float, list[BpmRecord]]] = OrderedDict()
         self._first: OrderedDict[int, BpmSample] = OrderedDict()
+        self._users: OrderedDict[int, tuple[float, int]] = OrderedDict()   # session_id → (만료, user_id)
         self._lock = threading.RLock()
 
     def _all(self, sql, params) -> list[dict]:
@@ -129,10 +148,12 @@ class CachedDbBpmLookup:
             if session_id in self._first:
                 return self._first[session_id]
         rows = self._all(BPM_WINDOWS_SQL, {"session_ids": [session_id]})
-        events = self._all(BPM_EVENTS_SQL, {"session_ids": [session_id]})
+        events = None if self.session_cache else self._all(BPM_EVENTS_SQL, {"session_ids": [session_id]})
         steady = [r for r in sorted(rows, key=lambda r: r["bucket"]) if is_steady(r)]
         if not steady:
             return None                                   # 아직 없다. 다음 요청에서 다시 본다
+        if events is None:                                # 세션 캐시 켬: 쓸 때만 읽는다
+            events = self._all(BPM_EVENTS_SQL, {"session_ids": [session_id]})
         first = steady[0]
         cue = cue_bpm_at(events, first["start_at"], first["end_at"], current_bpm)
         sample = BpmSample(speed_mps=_num(first["speed_mps"]), cadence_spm=_num(first["cadence_spm"]), cue_bpm=cue)
@@ -142,13 +163,37 @@ class CachedDbBpmLookup:
             self._remember(self._first, session_id, sample)
         return sample
 
+    def _known_session(self, session_id: int) -> tuple[int, BpmSample] | None:
+        """첫 1분을 이미 기억했고 세션→사용자 기억이 유효하면 (user_id, 첫 1분). 아니면 None(세션 SQL을 읽는다).
+        둘을 같은 lock 안에서 꺼내므로 그 사이 첫 1분이 상한으로 밀려나도 current_bpm 없이 다시 계산하지 않는다."""
+        if not self.session_cache:
+            return None
+        now = self.monotonic()
+        with self._lock:
+            cached = self._users.get(session_id)
+            if cached is None or session_id not in self._first:
+                return None
+            if cached[0] <= now:
+                del self._users[session_id]
+                return None
+            return cached[1], self._first[session_id]
+
     def get_for_session(self, session_id: int) -> BpmLookupResult:
         try:
+            known = self._known_session(int(session_id))
+            if known is not None:                         # current_bpm은 첫 1분을 찾은 뒤 쓰지 않는다
+                user_id, first = known
+                records = self._past_records(user_id)
+                return BpmLookupResult(BpmInput(records=records[:MAX_RECORDS], first_minute=first))
             session = self._one(BPM_SESSION_SQL, {"session_id": int(session_id)})
             if session is None:
                 return BpmLookupResult()
             records = self._past_records(int(session["user_id"]))
             first = self._first_minute(int(session_id), session.get("current_bpm"))
+            if self.session_cache and self.session_ttl_sec > 0:
+                with self._lock:
+                    self._remember(self._users, int(session_id),
+                                   (self.monotonic() + self.session_ttl_sec, int(session["user_id"])))
             return BpmLookupResult(BpmInput(records=records[:MAX_RECORDS], first_minute=first))
         except Exception as exc:
             log_ai_error(UNAVAILABLE_WARNING, "/v1/pace/decide", exc, level=logging.WARNING)
