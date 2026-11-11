@@ -163,6 +163,16 @@ export function createCrewMock({
       update(crewId, { myMembership: 'PENDING' });
       return respond('PENDING');
     },
+    cancelJoinRequest: crewId => {
+      const crew = find(crewId);
+      if (crew.myMembership !== 'PENDING') {
+        return fail(
+          new DataError('NOT_PENDING', '대기 중인 가입 신청이 없어요'),
+        );
+      }
+      update(crewId, { myMembership: null });
+      return respond(undefined);
+    },
     updateCapacity: (crewId, capacity) => {
       const crew = find(crewId);
       if (capacity < crew.memberCount || capacity > maxCapacity) {

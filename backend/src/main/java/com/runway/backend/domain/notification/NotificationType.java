@@ -7,6 +7,7 @@ public enum NotificationType {
     FOLLOW_APPROVED,
     CREW_JOIN_APPROVED,
     CREW_JOIN_REJECTED,
+    CREW_JOIN_REQUESTED,
     POST_COMMENT,
     GROUP_RUN_PARTICIPATION_CANCELLED,
     GROUP_RUN_START_REMINDER;
@@ -15,7 +16,7 @@ public enum NotificationType {
     public boolean usesCommunitySetting() {
         return switch (this) {
             case NEW_FOLLOWER, FOLLOW_REQUEST, FOLLOW_APPROVED, CREW_JOIN_APPROVED,
-                    CREW_JOIN_REJECTED, POST_COMMENT -> true;
+                    CREW_JOIN_REJECTED, CREW_JOIN_REQUESTED, POST_COMMENT -> true;
             case GROUP_RUN_PARTICIPATION_CANCELLED, GROUP_RUN_START_REMINDER -> false;
         };
     }

@@ -80,6 +80,14 @@ public class CrewController {
         return crewService.createJoinRequest(userId, crewId);
     }
 
+    @DeleteMapping("/{crewId}/join-requests/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void cancelJoinRequest(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long crewId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        crewService.cancelJoinRequest(userId, crewId);
+    }
+
     @GetMapping("/{crewId}/join-requests")
     public JoinRequestListResponse listJoinRequests(
             @AuthenticationPrincipal AuthenticatedUser user,

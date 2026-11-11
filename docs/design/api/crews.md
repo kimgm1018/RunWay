@@ -16,6 +16,7 @@
 | [M10](#m10-내-크루-목록) | 내 크루 목록 | GET | `/users/me/crews` | 1차 MVP | 회원 |
 | [M11](#m11-크루-해산) | 크루 해산 | DELETE | `/crews/{crewId}` | 1차 MVP | 회원 |
 | [M12](#m12-크루-설정-변경) | 크루 설정 변경(정원·가입 방식) | PATCH | `/crews/{crewId}` | 1차 MVP | 회원 |
+| [M13](#m13-크루-가입-신청-철회) | 크루 가입 신청 철회 | DELETE | `/crews/{crewId}/join-requests/me` | 1차 MVP | 회원 |
 
 ## ERD 응답 대응 기준
 
@@ -493,6 +494,7 @@ APPROVAL 크루의 신청 성공은 PENDING이며 가입 완료가 아니다. IN
 - REJECTED 또는 LEFT → 동일 `crew_memberships` 행을 갱신해 재신청한다(`requested_at` 갱신). 재신청 직전에도 위 정원 검사를 한다. APPROVAL이면 PENDING(`joined_at` null), INSTANT면 APPROVED(`joined_at` 설정). 크루장이 거절·내보낸 회원도 INSTANT 크루에서는 즉시 다시 가입된다(2026-11-09 사용자 확인).
 - INSTANT(바로 가입) 크루: 새 행 또는 재신청 행을 바로 APPROVED로 저장한다(`requested_at`·`joined_at` 설정). 크루장 승인 알림은 만들지 않는다(S15P31E105-570).
 - APPROVAL 크루는 승인 전에는 내 크루에 '승인 대기'로 보이며(6.0, 6.2b) 크루장 승인(M06) 후 멤버가 된다. INSTANT 크루는 응답 즉시 멤버다.
+- APPROVAL 크루에서 PENDING으로 저장되면 같은 트랜잭션에서 크루장에게 `CREW_JOIN_REQUESTED` 알림을 만든다(target `crews.id`, 수신 설정 `notifications.community`, 신청 철회 M13 시 삭제). INSTANT 크루는 만들지 않는다. dedupe_key·재신청 규칙은 [notifications.md](notifications.md#중복-방지)(S15P31E105-678).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
@@ -1325,3 +1327,57 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
 
 - [ ] 응답 필드는 ERD 확정 후 갱신
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+
+## M13 크루 가입 신청 철회
+
+`DELETE` `/api/v1/crews/{crewId}/join-requests/me`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | MAT-003~004 |
+| 미정 사항 | 없음 |
+| 비고 | S15P31E105-678. 승인 전 신청자 본인의 철회 |
+
+### 설명
+
+신청자 본인이 아직 승인·거절되지 않은 가입 신청(PENDING)을 철회한다. 신청 행(`crew_memberships`)을 삭제하고 크루장에게 간 가입 신청 알림(`CREW_JOIN_REQUESTED`)도 함께 삭제한다. 철회 뒤에는 새 신청처럼 M04로 다시 신청할 수 있다.
+
+### 인증 및 권한
+
+- 로그인 사용자 본인의 신청만 철회한다. 경로에 `userId`를 받지 않는다.
+- 로그인 사용자(Bearer 액세스 토큰)의 본인 신청만 대상이다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `crewId` | integer (int64) | O | 크루 ID |
+
+### Request Body
+
+없음
+
+### Response
+
+`204 No Content` (본문 없음)
+
+### 오류 응답
+
+| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+|---|---|---|
+| `409 NOT_PENDING` | 대기 중 신청 없음 | 신청 행이 없거나 상태가 PENDING이 아님(이미 승인·거절·탈퇴). 행을 바꾸지 않는다 |
+| `404 CREW_NOT_FOUND` | 대상 없음 | 크루가 없거나 INACTIVE |
+| `401 UNAUTHORIZED` | 인증 | 토큰이 없거나 만료·위변조됨 |
+| `400 VALIDATION_ERROR` | 입력 형식 | Path 식별자 형식이 맞지 않음 |
+
+### 처리 규칙
+
+- 먼저 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M06 승인·거절과 같은 잠금이라 철회와 승인이 겹쳐도 한쪽만 성공하고 다른 쪽은 `409 NOT_PENDING`이다.
+- 본인의 PENDING 행이면 행을 삭제하고, 같은 트랜잭션에서 `CREW_JOIN_REQUESTED:{crewId}:{userId}:{requested_at 마이크로초}` 키의 알림 행을 삭제한다. 알림이 없으면(수신 설정 꺼짐 등) 무시한다.
+- 크루장이 승인·거절한 신청은 철회할 수 없다. 이미 쌓인 신청 알림은 승인·거절로 지우지 않는다.
+
+### 상태값
+
+- 철회 후 신청 행은 없다. 이후 M04는 새 신청으로 처리한다.

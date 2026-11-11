@@ -22,6 +22,7 @@ const knownKinds: readonly string[] = [
   'GROUP_RUN_START_REMINDER',
   'CREW_JOIN_APPROVED',
   'CREW_JOIN_REJECTED',
+  'CREW_JOIN_REQUESTED',
   'POST_COMMENT',
   'NEW_FOLLOWER',
   'FOLLOW_REQUEST',

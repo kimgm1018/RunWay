@@ -921,6 +921,221 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 phone);
     }
 
+    @Test
+    void 가입신청_알림_크루장에게_한건_재신청은_새알림() throws Exception {
+        long applicantId = insertUser("req_notify_a", "알림지원자", "01090000001");
+        long bystanderId = insertUser("req_notify_b", "구경꾼", "01090000002");
+        enableCommunityNotifications(userId);
+        enableCommunityNotifications(bystanderId);
+        long crewId = createCrew(userId, "알림 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(1L);
+        assertThat(countJoinRequestedNotifications(bystanderId, crewId)).isEqualTo(0L);
+        assertThat(countJoinRequestedNotifications(applicantId, crewId)).isEqualTo(0L);
+        assertThat(
+                        jdbc.queryForObject(
+                                """
+                                SELECT message FROM notifications
+                                WHERE user_id = ? AND notification_type = 'CREW_JOIN_REQUESTED'
+                                """,
+                                String.class,
+                                userId))
+                .isEqualTo("「알림 크루」크루에 알림지원자님이 가입을 신청했습니다.");
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(1L);
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"status\":\"REJECTED\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(2L);
+    }
+
+    @Test
+    void 가입신청_알림_수신끈_크루장과_바로가입크루는_없다() throws Exception {
+        long applicantId = insertUser("req_notify_c", "수신끔지원자", "01090000003");
+        long crewId = createCrew(userId, "수신끔 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(0L);
+
+        enableCommunityNotifications(userId);
+        long instantCrewId = createCrew(userId, "바로가입 크루", 10);
+        jdbc.update("UPDATE crews SET join_policy = 'INSTANT' WHERE id = ?", instantCrewId);
+        long instantApplicantId = insertUser("req_notify_d", "바로가입자", "01090000004");
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", instantCrewId)
+                                .header(
+                                        "Authorization",
+                                        SecurityTestSupport.bearer(instantApplicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+        assertThat(countJoinRequestedNotifications(userId, instantCrewId)).isEqualTo(0L);
+    }
+
+    @Test
+    void 가입신청_철회는_행과_알림을_지우고_재신청할_수_있다() throws Exception {
+        long applicantId = insertUser("req_cancel_a", "철회자", "01090000005");
+        enableCommunityNotifications(userId);
+        long crewId = createCrew(userId, "철회 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(1L);
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isNoContent());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(0L);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM crew_memberships WHERE crew_id = ? AND user_id = ?",
+                                Long.class,
+                                crewId,
+                                applicantId))
+                .isEqualTo(0L);
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(1L);
+    }
+
+    @Test
+    void 가입신청_철회는_승인된_멤버와_없는_크루에서_실패() throws Exception {
+        long applicantId = insertUser("req_cancel_b", "승인된사람", "01090000006");
+        long crewId = createCrew(userId, "철회 실패 크루", 10);
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"status\":\"APPROVED\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status::text FROM crew_memberships WHERE crew_id = ? AND user_id = ?",
+                                String.class,
+                                crewId,
+                                applicantId))
+                .isEqualTo("APPROVED");
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", 999999L)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CREW_NOT_FOUND"));
+    }
+
+    @Test
+    void 가입신청_철회는_거절된_신청_타인_무토큰에서_실패하고_재신청후_철회는_현재_알림만_지운다()
+            throws Exception {
+        long applicantId = insertUser("req_cancel_c", "재신청자", "01090000007");
+        long strangerId = insertUser("req_cancel_d", "제3자", "01090000008");
+        enableCommunityNotifications(userId);
+        long crewId = createCrew(userId, "철회 경계 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(strangerId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+        mockMvc.perform(delete("/api/v1/crews/{crewId}/join-requests/me", crewId))
+                .andExpect(status().isUnauthorized());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status::text FROM crew_memberships WHERE crew_id = ? AND user_id = ?",
+                                String.class,
+                                crewId,
+                                applicantId))
+                .isEqualTo("PENDING");
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"status\":\"REJECTED\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+
+        // 거절 후 재신청 → 알림 2건(신청마다 1건). 철회하면 현재 신청의 알림만 지워지고 처음 신청의 알림은 남는다.
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(2L);
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/join-requests/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isNoContent());
+        assertThat(countJoinRequestedNotifications(userId, crewId)).isEqualTo(1L);
+    }
+
+    private long countJoinRequestedNotifications(long recipientId, long crewId) {
+        Long count =
+                jdbc.queryForObject(
+                        """
+                        SELECT count(*) FROM notifications
+                        WHERE user_id = ? AND notification_type = 'CREW_JOIN_REQUESTED'
+                          AND target_id = ?
+                        """,
+                        Long.class,
+                        recipientId,
+                        crewId);
+        return count == null ? 0L : count;
+    }
+
     private void enableCommunityNotifications(long userId) {
         jdbc.update(
                 """

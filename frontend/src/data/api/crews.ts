@@ -201,6 +201,15 @@ export function createCrewsApi({
       );
       return membershipOf(status) ?? 'PENDING';
     },
+    // M13: only my own waiting request; the server also removes the leader's 가입 신청 알림.
+    cancelJoinRequest: async crewId => {
+      if (!isServerId(crewId)) {
+        return mock.cancelJoinRequest(crewId);
+      }
+      await apiRequest(`/crews/${crewId}/join-requests/me`, {
+        method: 'DELETE',
+      });
+    },
     updateCapacity: async (crewId, capacity) => {
       if (!isServerId(crewId)) {
         return mock.updateCapacity(crewId, capacity);

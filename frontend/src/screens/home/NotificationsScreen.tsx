@@ -73,6 +73,11 @@ const kinds: Record<
     icon: 'userX',
     open: openCrew,
   },
+  CREW_JOIN_REQUESTED: {
+    title: '새 가입 신청',
+    icon: 'userPlus',
+    open: openCrew,
+  },
   POST_COMMENT: {
     title: '새 댓글',
     icon: 'message',
