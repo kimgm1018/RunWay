@@ -60,6 +60,13 @@ public class NotificationService {
                 .isPresent();
     }
 
+    /** Deletes the inbox row for {@code dedupeKey}; no-op when it does not exist. */
+    @Transactional
+    public void deleteByDedupeKey(String dedupeKey) {
+        Objects.requireNonNull(dedupeKey, "dedupeKey");
+        notifications.deleteByDedupeKey(dedupeKey);
+    }
+
     @Transactional(readOnly = true)
     public NotificationListResponse list(long userId, String cursor, Integer limit) {
         int pageSize = resolveLimit(limit);

@@ -269,6 +269,7 @@ export type NotificationKind =
   | 'GROUP_RUN_START_REMINDER'
   | 'CREW_JOIN_APPROVED'
   | 'CREW_JOIN_REJECTED'
+  | 'CREW_JOIN_REQUESTED'
   | 'POST_COMMENT'
   | 'NEW_FOLLOWER'
   | 'FOLLOW_REQUEST'
@@ -1354,6 +1355,8 @@ export type Repositories = {
     // M04: the request waits as PENDING, or makes me a MEMBER at once in a 바로 가입 crew.
     // A full crew fails with CREW_CAPACITY_EXCEEDED.
     requestJoin: (crewId: string) => Promise<MyCrew['membership']>;
+    // M13 (S15P31E105-678): take my own 승인 대기 request back. NOT_PENDING when it was already decided.
+    cancelJoinRequest: (crewId: string) => Promise<void>;
     // 6.2m 정원: from the member count up to 200 (M03's limit).
     updateCapacity: (crewId: string, capacity: number) => Promise<void>;
     setJoinPolicy: (crewId: string, policy: CrewJoinPolicy) => Promise<void>;

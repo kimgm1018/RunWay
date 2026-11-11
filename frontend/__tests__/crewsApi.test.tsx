@@ -461,8 +461,11 @@ test('crew and member photos show, and a broken photo falls back to the letter',
   expect(shows(screen, memberImageId)).toHaveLength(0);
   expect(letter(screen, '도')).toBe(true);
 
-  await press(screen, '가입 신청 1건');
+  // The leader's 6.2 lists the waiting request with its photo (S15P31E105-678); 6.2a opens on top of it, so
+  // the applicant's photo is drawn once there and once more by the 6.2 underneath.
   expect(shows(screen, applicantImageId)).toHaveLength(1);
+  await press(screen, '가입 신청 1건');
+  expect(shows(screen, applicantImageId)).toHaveLength(2);
   await act(async () => screen.unmount());
 });
 

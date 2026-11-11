@@ -243,6 +243,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | M10 | [내 크루 목록](./crews.md#m10-내-크루-목록) | GET | `/users/me/crews` | [crews.md](./crews.md) |
 | M11 | [크루 해산](./crews.md#m11-크루-해산) | DELETE | `/crews/{crewId}` | [crews.md](./crews.md) |
 | M12 | [크루 설정 변경](./crews.md#m12-크루-설정-변경) | PATCH | `/crews/{crewId}` | [crews.md](./crews.md) |
+| M13 | [크루 가입 신청 철회](./crews.md#m13-크루-가입-신청-철회) | DELETE | `/crews/{crewId}/join-requests/me` | [crews.md](./crews.md) |
 | CMT01 | [게시물 작성](./community.md#cmt01-게시물-작성) | POST | `/posts` | [community.md](./community.md) |
 | CMT02 | [게시물 목록](./community.md#cmt02-게시물-목록) | GET | `/posts` | [community.md](./community.md) |
 | CMT03 | [게시물 상세](./community.md#cmt03-게시물-상세) | GET | `/posts/{postId}` | [community.md](./community.md) |

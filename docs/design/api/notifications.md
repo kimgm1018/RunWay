@@ -32,6 +32,7 @@
 | `GROUP_RUN_START_REMINDER` | `group_runs.id` | groupRun | 발송 시각·횟수는 미정. 타입·무효화만 계약 |
 | `CREW_JOIN_APPROVED` | `crews.id` | community | M06 승인 |
 | `CREW_JOIN_REJECTED` | `crews.id` | community | M06 거절 |
+| `CREW_JOIN_REQUESTED` | `crews.id` | community | M04 신청 성공(APPROVAL 크루, PENDING). 수신자는 크루장. INSTANT 크루는 알림 없음. 신청 철회(M13) 시 행 삭제 (S15P31E105-678) |
 | `POST_COMMENT` | `posts.id` | community | CMT07. 본인 댓글은 자기 알림 제외 |
 | `NEW_FOLLOWER` | 행위자 `users.id` | community | 공개 계정 즉시 팔로우. 249 Kind |
 | `FOLLOW_REQUEST` | 행위자 `users.id` | community | 비공개 PENDING. 249 Kind |
@@ -46,6 +47,7 @@
 |---|---|
 | `NEW_FOLLOWER` / `FOLLOW_REQUEST` / `FOLLOW_APPROVED` | `{kind}:{requestId}` (`user_follows.id`) |
 | `CREW_JOIN_APPROVED` / `CREW_JOIN_REJECTED` | `{kind}:{crewId}:{applicantUserId}` |
+| `CREW_JOIN_REQUESTED` | `CREW_JOIN_REQUESTED:{crewId}:{applicantUserId}:{requested_at 마이크로초}` — 신청 1건당 1행이며 재신청은 `requested_at`이 갱신돼 새 행이 생긴다. M13 철회 시 같은 키의 행을 삭제한다 |
 | `POST_COMMENT` | `POST_COMMENT:{commentId}` |
 | `GROUP_RUN_PARTICIPATION_CANCELLED` | `GROUP_RUN_PARTICIPATION_CANCELLED:{groupRunId}:{recipientUserId}` |
 | `GROUP_RUN_START_REMINDER` | `GROUP_RUN_START_REMINDER:{groupRunId}:{recipientUserId}:{scheduledSlot}` — slot 규칙은 발송 정책 확정 후 |

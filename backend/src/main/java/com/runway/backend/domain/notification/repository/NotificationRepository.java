@@ -63,6 +63,11 @@ public class NotificationRepository {
         return ids.stream().findFirst();
     }
 
+    /** Removes the inbox row of a logical event (for example a withdrawn join request). */
+    public int deleteByDedupeKey(String dedupeKey) {
+        return jdbc.update("DELETE FROM notifications WHERE dedupe_key=?", dedupeKey);
+    }
+
     public List<Row> list(long userId, Instant before, long beforeId, int limitPlusOne) {
         return jdbc.query(
                 """

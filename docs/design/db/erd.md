@@ -309,6 +309,7 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 | 그룹런 취소(G13) | GROUP_RUN_PARTICIPATION_CANCELLED | group_runs.id | 그룹런 상세. 코드명은 기존 ERD 유지. 참가 취소(G06) 알림은 만들지 않음 |
 | 크루 가입 승인 | CREW_JOIN_APPROVED | crews.id | 크루 상세 |
 | 크루 가입 거절 | CREW_JOIN_REJECTED | crews.id | 크루 상세 |
+| 크루 새 가입 신청(크루장 수신) | CREW_JOIN_REQUESTED | crews.id | 크루 상세. 신청 철회 시 알림 삭제 |
 | 게시물 댓글 | POST_COMMENT | posts.id | 게시글 상세 |
 | 그룹런 시작 임박 | GROUP_RUN_START_REMINDER | group_runs.id | 그룹런 상세. 발송 시각·횟수는 미정 |
 | 새 팔로워 | NEW_FOLLOWER | 행위자 users.id | 러너 프로필 |
