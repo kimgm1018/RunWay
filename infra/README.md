@@ -249,18 +249,34 @@ master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼�
 
 EC2의 갱신 작업은 `runway-mobile-apk`와 `runway-watch-apk`의 마지막 성공 빌드를 확인한다. SHA-256이 일치한 APK만 각각 `/downloads/runway.apk`와 `/downloads/runway-watch.apk`에 반영한다. Jenkins 산출물 경로와 공개 다운로드 경로는 각각 인증·정적 파일 응답으로 제공한다.
 
-최초 적용 시 EC2의 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.
+master 병합만으로는 랜딩 HTML·`nginx/default.conf`·게시 서비스가 EC2에 반영되지 않는다. 백엔드 CD는 API 경로 목록만 갱신하고, APK 작업은 Jenkins 보관까지만 한다.
+EC2의 `~/runway`는 Git 체크아웃이 아닌 복사본이므로 아래 파일은 master 체크아웃에서 올려 적용한다.
+
+최초 적용 시 master 체크아웃의 `infra/jenkins/publish-apks.py`·`runway-publish-apks.service`·`runway-publish-apks.timer`를 EC2의 임시 폴더(예: `~/.runway-apk-stage`)에 올리고 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.
 
 ```bash
+ST=~/.runway-apk-stage
 sudo install -d -m 0755 frontend/landing/downloads /usr/local/libexec
-sudo install -m 0644 infra/jenkins/publish-apks.py /usr/local/libexec/runway-publish-apks.py
-sudo install -m 0644 infra/jenkins/runway-publish-apks.service infra/jenkins/runway-publish-apks.timer /etc/systemd/system/
+sudo install -m 0644 "$ST/publish-apks.py" /usr/local/libexec/runway-publish-apks.py
+sudo install -m 0644 "$ST/runway-publish-apks.service" "$ST/runway-publish-apks.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now runway-publish-apks.timer
 sudo systemctl start runway-publish-apks.service
+journalctl -u runway-publish-apks.service -n 5 --no-pager
 ```
 
-운영 Nginx 설정을 적용하고 `nginx -t`를 통과한 뒤 reload한다. 첫 release 빌드가 성공하면 랜딩과 Jenkins에서 내려받은 APK의 SHA-256이 같은지 확인한다. 폰과 워치의 APK를 각각 설치하고 기기 간 연결을 확인한다.
+운영 Nginx 설정은 서버에만 있는 설정이 사라지지 않도록 운영 파일과 master를 비교해 필요한 블록만 반영한다. `default.conf`는 단일 파일 bind mount이므로 `mv`로 교체하지 않고 백업 후 같은 파일에 덮어쓴다(`cat new > default.conf`). `docker exec runway-nginx-1 nginx -t`를 통과한 뒤 `nginx -s reload`하고, 실패하면 백업으로 되돌린다.
+
+반영 후 아래로 확인한다. 두 APK는 200, `application/vnd.android.package-archive`, 각 파일명의 `attachment`여야 하며, 내려받은 SHA-256이 Jenkins 산출물의 `.sha256`과 같아야 한다.
+
+```bash
+curl -sI https://k15e105.p.ssafy.io/downloads/runway.apk
+curl -s https://k15e105.p.ssafy.io/downloads/runway.apk | sha256sum
+curl -sI https://k15e105.p.ssafy.io/downloads/runway-watch.apk
+curl -s https://k15e105.p.ssafy.io/downloads/runway-watch.apk | sha256sum
+```
+
+폰과 워치의 APK를 각각 설치하고 기기 간 연결을 확인한다.
 
 ## 폰·워치 연결 검증
 
