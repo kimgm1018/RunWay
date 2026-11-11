@@ -223,6 +223,14 @@ Spring 컨텍스트는 설정(속성·Mock·Spy·`@Import`·웹 환경)이 같�
   확인한다. 운영 기본값의 적용은 `RunningSessionDbTimeoutDefaultsIntegrationTest`가 확인한다.
 컨테이너를 멈추는 장애 테스트와 Redis 테스트는 자체 컨테이너를 쓴다. 테스트 클래스 안의 병렬 실행은 쓰지 않는다.
 
+Gradle 빌드 캐시(`--build-cache`)를 켜면 컴파일 결과만 재사용한다. 모든 `Test` 태스크는 `build.gradle`에서 캐시 저장·재사용을
+막아 DB 통합 테스트를 매번 실제로 실행한다. 통합 CI는 같은 차단을 Jenkinsfile이 만든 init script로도 강제하고
+`./gradlew --no-daemon --build-cache --init-script ../ci-no-test-cache.gradle clean build`를 실행한다. 소스가 바뀌면 해당 컴파일만 다시 한다.
+`lombok.config`처럼 Gradle 입력으로 잡히지 않는 컴파일 설정 파일을 추가하면 `--no-build-cache`로 한 번 확인한다. 캐시 결과가 의심되면 `--no-build-cache`로 다시 실행하거나 백엔드 에이전트의
+`~/.gradle/caches/build-cache-1`을 지운다(infra/README.md "백엔드" 참고).
+백엔드 테스트가 `backend/` 밖 파일을 새로 읽으면 `infra/jenkins/Jenkinsfile.ci`의 `backendSparsePaths()`에 경로를 추가한다.
+CI는 그 경로만 체크아웃하므로 빠뜨리면 해당 테스트가 파일 없음으로 실패한다.
+
 DB와 무관한 부분만 개발 중 확인할 때:
 
 ```powershell

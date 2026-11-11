@@ -62,40 +62,85 @@ def checkoutCodeWith(String revision, List extensions) {
     ])
 }
 
-// 워치 에이전트 영속 볼륨의 참조 저장소. 작업 폴더는 매번 비우고 Git 객체만 재사용한다.
-def watchGitReference() {
+// 에이전트 영속 볼륨의 참조 저장소. 에이전트마다 볼륨이 달라 같은 경로라도 서로 공유하지 않는다.
+// 작업 폴더는 매번 비우고 Git 객체만 재사용한다.
+def gitReference() {
     return '/home/jenkins/agent/caches/runway-git-reference.git'
 }
 
-// 워치 검사는 워치 앱·CI 스크립트·공통 debug 서명만 풀고, 받은 객체는 참조 저장소에서 재사용한다.
-def watchCheckoutExtensions(boolean useReference) {
-    def extensions = [[
-        $class: 'SparseCheckoutPaths',
-        sparseCheckoutPaths: [
-            [$class: 'SparseCheckoutPath', path: '/wear/'],
-            [$class: 'SparseCheckoutPath', path: '/infra/jenkins/'],
-            [$class: 'SparseCheckoutPath', path: '/frontend/android/app/debug.keystore']
+// 워치 검사는 워치 앱·CI 스크립트·공통 debug 서명만 푼다.
+def watchSparsePaths() {
+    return ['/wear/', '/infra/jenkins/', '/frontend/android/app/debug.keystore']
+}
+
+// 백엔드 검사는 백엔드와 테스트가 읽는 저장소 파일(DB 스키마 정본·W07 변환 fixture)·CI 스크립트만 푼다.
+// 백엔드 테스트가 backend/ 밖 파일을 새로 읽으면 여기에 추가한다. 빠지면 해당 테스트가 파일 없음으로 실패한다.
+def backendSparsePaths() {
+    return ['/backend/', '/docs/design/db/', '/ai/service/tests/fixtures/', '/infra/jenkins/']
+}
+
+// CPS 변환과 무관하게 동작하도록 closure 없이 만든다.
+def sparseCheckoutPathList(List sparsePaths) {
+    def paths = []
+    for (int i = 0; i < sparsePaths.size(); i++) {
+        paths << [$class: 'SparseCheckoutPath', path: sparsePaths[i]]
+    }
+    return paths
+}
+
+// sparsePaths가 비어 있으면 전체를 푼다. 받은 객체는 참조 저장소에서 재사용한다.
+def referenceCheckoutExtensions(List sparsePaths, boolean useReference) {
+    def extensions = []
+    if (sparsePaths) {
+        extensions << [
+            $class: 'SparseCheckoutPaths',
+            sparseCheckoutPaths: sparseCheckoutPathList(sparsePaths)
         ]
-    ]]
+    }
     if (useReference) {
         // 경로가 아직 없으면 Git 플러그인이 참조 없이 전체를 받는다.
-        extensions << [$class: 'CloneOption', reference: watchGitReference(), shallow: false, noTags: false]
+        extensions << [$class: 'CloneOption', reference: gitReference(), shallow: false, noTags: false]
     }
     return extensions
 }
 
-def checkoutWatchCode(String revision) {
+def checkoutWithReference(String revision, List sparsePaths) {
     try {
-        checkoutCodeWith(revision, watchCheckoutExtensions(true))
+        checkoutCodeWith(revision, referenceCheckoutExtensions(sparsePaths, true))
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException err) {
         throw err
     } catch (err) {
         // 참조 저장소가 손상됐을 수 있으므로 지우고 원격에서 한 번 더 받는다.
-        echo "참조 저장소 없이 워치 코드를 다시 받습니다: ${err}"
-        sh "rm -rf '${watchGitReference()}'"
-        checkoutCodeWith(revision, watchCheckoutExtensions(false))
+        // 먼저 이름을 바꿔 삭제가 중간에 끊겨도 반쯤 지운 저장소를 다음 실행이 참조하지 않게 한다.
+        echo "참조 저장소 없이 코드를 다시 받습니다: ${err}"
+        sh "rm -rf '${gitReference()}.broken' && if [ -e '${gitReference()}' ]; then mv '${gitReference()}' '${gitReference()}.broken'; fi && rm -rf '${gitReference()}.broken'"
+        checkoutCodeWith(revision, referenceCheckoutExtensions(sparsePaths, false))
     }
-    sh "sh infra/jenkins/update-git-reference.sh '${watchGitReference()}'"
+    // 스크립트가 들어오기 전에 분기한 MR 코드에는 파일이 없다. 갱신만 건너뛰고 검사는 계속한다.
+    if (fileExists('infra/jenkins/update-git-reference.sh')) {
+        sh "sh infra/jenkins/update-git-reference.sh '${gitReference()}'"
+    } else {
+        echo '경고: 이 코드에 참조 저장소 갱신 스크립트가 없어 갱신을 건너뜁니다.'
+    }
+}
+
+def checkoutWatchCode(String revision) {
+    checkoutWithReference(revision, watchSparsePaths())
+}
+
+def checkoutBackendCode(String revision) {
+    checkoutWithReference(revision, backendSparsePaths())
+}
+
+// 모든 Test 태스크의 빌드 캐시 저장·재사용을 막는 Gradle init script.
+// 검사하는 코드(master 대상 MR 등)의 build.gradle에 같은 설정이 없어도 DB 통합 테스트를 매번 실제로 실행한다.
+def backendNoTestCacheInitScript() {
+    return '''allprojects {
+    tasks.withType(Test).configureEach {
+        outputs.doNotCacheIf('CI: 테스트는 매 실행 실제로 수행한다') { true }
+    }
+}
+'''
 }
 
 // 각 에이전트가 준비 단계에서 고정한 동일한 코드 조합을 검사한다.
@@ -199,7 +244,8 @@ pipeline {
                                             }
                                             revision = "refs/remotes/origin/mr/${mrId}"
                                         }
-                                        checkoutCode(revision)
+                                        // 같은 백엔드 에이전트의 참조 저장소로 새 객체만 받는다. 파일 목록·병합 확인을 위해 전체를 푼다.
+                                        checkoutWithReference(revision, [])
                                         // 실행 중 새 커밋이 올라와도 각 에이전트가 같은 버전을 검사하도록 고정한다.
                                         env.CI_SOURCE_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                                         // 알림 뒤 MR이 갱신됐으면 검사하지 않은 커밋에 성공을 기록하지 않는다.
@@ -223,7 +269,12 @@ pipeline {
                                                 it in ['.gitattributes', '.gitmodules']
                                             }
                                             // 백엔드 코드 또는 공통 설정이 바뀌었으면 백엔드 CI 실행 대상으로 선택한다.
-                                            checkBackend = common || files.any { it.startsWith('backend/') }
+                                            // 백엔드 테스트가 읽는 DB 스키마 정본·W07 변환 fixture만 바뀌어도 검사한다(backendSparsePaths와 맞춘다).
+                                            checkBackend = common || files.any {
+                                                it.startsWith('backend/') ||
+                                                it.startsWith('docs/design/db/') ||
+                                                it.startsWith('ai/service/tests/fixtures/')
+                                            }
                                             // 프론트엔드 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
                                             checkMobile = common || files.any { it.startsWith('frontend/') }
                                             checkMobileApk = mobileNeedsApk(files, common)
@@ -277,13 +328,17 @@ pipeline {
                                 ciStatus('backend-ci') {
                                     areaNode('backend') {
                                         stage('Backend Checkout') {
-                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            checkoutBackendCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
                                         }
                                         stage('Backend Checks and Tests') {
                                             // 검사와 실행 JAR 생성을 한 번의 Gradle 실행에서 처리한다.
                                             try {
-                                                dir('backend') { sh 'sh ./gradlew --no-daemon clean build' }
+                                                // 컴파일 결과만 에이전트의 Gradle 빌드 캐시에서 재사용한다. 테스트는 init script로 캐시를 막아 매번 실행한다.
+                                                writeFile file: 'ci-no-test-cache.gradle', text: backendNoTestCacheInitScript()
+                                                dir('backend') {
+                                                    sh 'sh ./gradlew --no-daemon --build-cache --init-script ../ci-no-test-cache.gradle clean build'
+                                                }
                                             } finally {
                                                 publishTests('backend/build/test-results/test/*.xml')
                                             }
