@@ -216,6 +216,9 @@ export function PostDetailScreen() {
             interactive={false}
             area={{ top: 0.14, bottom: mapShare - 0.04 }}
             view="lean"
+            // The replay covers this map, so its poles come off while it plays and are back on close: the
+            // native map stops redrawing them under the replay (화면 동일).
+            markers={!replay}
             style={StyleSheet.absoluteFill}
             onShown={uncover}
           />
