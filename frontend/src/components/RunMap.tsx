@@ -122,6 +122,9 @@ type RunMapProps = {
   // 그룹런 시안 (S15P31E105-673): the course and the run as a near-black line with a purple edge on the group
   // screens; every other screen keeps its look.
   groupLine?: boolean;
+  // false takes the markers (poles, dots, pills, names) off a map that something else covers, such as 7.2's
+  // map under the course replay, so the native map stops redrawing their views; the lines stay. Default true.
+  markers?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -578,6 +581,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     placeLabel,
     compact = false,
     groupLine = false,
+    markers = true,
     textureView = false,
     recenterSignal = 0,
     style,
@@ -897,164 +901,176 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               zIndex={2}
             />
           ))}
-          {hasTrail ? (
-            <DotMarker
-              at={trail[0]}
-              dot={{ size: 10, fill: palette.white, ring: ink, ringWidth: 2.5 }}
-            />
-          ) : null}
-          {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
-          {hasRoute && !running ? (
-            loop ? (
-              // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
-              // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.
-              mint ? (
-                position ? null : (
-                  <MePin at={route[0]} />
+          {/* Every marker below is a view the native map redraws, so a covered map can leave them all off. */}
+          {markers ? (
+            <>
+              {hasTrail ? (
+                <DotMarker
+                  at={trail[0]}
+                  dot={{
+                    size: 10,
+                    fill: palette.white,
+                    ring: ink,
+                    ringWidth: 2.5,
+                  }}
+                />
+              ) : null}
+              {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
+              {hasRoute && !running ? (
+                loop ? (
+                  // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
+                  // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.
+                  mint ? (
+                    position ? null : (
+                      <MePin at={route[0]} />
+                    )
+                  ) : (
+                    <PoleMarker
+                      at={route[0]}
+                      label="SF"
+                      compact={compact}
+                      darkMap={darkMap}
+                    />
+                  )
+                ) : (
+                  <>
+                    <PoleMarker
+                      at={route[route.length - 1]}
+                      label="F"
+                      finish
+                      compact={compact}
+                      darkMap={darkMap}
+                    />
+                    <PoleMarker
+                      at={route[0]}
+                      label="S"
+                      compact={compact}
+                      darkMap={darkMap}
+                    />
+                  </>
                 )
-              ) : (
-                <PoleMarker
-                  at={route[0]}
-                  label="SF"
-                  compact={compact}
-                  darkMap={darkMap}
+              ) : null}
+              {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
+              {paceLabels && !running
+                ? pieces.map((piece, index) => {
+                    const label = paceLabels[index];
+                    if (!label) {
+                      return null;
+                    }
+                    const width = 40 + label.length * 9.5;
+                    return (
+                      <NaverMapMarkerOverlay
+                        key={`pace-${index}`}
+                        {...toCoord(piece[Math.floor(piece.length / 2)])}
+                        width={width}
+                        height={26}
+                        anchor={{ x: 0.5, y: 0.5 }}
+                      >
+                        <View
+                          style={[
+                            styles.pill,
+                            darkMap && styles.pillDark,
+                            { width },
+                          ]}
+                        >
+                          <View style={styles.pillNumber}>
+                            <Text style={styles.pillNumberText}>
+                              {latinRuns(index + 1, styles.pillNumberText)}
+                            </Text>
+                          </View>
+                          <Text style={styles.pillText}>
+                            {latinRuns(label, styles.pillText)}
+                          </Text>
+                        </View>
+                      </NaverMapMarkerOverlay>
+                    );
+                  })
+                : null}
+              {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
+              {endpoints ? (
+                <>
+                  <PoleMarker
+                    at={destination as LngLat}
+                    label="F"
+                    finish
+                    darkMap={darkMap}
+                  />
+                  {position ? (
+                    <PoleMarker at={position} label="S" darkMap={darkMap} />
+                  ) : null}
+                </>
+              ) : null}
+              {running ||
+              (position && (placeLabel || (!hasRoute && !endpoints))) ? (
+                <DotMarker
+                  at={running ? trail[trail.length - 1] : (position as LngLat)}
+                  dot={
+                    mint
+                      ? {
+                          size: 12,
+                          fill: ink,
+                          ring: palette.white,
+                          ringWidth: 2,
+                          glow: 'rgba(58, 90, 108, 0.16)',
+                          glowSize: 48,
+                        }
+                      : {
+                          size: 17,
+                          fill: pathLook.ink,
+                          ring: palette.white,
+                          ringWidth: 3,
+                          glow: tilted
+                            ? 'rgba(200, 255, 0, 0.18)'
+                            : 'rgba(58, 90, 108, 0.16)',
+                          glowSize: 48,
+                        }
+                  }
                 />
-              )
-            ) : (
-              <>
-                <PoleMarker
-                  at={route[route.length - 1]}
-                  label="F"
-                  finish
-                  compact={compact}
-                  darkMap={darkMap}
-                />
-                <PoleMarker
-                  at={route[0]}
-                  label="S"
-                  compact={compact}
-                  darkMap={darkMap}
-                />
-              </>
-            )
-          ) : null}
-          {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
-          {paceLabels && !running
-            ? pieces.map((piece, index) => {
-                const label = paceLabels[index];
-                if (!label) {
-                  return null;
-                }
-                const width = 40 + label.length * 9.5;
+              ) : null}
+              {/* Me on the mint map: 6.9's pin, at the end of the run while running (S15P31E105-683, 담당자 요청). */}
+              {mint && running ? <MePin at={trail[trail.length - 1]} /> : null}
+              {mint && position && !running && !endpoints ? (
+                <MePin at={position} />
+              ) : null}
+              {placeLabel && position && !running ? (
+                <PlaceBubble at={position} {...placeLabel} />
+              ) : null}
+              {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
+          drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
+              {(members ?? []).map(member => {
+                const width = memberDot + 6 + member.label.length * 13 + 4;
                 return (
                   <NaverMapMarkerOverlay
-                    key={`pace-${index}`}
-                    {...toCoord(piece[Math.floor(piece.length / 2)])}
+                    key={member.label}
+                    {...toCoord(member.position)}
                     width={width}
-                    height={26}
-                    anchor={{ x: 0.5, y: 0.5 }}
+                    height={memberHeight}
+                    anchor={{ x: memberDot / 2 / width, y: 0.5 }}
+                    zIndex={1}
                   >
-                    <View
-                      style={[
-                        styles.pill,
-                        darkMap && styles.pillDark,
-                        { width },
-                      ]}
-                    >
-                      <View style={styles.pillNumber}>
-                        <Text style={styles.pillNumberText}>
-                          {latinRuns(index + 1, styles.pillNumberText)}
-                        </Text>
-                      </View>
-                      <Text style={styles.pillText}>
-                        {latinRuns(label, styles.pillText)}
+                    <View style={[styles.member, { width }]}>
+                      <Dot
+                        size={memberDot}
+                        fill={member.color}
+                        ring={palette.white}
+                        ringWidth={2}
+                      />
+                      <Text
+                        style={[
+                          styles.memberName,
+                          darkMap
+                            ? styles.memberNameDark
+                            : styles.memberNameLight,
+                        ]}
+                      >
+                        {member.label}
                       </Text>
                     </View>
                   </NaverMapMarkerOverlay>
                 );
-              })
-            : null}
-          {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
-          {endpoints ? (
-            <>
-              <PoleMarker
-                at={destination as LngLat}
-                label="F"
-                finish
-                darkMap={darkMap}
-              />
-              {position ? (
-                <PoleMarker at={position} label="S" darkMap={darkMap} />
-              ) : null}
+              })}
             </>
           ) : null}
-          {running ||
-          (position && (placeLabel || (!hasRoute && !endpoints))) ? (
-            <DotMarker
-              at={running ? trail[trail.length - 1] : (position as LngLat)}
-              dot={
-                mint
-                  ? {
-                      size: 12,
-                      fill: ink,
-                      ring: palette.white,
-                      ringWidth: 2,
-                      glow: 'rgba(58, 90, 108, 0.16)',
-                      glowSize: 48,
-                    }
-                  : {
-                      size: 17,
-                      fill: pathLook.ink,
-                      ring: palette.white,
-                      ringWidth: 3,
-                      glow: tilted
-                        ? 'rgba(200, 255, 0, 0.18)'
-                        : 'rgba(58, 90, 108, 0.16)',
-                      glowSize: 48,
-                    }
-              }
-            />
-          ) : null}
-          {/* Me on the mint map: 6.9's pin, at the end of the run while running (S15P31E105-683, 담당자 요청). */}
-          {mint && running ? <MePin at={trail[trail.length - 1]} /> : null}
-          {mint && position && !running && !endpoints ? (
-            <MePin at={position} />
-          ) : null}
-          {placeLabel && position && !running ? (
-            <PlaceBubble at={position} {...placeLabel} />
-          ) : null}
-          {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
-          drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
-          {(members ?? []).map(member => {
-            const width = memberDot + 6 + member.label.length * 13 + 4;
-            return (
-              <NaverMapMarkerOverlay
-                key={member.label}
-                {...toCoord(member.position)}
-                width={width}
-                height={memberHeight}
-                anchor={{ x: memberDot / 2 / width, y: 0.5 }}
-                zIndex={1}
-              >
-                <View style={[styles.member, { width }]}>
-                  <Dot
-                    size={memberDot}
-                    fill={member.color}
-                    ring={palette.white}
-                    ringWidth={2}
-                  />
-                  <Text
-                    style={[
-                      styles.memberName,
-                      darkMap ? styles.memberNameDark : styles.memberNameLight,
-                    ]}
-                  >
-                    {member.label}
-                  </Text>
-                </View>
-              </NaverMapMarkerOverlay>
-            );
-          })}
         </>
       ) : null}
     </NaverMapView>

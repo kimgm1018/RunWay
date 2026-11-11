@@ -534,6 +534,33 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   await press(screen, '코스 재생 닫기');
 });
 
+// While the replay covers 7.2, the map under it has no poles, so the native map stops redrawing them; they are
+// back when the replay closes (화면 동일).
+test('the detail map under an open replay has no markers, and gets them back on close', async () => {
+  const screen = await openCommunity();
+  await press(screen, 'minjun.run의 게시물 열기');
+  await settle(50);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const detailMap = () => detail.findByType(RunMap);
+  const detailMarkers = () =>
+    detailMap().findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.testID === 'naver-map-marker',
+    ).length;
+  expect(detailMap().props.markers).toBe(true);
+  const shown = detailMarkers();
+  expect(shown).toBeGreaterThan(0);
+
+  await press(screen, '코스 재생');
+  expect(detailMap().props.markers).toBe(false);
+  expect(detailMarkers()).toBe(0);
+
+  await press(screen, '코스 재생 닫기');
+  expect(detailMap().props.markers).toBe(true);
+  expect(detailMarkers()).toBe(shown);
+});
+
 // The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
 test('a replay plays longer for a longer run, within 8 to 15 seconds', () => {
   expect(replayPlayMs(0)).toBe(8000);
