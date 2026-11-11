@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#67696E',
   },
-  caution: { fontFamily: fontFamily.bold, color: '#C4644B' },
+  caution: { fontFamily: fontFamily.bold, color: '#D44A4A' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   tile: {
     width: 38,

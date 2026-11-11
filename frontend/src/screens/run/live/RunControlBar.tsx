@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   half: { flex: 1 },
   pause: { backgroundColor: liveLook.text },
   resume: { backgroundColor: liveLook.text },
-  finish: { backgroundColor: 'rgba(226, 135, 111, 0.35)' },
+  finish: { backgroundColor: 'rgba(212, 74, 74, 0.35)' },
   finishFill: {
     position: 'absolute',
     left: 0,

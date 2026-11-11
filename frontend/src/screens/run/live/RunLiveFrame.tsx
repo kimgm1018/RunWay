@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     backgroundColor: liveLook.button,
   },
   statusFloating: { backgroundColor: liveLook.band, marginLeft: 'auto' },
-  statusPaused: { backgroundColor: 'rgba(226, 135, 111, 0.18)' },
+  statusPaused: { backgroundColor: 'rgba(212, 74, 74, 0.18)' },
   statusDot: {
     width: 8,
     height: 8,

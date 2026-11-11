@@ -14,7 +14,7 @@ import { kmBands } from './paceHeart';
 // shown.
 export const paceHeartLook = {
   pace: recordsLook.onCard,
-  heart: '#FFB4A2',
+  heart: '#E79B9B',
 };
 
 // The scales' width either side of the plot, and room above and below the lines for their dots.

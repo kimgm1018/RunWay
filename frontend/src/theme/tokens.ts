@@ -8,9 +8,13 @@ export const k1 = {
   black: '#000000',
   // Text and solid buttons on the black part.
   ice: '#E8EEF4',
-  coral: '#E2876F',
-  // Coral text on light backgrounds and white cards.
-  coralText: '#C4644B',
+  // The app's one red (담당자 결정 2026-11-10: warnings, errors, unread dots, heart rate all use #D44A4A; only lighter
+  // tints of it, never another red). The coral names stay so the call sites read the same.
+  coral: '#D44A4A',
+  // Red text on light backgrounds and white cards.
+  coralText: '#D44A4A',
+  // The red as a light tint, for lines and numbers on dark cards (heart rate, missed goal).
+  redLight: '#E79B9B',
   // Grey fields and round buttons inside the white map sheets (DESIGN.md 2-6).
   field: '#EDF1F5',
 } as const;
@@ -26,7 +30,7 @@ export const homePalette = {
   sub: '#56646C',
   muted: '#8A8A8A',
   unit: '#6A6A6A',
-  unread: '#E2553F',
+  unread: '#D44A4A',
   headerButton: 'rgba(255,255,255,0.55)',
   avatar: '#2A3238',
   // --card-condition at 115°: black through deep teal to steel blue.
@@ -154,9 +158,9 @@ export const palette = {
   mintPressed: '#8DE8DB',
   mintDeep: '#4FD0BF',
   mintText: '#14806F',
-  coral: '#FF9E8A',
-  coralStrong: '#FF8A73',
-  coralSoft: '#FFD3C8',
+  coral: '#D44A4A',
+  coralStrong: '#D44A4A',
+  coralSoft: '#F6DBDB',
   lavender: '#C9B8FF',
   periwinkle: '#C3C6F4',
   // 1.7 워치 연결: the drawn watch's metal bezel and its face glow (connected / not).

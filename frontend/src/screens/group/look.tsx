@@ -111,7 +111,7 @@ export const groupLook = {
   // The light map behind 6.4 · 6.6 · 6.6r · 6.9.
   mapBackground: '#F3F5F6',
   // --warn: the 취소 icon circle only (6.4c).
-  warn: '#F15066',
+  warn: '#D44A4A',
   // --cta-navy-bg (6.7 bottom buttons) as a plain fill, see the Svg alpha note below.
   ctaNavy: 'rgba(14,26,34,0.93)',
 } as const;
@@ -142,10 +142,10 @@ export const groupTone = {
   accentSoft: 'rgba(77,255,210,0.16)',
   // A quiet chip or secondary button.
   quiet: 'rgba(255,255,255,0.14)',
-  // The watch's warning red pink toned down (wear RunwayTheme Warning #FF5C7A, a little redder and softer, kept as vivid as the mint so the two read as one set: 담당자 요청 '톤 낮춰줘' · '약간 붉은 톤' · '민트랑 톤 맞게') for
-  // 해산 · 취소 · 내보내기 · 종료, with a faint fill of it behind its icons.
-  danger: '#F15066',
-  dangerSoft: 'rgba(241,80,102,0.16)',
+  // The app's one red (#D44A4A, 담당자 결정 2026-11-10) for 해산 · 취소 · 내보내기 · 종료, with a faint fill of it
+  // behind its icons.
+  danger: '#D44A4A',
+  dangerSoft: 'rgba(212,74,74,0.16)',
 } as const;
 
 const recipes = {

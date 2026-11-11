@@ -31,8 +31,26 @@ import { addDays, kstDay, kstMonth, mondayOf, shiftMonth } from './parts';
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 // How far back the week strip and the calendar go.
 const historyMonths = 36;
-// The dates are 62 high (recordsFrame.tabsHeight): 4, a 54-high tile, 4.
-const stripPadding = 4;
+// The week strip (담당자 시안 2026-11-10, S15P31E105-657): each day a tall capsule, deep navy on a day with a run,
+// white on a day without, grey after today; the chosen day ringed. 80-high capsules with room for the ring (1.5 line,
+// 2 gap) above and below, then the legend: recordsFrame.tabsHeight in all.
+const dayHeight = 80;
+const ringWidth = 1.5;
+const ringGap = 2;
+const stripPadding = ringWidth + ringGap;
+const legendHeight = 26;
+const dayLook = {
+  // A day with a run deep navy, one without white (담당자 요청 2026-11-10).
+  ran: '#03050D',
+  rest: '#FFFFFF',
+  // After today: the strip's grey (#A9AEB3 on the light page).
+  later: 'rgba(2,5,14,0.26)',
+  // The chosen day's ring: a thin line of the app's mint (담당자 요청 2026-11-10).
+  ring: '#4DFFD2',
+  onRan: '#FFFFFF',
+  onRest: '#03050D',
+  onLater: 'rgba(255,255,255,0.78)',
+};
 
 const monthNumber = (month: string) => Number(month.slice(5, 7));
 const dayNumber = (day: string) => Number(day.slice(8));
@@ -108,6 +126,12 @@ function Day({
       useNativeDriver: false,
     }).start();
   }, [on, selected]);
+  const fill = disabled ? dayLook.later : hasRun ? dayLook.ran : dayLook.rest;
+  const ink = disabled
+    ? dayLook.onLater
+    : hasRun
+    ? dayLook.onRan
+    : dayLook.onRest;
   return (
     <Pressable
       accessibilityRole="button"
@@ -118,45 +142,27 @@ function Day({
       style={styles.dayBox}
     >
       {({ pressed }) => (
-        <Animated.View
-          style={[
-            styles.day,
-            {
-              backgroundColor: on.interpolate({
-                inputRange: [0, 1],
-                outputRange: [
-                  pressed ? 'rgba(2,5,14,0.16)' : 'rgba(2,5,14,0)',
-                  recordsLook.ink,
-                ],
-              }),
-            },
-          ]}
-        >
-          <AppText
-            style={[
-              styles.weekday,
-              selected && styles.weekdayOn,
-              disabled && styles.future,
-            ]}
-          >
-            {weekdays[weekdayIndex(day)]}
-          </AppText>
-          <AppText
-            style={[
-              styles.date,
-              selected && styles.dateOn,
-              disabled && styles.future,
-            ]}
-          >
-            {String(dayNumber(day))}
-          </AppText>
+        <View style={styles.dayRoom}>
+          {/* The chosen day's ring, 2 out from its capsule. */}
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.ring, { opacity: on }]}
+          />
           <View
             style={[
-              styles.dot,
-              hasRun && (selected ? styles.dotSelected : styles.dotOn),
+              styles.day,
+              { backgroundColor: fill },
+              pressed && styles.dayPressed,
             ]}
-          />
-        </Animated.View>
+          >
+            <AppText style={[styles.weekday, { color: ink }]}>
+              {weekdays[weekdayIndex(day)]}
+            </AppText>
+            <AppText style={[styles.date, { color: ink }]}>
+              {String(dayNumber(day))}
+            </AppText>
+          </View>
+        </View>
       )}
     </Pressable>
   );
@@ -426,42 +432,60 @@ export function WeekStrip({
     onChange(next > today ? today : next);
   };
   return (
-    <View
-      style={[styles.strip, style]}
-      onLayout={event => {
-        const measured = Math.round(event.nativeEvent.layout.width) - 2;
-        if (measured > 0 && measured !== width) {
-          setWidth(measured);
-        }
-      }}
-    >
-      <Pager
-        width={width}
-        pageKey={monday}
-        hasPrevious={monday > first}
-        hasNext={monday < mondayOf(today)}
-        onTurn={turn}
-        renderPage={offset => {
-          const start = addDays(monday, offset * 7);
-          return (
-            <View style={styles.week}>
-              {weekdays.map((_, index) => {
-                const day = addDays(start, index);
-                return (
-                  <Day
-                    key={day}
-                    day={day}
-                    hasRun={runDays.has(day)}
-                    selected={day === value}
-                    disabled={day > today}
-                    onPress={() => onChange(day)}
-                  />
-                );
-              })}
-            </View>
-          );
+    <View style={style}>
+      <View
+        style={styles.strip}
+        onLayout={event => {
+          const measured = Math.round(event.nativeEvent.layout.width) - 2;
+          if (measured > 0 && measured !== width) {
+            setWidth(measured);
+          }
         }}
-      />
+      >
+        <Pager
+          width={width}
+          pageKey={monday}
+          hasPrevious={monday > first}
+          hasNext={monday < mondayOf(today)}
+          onTurn={turn}
+          renderPage={offset => {
+            const start = addDays(monday, offset * 7);
+            return (
+              <View style={styles.week}>
+                {weekdays.map((_, index) => {
+                  const day = addDays(start, index);
+                  return (
+                    <Day
+                      key={day}
+                      day={day}
+                      hasRun={runDays.has(day)}
+                      selected={day === value}
+                      disabled={day > today}
+                      onPress={() => onChange(day)}
+                    />
+                  );
+                })}
+              </View>
+            );
+          }}
+        />
+      </View>
+      <View style={styles.legend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: dayLook.ran }]} />
+          <AppText style={styles.legendText}>러닝한 날</AppText>
+        </View>
+        <View style={styles.legendItem}>
+          <View
+            style={[
+              styles.legendDot,
+              styles.legendDotLight,
+              { backgroundColor: dayLook.rest },
+            ]}
+          />
+          <AppText style={styles.legendText}>러닝 안 한 날</AppText>
+        </View>
+      </View>
     </View>
   );
 }
@@ -703,41 +727,65 @@ const styles = StyleSheet.create({
   rolling: { overflow: 'hidden' },
   rollingOld: { position: 'absolute', left: 0, top: 0 },
   strip: {
-    height: recordsFrame.tabsHeight,
-    borderRadius: 20,
+    height: recordsFrame.tabsHeight - legendHeight,
     overflow: 'hidden',
   },
   week: {
     flexDirection: 'row',
-    gap: 4,
-    paddingVertical: stripPadding,
+    gap: 2,
   },
   dayBox: { flex: 1 },
+  // Room round the capsule for the ring.
+  dayRoom: { padding: stripPadding },
+  ring: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 999,
+    borderWidth: ringWidth,
+    borderColor: dayLook.ring,
+  },
   day: {
-    height: 54,
-    borderRadius: 14,
+    height: dayHeight,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
+    gap: 6,
   },
+  dayPressed: { opacity: 0.8 },
   weekday: {
-    fontFamily: fontFamily.medium,
-    fontSize: 11,
-    lineHeight: 14,
-    color: recordsLook.muted,
-  },
-  weekdayOn: { color: 'rgba(255,255,255,0.8)' },
-  date: {
     fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 21,
-    color: recordsLook.ink,
+    fontSize: 13,
+    lineHeight: 17,
   },
-  dateOn: { color: '#FFFFFF' },
+  date: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  // The calendar's later days and run dots.
   future: { opacity: 0.4 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   dotOn: { backgroundColor: recordsLook.ink },
-  dotSelected: { backgroundColor: '#FFFFFF' },
+  legend: {
+    height: legendHeight,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 14,
+    paddingLeft: stripPadding,
+  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 3 },
+  // The white dot keeps a faint edge on the light page.
+  legendDotLight: { borderWidth: 1, borderColor: 'rgba(2,5,14,0.12)' },
+  legendText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: recordsLook.muted,
+  },
   panel: {
     ...glassCard,
     borderRadius: 26,
