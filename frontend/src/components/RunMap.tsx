@@ -19,6 +19,7 @@ import { latinRuns } from './AppText';
 import { fontFamily, k1, palette } from '../theme';
 import {
   coursePaceColors,
+  darkMapLook,
   isLoop,
   paceColor,
   routeLook,
@@ -357,11 +358,13 @@ function PoleMarker({
   label,
   finish = false,
   compact = false,
+  darkMap = false,
 }: {
   at: LngLat;
   label: string;
   finish?: boolean;
   compact?: boolean;
+  darkMap?: boolean;
 }) {
   const { head, stem, foot, font } = poleSizes[compact ? 'compact' : 'full'];
   const height = head + stem + foot;
@@ -378,25 +381,36 @@ function PoleMarker({
         <View
           style={[
             styles.poleHead,
+            darkMap && styles.poleHeadDark,
             { width: head, height: head, borderRadius: head / 2 },
             compact && styles.poleHeadCompact,
-            finish && styles.poleHeadFinish,
+            finish &&
+              (darkMap ? styles.poleHeadFinishDark : styles.poleHeadFinish),
           ]}
         >
           <Text
             style={[
               styles.poleText,
               { fontSize: font },
-              finish && styles.poleTextFinish,
+              darkMap && styles.poleTextDark,
+              finish &&
+                (darkMap ? styles.poleTextFinishDark : styles.poleTextFinish),
             ]}
           >
             {latinRuns(label, styles.poleText)}
           </Text>
         </View>
-        <View style={[styles.poleStem, { height: stem }]} />
+        <View
+          style={[
+            styles.poleStem,
+            darkMap && styles.poleStemDark,
+            { height: stem },
+          ]}
+        />
         <View
           style={[
             styles.poleFoot,
+            darkMap && styles.poleFootDark,
             { height: foot, borderRadius: foot / 2, width: foot * 2.5 },
           ]}
         />
@@ -489,6 +503,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
   const tilted = view !== 'flat';
+  const pathLook = tilted ? darkMapLook : routeLook;
   const me = running ? trail[trail.length - 1] : null;
   const heading = useRef(0);
   if (view === 'heading' && running) {
@@ -587,12 +602,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The centre line's colour per piece: the km colour when the course carries paces, ink otherwise.
   const pieceColor = (index: number) =>
     muted
-      ? k1.mid
+      ? tilted
+        ? darkMapLook.muted
+        : k1.mid
       : running
-      ? routeLook.guide
+      ? pathLook.guide
       : segmentPaces?.length
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
-      : routeLook.ink;
+      : pathLook.ink;
+  // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is lime.
+  const tiltedGuide = running && tilted;
   const loop = hasRoute && isLoop(route);
   const hasTrail = !!trail && trail.length >= 2;
   // The lines of the run so far: its parts when it has them, else the whole trail.
@@ -625,7 +644,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       mapType="Basic"
       // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
       // lighter to load, and a card's map takes no gestures anyway (S15P31E105-562).
-      isLiteModeEnabled={compact}
+      isLiteModeEnabled={compact && !tilted}
+      lightness={tilted ? darkMapLook.lightness : undefined}
       layerGroups={tilted ? tiltedLayers : flatLayers}
       buildingHeight={buildingHeight}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
@@ -679,8 +699,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         <NaverMapPathOverlay
           key={`shadow-${index}`}
           coords={line.map(toCoord)}
-          width={routeLook.shadowWidth}
-          color={routeLook.shadow}
+          width={pathLook.shadowWidth}
+          color={pathLook.shadow}
           zIndex={0}
         />
       ))}
@@ -691,12 +711,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           pathParts={pieces.map((piece, index) => ({
             coords: piece.map(toCoord),
             color: pieceColor(index),
-            outlineColor: routeLook.ribbon,
-            passedColor: routeLook.passed,
-            passedOutlineColor: routeLook.ribbon,
+            outlineColor: tiltedGuide
+              ? darkMapLook.guideOutline
+              : pathLook.ribbon,
+            passedColor: pathLook.passed,
+            passedOutlineColor: tiltedGuide
+              ? darkMapLook.guideOutline
+              : pathLook.ribbon,
           }))}
-          width={routeLook.centre}
-          outlineWidth={routeLook.edge}
+          width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
+          outlineWidth={tiltedGuide ? darkMapLook.guideEdge : pathLook.edge}
           progress={progress}
           zIndex={1}
         />
@@ -706,10 +730,10 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         <NaverMapPathOverlay
           key={`trail-${index}`}
           coords={line.map(toCoord)}
-          width={routeLook.centre}
-          outlineWidth={routeLook.edge}
-          color={ink}
-          outlineColor={routeLook.ribbon}
+          width={pathLook.centre}
+          outlineWidth={pathLook.edge}
+          color={pathLook.ink}
+          outlineColor={pathLook.ribbon}
           zIndex={2}
         />
       ))}
@@ -722,7 +746,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
       {hasRoute && !running ? (
         loop ? (
-          <PoleMarker at={route[0]} label="SF" compact={compact} />
+          <PoleMarker
+            at={route[0]}
+            label="SF"
+            compact={compact}
+            darkMap={tilted}
+          />
         ) : (
           <>
             <PoleMarker
@@ -730,8 +759,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               label="F"
               finish
               compact={compact}
+              darkMap={tilted}
             />
-            <PoleMarker at={route[0]} label="S" compact={compact} />
+            <PoleMarker
+              at={route[0]}
+              label="S"
+              compact={compact}
+              darkMap={tilted}
+            />
           </>
         )
       ) : null}
@@ -751,7 +786,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 height={26}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
-                <View style={[styles.pill, { width }]}>
+                <View style={[styles.pill, tilted && styles.pillDark, { width }]}>
                   <View style={styles.pillNumber}>
                     <Text style={styles.pillNumberText}>
                       {latinRuns(index + 1, styles.pillNumberText)}
@@ -768,8 +803,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
       {endpoints ? (
         <>
-          <PoleMarker at={destination as LngLat} label="F" finish />
-          {position ? <PoleMarker at={position} label="S" /> : null}
+          <PoleMarker
+            at={destination as LngLat}
+            label="F"
+            finish
+            darkMap={tilted}
+          />
+          {position ? (
+            <PoleMarker at={position} label="S" darkMap={tilted} />
+          ) : null}
         </>
       ) : null}
       {running || (position && !hasRoute && !endpoints) ? (
@@ -777,10 +819,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           at={running ? trail[trail.length - 1] : (position as LngLat)}
           dot={{
             size: 17,
-            fill: ink,
+            fill: pathLook.ink,
             ring: palette.white,
             ringWidth: 3,
-            glow: 'rgba(58, 90, 108, 0.16)',
+            glow: tilted
+              ? 'rgba(200, 255, 0, 0.18)'
+              : 'rgba(58, 90, 108, 0.16)',
             glowSize: 48,
           }}
         />
@@ -805,7 +849,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 ring={palette.white}
                 ringWidth={2}
               />
-              <Text style={[styles.memberName, styles.memberNameLight]}>
+              <Text
+                style={[
+                  styles.memberName,
+                  tilted ? styles.memberNameDark : styles.memberNameLight,
+                ]}
+              >
                 {member.label}
               </Text>
             </View>
@@ -831,6 +880,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
   },
   memberNameLight: { color: '#253649', textShadowColor: '#F3F5F6' },
+  memberNameDark: { color: palette.white, textShadowColor: '#0B1106' },
   center: { alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute' },
   pole: { alignItems: 'center' },
@@ -841,18 +891,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  poleHeadDark: {
+    backgroundColor: darkMapLook.ink,
+    borderColor: darkMapLook.ribbon,
+  },
   poleHeadCompact: { borderWidth: 1.5 },
   poleHeadFinish: { backgroundColor: palette.white, borderColor: ink },
+  poleHeadFinishDark: {
+    backgroundColor: palette.white,
+    borderColor: darkMapLook.ink,
+  },
   poleText: {
     color: palette.white,
     fontFamily: fontFamily.bold,
     includeFontPadding: false,
   },
+  poleTextDark: { color: '#101707' },
   poleTextFinish: { color: ink },
+  poleTextFinishDark: { color: '#101707' },
   poleStem: { width: 2, backgroundColor: ink },
+  poleStemDark: { backgroundColor: darkMapLook.ink },
   poleFoot: {
     backgroundColor: 'rgba(2, 5, 14, 0.25)',
   },
+  poleFootDark: { backgroundColor: 'rgba(200, 255, 0, 0.24)' },
   pill: {
     height: 26,
     borderRadius: 13,
@@ -861,6 +923,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 4,
     gap: 6,
+  },
+  pillDark: {
+    backgroundColor: '#101707',
+    borderColor: darkMapLook.ink,
+    borderWidth: 1,
   },
   pillNumber: {
     width: 18,

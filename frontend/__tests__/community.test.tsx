@@ -12,7 +12,13 @@ import {
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { NaverMapPathOverlay } from '@mj-studio/react-native-naver-map';
+import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
+import {
+  replayPlayMs,
+  replaySpeedup,
+} from '../src/screens/community/RouteReplay';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { Avatar } from '../src/screens/community/parts';
@@ -464,6 +470,32 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(km()).toBeLessThan(0.1);
   expect(texts(screen)).toContain('탭하면 일시정지');
   expect(texts(screen)).toContain('평균 페이스 (/KM)');
+  // The replay says how sped up it is (S15P31E105-672).
+  expect(texts(screen)).toMatch(/×\d+ 배속/);
+  // Only the part already run is drawn (S15P31E105-672 review): every replay line is see-through past the
+  // runner, shares the same progress and has its own layer; the grey outline shows over the opening overview.
+  const replayLines = () =>
+    screen.root.findAll(
+      node =>
+        node.type === NaverMapPathOverlay &&
+        node.props.passedColor !== undefined,
+    );
+  const outlines = () =>
+    screen.root.findAll(
+      node =>
+        node.type === NaverMapPathOverlay &&
+        node.props.color === darkMapLook.outline,
+    );
+  expect(replayLines()).toHaveLength(3);
+  for (const line of replayLines()) {
+    expect(line.props.color).toBe('rgba(0,0,0,0)');
+    expect(line.props.progress).toBe(0);
+    expect(typeof line.props.zIndex).toBe('number');
+  }
+  expect(outlines()).toHaveLength(1);
+  expect(outlines()[0].props.zIndex).toBeLessThan(
+    Math.min(...replayLines().map(line => line.props.zIndex)),
+  );
   // The camera swoops in first (once the map is up, here after its limit), then the run plays; time passes in
   // steps so each stage's timers start.
   for (let step = 0; step < 18; step++) {
@@ -472,6 +504,12 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   const halfway = km();
   expect(halfway).toBeGreaterThan(0);
   expect(halfway).toBeLessThan(5.02);
+  // The lines grow with the runner, all together, and the outline is gone once the camera swoops in.
+  const grown = replayLines().map(line => line.props.progress);
+  expect(grown[0]).toBeGreaterThan(0);
+  expect(grown[0]).toBeLessThan(1);
+  expect(new Set(grown).size).toBe(1);
+  expect(outlines()).toHaveLength(0);
 
   await press(screen, '재생 일시정지');
   expect(texts(screen)).toContain('일시정지됨 · 탭하면 계속');
@@ -482,12 +520,27 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(km()).toBe(paused);
 
   await press(screen, '재생 계속');
-  for (let step = 0; step < 20; step++) {
+  // A 5.02 km run plays in about 11 s (replayPlayMs), so this runs past its end and into the outro.
+  for (let step = 0; step < 26; step++) {
     await settle(500);
   }
   expect(km()).toBe(5.02);
   expect(texts(screen)).toContain('탭하면 다시 재생');
+  expect(replayLines().every(line => line.props.progress === 1)).toBe(true);
   await press(screen, '코스 재생 닫기');
+});
+
+// The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
+test('a replay plays longer for a longer run, within 8 to 15 seconds', () => {
+  expect(replayPlayMs(0)).toBe(8000);
+  expect(replayPlayMs(1500)).toBe(8000);
+  expect(replayPlayMs(5020)).toBe(11020);
+  expect(replayPlayMs(42195)).toBe(15000);
+  expect(replayPlayMs(Number.NaN)).toBe(8000);
+  expect(replayPlayMs(3000)).toBeLessThan(replayPlayMs(7000));
+  // 30 minutes in 11.02 s is about 163 times as fast.
+  expect(replaySpeedup(1800, 11020)).toBe(163);
+  expect(replaySpeedup(0, 11020)).toBeNull();
 });
 
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
