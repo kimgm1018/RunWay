@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "app" / "static" / "demo"
-SCRIPTS = ("js/logic.js", "js/render.js", "js/stream.js", "js/livemap.js", "js/main.js")
+SCRIPTS = ("js/logic.js", "js/render.js", "js/stream.js", "js/standings.js", "js/livemap.js", "js/main.js")
 
 
 def _safe_script(text: str) -> str:

@@ -54,6 +54,7 @@
     state.traces = root.RunwayDemoLogic.mergeTraces(previousTraces, snapshot.traces || []);
     root.RunwayDemoRender.reset(snapshot);
     if (root.RunwayDemoLiveMap) {          // 722: 실시간 경로 지도
+      root.RunwayDemoLiveMap.setCourse(snapshot.course || null);   // 727: 코스를 먼저 알려야 첫 판정이 코스 기준
       root.RunwayDemoLiveMap.setRoutes(snapshot.routes || []);
       root.RunwayDemoLiveMap.setCourse(snapshot.course || null);
     }
@@ -83,6 +84,7 @@
         root.RunwayDemoRender.updateCourse(state.snapshot.course, state.traces[state.traces.length - 1] || null);
       }
       if (data && Array.isArray(data.routes) && root.RunwayDemoLiveMap) {
+        root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
         root.RunwayDemoLiveMap.setRoutes(data.routes);
         root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
       }

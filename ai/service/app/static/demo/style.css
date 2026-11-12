@@ -558,6 +558,17 @@ input[type="range"] { accent-color: var(--ink); }
 .auth-panel .auth-error { color: var(--red-light); font-size: .9rem; }
 .auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--red-light); }
 
+/* 선두·후미(727): 점 이름표 배지와 지도 아래 간격 줄. 오래된 위치는 흐리게 */
+.live-map .tip-badge { font-style: normal; font-family: var(--ui); font-size: .68rem; font-weight: 700; margin-left: .35rem;
+  padding: .02rem .4rem; border-radius: 999px; }
+.live-map .tip-badge.lead { background: #4DFFD2; color: #02050E; }
+.live-map .tip-badge.tail { background: #E8EEF4; color: #02050E; }
+.live-map .tip-badge.side { background: #4D9BFF; color: #02050E; }
+.live-map .tip-stale { font-style: normal; font-family: var(--ui); font-size: .66rem; margin-left: .35rem; color: rgb(232 238 244 / 60%); }
+.live-map .route-tip.is-stale { opacity: .6; }
+.map-standings { position: absolute; left: .6rem; bottom: 1.7rem; z-index: 2; max-width: calc(100% - 1.2rem); padding: .3rem .8rem;
+  border-radius: 999px; background: rgb(2 5 14 / 82%); color: var(--ice); font-size: .82rem; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid rgb(255 255 255 / 14%); }
 /* 실시간 경로 지도(722): 앱 지도처럼 어두운 바탕에 민트 경로. OSM 타일을 어둡게 뒤집어 카드 톤에 맞춘다 */
 .live-map { position: absolute; inset: 0; border-radius: var(--radius-inner); overflow: hidden; background: #0B1522; z-index: 1; }
 .live-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.35); }

@@ -16,6 +16,7 @@
   <script defer src="js/logic.js"></script>
   <script defer src="js/render.js"></script>
   <script defer src="js/stream.js"></script>
+  <script defer src="js/standings.js"></script>
   <script defer src="js/livemap.js"></script>
   <script defer src="js/main.js"></script>
 </head>
@@ -112,7 +113,7 @@
       <aside class="context">
         <section class="panel map-panel tone-dark">
           <div class="panel-head"><h2>코스</h2><span id="course-meta" class="meta">—</span></div>
-          <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg><div id="live-map" class="live-map hidden" aria-label="실시간 러닝 경로 지도"></div><button id="map-follow" class="map-follow hidden" type="button" aria-pressed="true">따라가기 켬</button></div>
+          <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg><div id="live-map" class="live-map hidden" aria-label="실시간 러닝 경로 지도"></div><button id="map-follow" class="map-follow hidden" type="button" aria-pressed="true">따라가기 켬</button><div id="map-standings" class="map-standings hidden" aria-live="polite"></div></div>
           <div class="elev-wrap"><svg id="elevation" role="img" aria-label="코스 고도 단면"></svg></div>
         </section>
         <section class="panel records-panel">
