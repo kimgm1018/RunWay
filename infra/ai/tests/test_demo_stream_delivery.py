@@ -49,17 +49,17 @@ def test_demo_values_pass_through_and_enable(monkeypatch, tmp_path):
     assert settings.view_token == "v" * 32 and settings.config.session_allowlist is None
 
 
-def test_nginx_routes_admin_demo_with_basic_auth_and_sse():
+def test_nginx_routes_admin_demo_without_basic_auth_and_sse():
     nginx = INFRA / "nginx" / "default.conf"
     if not nginx.exists():  # AI 테스트 이미지에는 infra/ai만 들어간다
         pytest.skip("infra/nginx is not in the AI test image")
     conf = nginx.read_text(encoding="utf-8")
     page = conf.split("location /admin/demo/ {", 1)[1].split("}", 1)[0]
-    assert "auth_basic_user_file /etc/nginx/secrets/htpasswd-demo;" in page
+    assert "auth_basic" not in page                       # 718: 페이지 안 보기 토큰만 쓴다(SSE는 AI가 401)
     assert "rewrite ^/admin/demo/(.*)$ /demo/$1 break;" in page
     sse = conf.split("location ~ ^/v1/demo/sessions/", 1)[1].split("\n    }\n", 1)[0]
     for line in ("proxy_buffering off;", "proxy_read_timeout 3600s;", "proxy_http_version 1.1;",
                  'proxy_set_header Connection "";', "deny all;"):
         assert line in sse
     compose = (INFRA / "compose.yaml").read_text(encoding="utf-8")
-    assert "name: runway-ai_default" in compose and "./nginx/secrets:/etc/nginx/secrets:ro" in compose
+    assert "name: runway-ai_default" in compose and "htpasswd" not in compose

@@ -50,8 +50,25 @@ def record_trace(state: DemoState, outcome, *, stage: str, replay_speed: int | N
     return trace["traceId"]
 
 
-def group_allowed(state: DemoState, group_run_id: int) -> bool:
-    return state.buffer.allowed(group_key(group_run_id))
+def user_allowed(state: DemoState, user_id: int | None) -> bool:
+    """userAllowlist가 없으면 모두, 있으면 목록 안 회원만. userId가 없는 요청은 목록이 있을 때 기록하지 않는다."""
+    allow = state.config.user_allowlist if state.config else None
+    return allow is None or (user_id is not None and int(user_id) in allow)
+
+
+def decide_allowed(state: DemoState, body) -> bool:
+    """AI04 판단을 시연 버퍼에 남길지: 세션 허용 목록과 회원 허용 목록을 모두 통과해야 한다."""
+    return state.buffer.allowed(body.context.session_id) and user_allowed(state, body.user_id)
+
+
+def group_allowed(state: DemoState, group_run_id: int, participants=None) -> bool:
+    """AI10 그룹을 기록할지: 그룹 허용 목록, 그리고 회원 허용 목록이 있으면 참가자 중 한 명이라도 대상이어야 한다."""
+    if not state.buffer.allowed(group_key(group_run_id)):
+        return False
+    allow = state.config.user_allowlist if state.config else None
+    if allow is None:
+        return True
+    return any(user_allowed(state, p.user_id) for p in (participants or ()))
 
 
 def record_group_trace(state: DemoState, body, response, detail: dict, *, policy_version: str,

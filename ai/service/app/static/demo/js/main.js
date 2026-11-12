@@ -98,7 +98,14 @@
       onStatus: function (status) {
         if (status === 'connected') root.RunwayDemoRender.setConnection('연결됨 · 판단 기록 대기');
         else if (status === 'waiting') root.RunwayDemoRender.setConnection('세션 대기 중');
-        else { root.RunwayDemoRender.setConnection('연결 끊김 · 재접속 중'); updateBanner(); }
+        else if (status === 'unauthorized') {
+          sessionStorage.removeItem('runwayDemoToken');
+          root.RunwayDemoRender.setConnection('보기 토큰이 맞지 않습니다');
+          var input = byId('token-input');
+          if (input) { input.value = ''; input.focus(); }
+          show(byId('auth-error'), true);
+          show(byId('auth-panel'), true);
+        } else { root.RunwayDemoRender.setConnection('연결 끊김 · 재접속 중'); updateBanner(); }
       }});
     root.__demo = {reconnectNow: function () { if (state.stream) state.stream.reconnectNow(); }};
   }
@@ -296,6 +303,7 @@
       if (!value) { setBanner('stale', '시연 보기 토큰을 입력해 주세요.'); return; }
       sessionStorage.setItem('runwayDemoToken', value);
       show(byId('auth-panel'), false);
+      show(byId('auth-error'), false);
       setBanner(null);
       connectLive(value, session);
     }

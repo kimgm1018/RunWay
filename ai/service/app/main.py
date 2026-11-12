@@ -33,7 +33,7 @@ from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
-from app.demo.recorder import group_allowed, new_demo_state, record_group_trace, record_trace
+from app.demo.recorder import decide_allowed, group_allowed, new_demo_state, record_group_trace, record_trace
 from app.demo.stream import build_stream_router
 from app.demo.inlet import build_inlet_router
 from app.models.ode.runtime import DEFAULT_VALIDATED_HORIZON_SEC, load_ode_runtime
@@ -476,7 +476,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 raise ApiError(503, "MODEL_NOT_READY", "정책이 로드되지 않았습니다.")
             demo = request.app.state.demo
             # 시연 기능이 꺼져 있거나 허용 목록 밖 그룹이면 detail을 만들지 않는다(추가 계산 0)
-            detail = {} if demo is not None and group_allowed(demo, body.group_run_id) else None
+            detail = {} if demo is not None and group_allowed(demo, body.group_run_id, body.participants) else None
             began = time.perf_counter()
             response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
@@ -514,7 +514,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                              gru_gb_enabled=request.app.state.gru_gb_enabled,
                              readiness_lookup=request.app.state.readiness_lookup)
         demo = request.app.state.demo
-        if demo is not None:
+        if demo is not None and decide_allowed(demo, body):
             stage, _ = demo.profile_for(body.context.session_id)
             trace_id = record_trace(demo, outcome, stage=stage, replay_speed=None, grade_source="SAMPLE")
             if trace_id is not None and outcome.response is not None:

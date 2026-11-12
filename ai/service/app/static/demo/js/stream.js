@@ -20,6 +20,11 @@
           cache: 'no-store', signal: requestController.signal
         });
         if (stopped || runGeneration !== generation) return;
+        if (response.status === 401) {          // 토큰이 틀림: 다시 묻도록 멈춘다(재시도해도 같은 결과)
+          stopped = true;
+          options.onStatus && options.onStatus('unauthorized');
+          return;
+        }
         if (response.status === 404) {
           options.onStatus && options.onStatus('waiting');
           throw new Error('waiting');
