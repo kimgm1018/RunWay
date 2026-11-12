@@ -121,3 +121,25 @@ test('그룹 기록: 판정판은 데이터의 통과·예측·worst를 쓰고, 
   assert.equal(m.guideCard(trace).actionText, '가속');
   assert.equal(m.actionKind({decision: {direction: 'HOLD'}}), 'hold');
 });
+
+test('724 실제 페이스: 정지·없음은 글자, 정상은 페이스', () => {
+  assert.deepEqual(m.actualPace(null, null), {kind: 'none', text: '—', sec: null});
+  assert.equal(m.actualPace(0, null).text, '정지');                 // 멈춤: 속도 0
+  assert.equal(m.actualPace(0.05, 20000).text, '정지');             // 거의 멈춤: 큰 숫자 대신 정지
+  assert.equal(m.actualPace(0.8, 1250).kind, 'stopped');            // 20'00"/km보다 느리면 정지
+  assert.equal(m.actualPace(1000 / 422, 422).text, '7\'02"');
+  assert.equal(m.actualPace(20, 50).text, '—');                     // 2'00"/km보다 빠르면 측정 오류
+  assert.equal(m.actualPace(undefined, 375).text, '6\'15"');        // 옛 기록: 속도 칸이 없으면 페이스로
+  assert.equal(m.actualPace(undefined, 99999).text, '정지');
+  assert.equal(m.actualPace('abc', null).text, '—');
+});
+
+test('724 그룹 판정판 행에 러너별 실제 페이스', () => {
+  const group = {candidates: [{paceSecPerKm: 375, deltaSecPerKm: 0}], chosenIndex: 0, worstIndex: 0,
+    members: [{label: '러너 1', hrNowBpm: 150, allowBpm: 163, upperHrBpm: [155], predHr120Bpm: [150], passed: [true],
+               speedNowMps: 0, paceNowSecPerKm: null},
+              {label: '러너 2', hrNowBpm: 140, allowBpm: 163, upperHrBpm: [150], predHr120Bpm: [146], passed: [true],
+               speedNowMps: 1000 / 422, paceNowSecPerKm: 422}]};
+  const matrix = m.groupMatrix(group);
+  assert.deepEqual(matrix.rows.map(r => r.actual.text), ['정지', '7\'02"']);
+});

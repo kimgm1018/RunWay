@@ -88,6 +88,23 @@
     return Math.floor(value / 60) + "'" + String(value % 60).padStart(2, '0') + '"';
   }
 
+  // 724: 실제(측정) 페이스 표시. 바탕은 AI가 보낸 최근 속도 12칸(5초 간격, 약 60초) 평균.
+  // 속도가 없으면 '—', 0.83 m/s(20'00"/km)보다 느리면 '정지'로 보여 큰 숫자가 나오지 않게 한다. 판단에는 쓰지 않는다.
+  var ACTUAL_WINDOW_TEXT = '최근 60초 평균';
+  var STOP_SPEED_MPS = 1000 / 1200;
+  function actualPace(speedMps, paceSec) {
+    var speed = speedMps == null ? NaN : Number(speedMps);
+    if (!Number.isFinite(speed)) {
+      var pace = paceSec == null ? NaN : Number(paceSec);     // 옛 기록: 속도 칸이 없으면 페이스로 판단
+      if (!Number.isFinite(pace) || pace <= 0) return {kind: 'none', text: '—', sec: null};
+      speed = 1000 / pace;
+    }
+    if (speed < STOP_SPEED_MPS) return {kind: 'stopped', text: '정지', sec: null};
+    var sec = 1000 / speed;
+    if (sec < 120) return {kind: 'none', text: '—', sec: null};  // 2'00"/km보다 빠르면 측정 오류로 본다
+    return {kind: 'pace', text: formatPace(sec), sec: sec};
+  }
+
   function guideCard(trace) {
     trace = trace || {};
     var decision = trace.decision || {};
@@ -248,7 +265,8 @@
       if (atChosen != null && atChosen < worstHeadroom) { worstHeadroom = atChosen; worst = index; }
       var hr = Number(member && member.hrNowBpm);
       return {label: member && member.label || '멤버 ' + (index + 1), allow: Number.isFinite(allow) ? allow : null,
-        hrNow: member && member.hrNowBpm != null && Number.isFinite(hr) ? hr : null, cells: cells};
+        hrNow: member && member.hrNowBpm != null && Number.isFinite(hr) ? hr : null, cells: cells,
+        actual: actualPace(member && member.speedNowMps, member && member.paceNowSecPerKm)};
     });
     if (Number.isInteger(group.worstIndex) && rows[group.worstIndex]) worst = group.worstIndex;
     var columns = group.candidates.map(function (c, j) {
@@ -271,6 +289,7 @@
   }
 
   var RunwayDemoLogic = {
+    actualPace: actualPace, ACTUAL_WINDOW_TEXT: ACTUAL_WINDOW_TEXT,
     GROUP_KEY_OFFSET: GROUP_KEY_OFFSET,
     streamRef: streamRef,
     candidateSummary: candidateSummary,

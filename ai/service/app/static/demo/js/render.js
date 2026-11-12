@@ -491,6 +491,7 @@
       name.appendChild(el('span', 'gb-who', row.label));
       name.appendChild(el('b', 'gb-hr', row.hrNow != null ? String(Math.round(row.hrNow)) : '—'));
       name.appendChild(el('small', null, row.allow != null ? '허용 ' + Math.round(row.allow) : ''));
+      name.appendChild(el('small', 'gb-actual actual-' + row.actual.kind, '실제 ' + row.actual.text));
       if (worst) { name.classList.add('gb-row-worst'); name.setAttribute('title', '가장 빠듯한 러너'); }
       board.appendChild(name);
       row.cells.forEach(function (cell, j) {
@@ -602,7 +603,9 @@
       var heart = hrCard.querySelector('.heart');
       if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
     }
-    putBump('metric-pace', input.paceNowSecPerKm != null ? L().formatPace(input.paceNowSecPerKm) : '—');
+    var actual = L().actualPace(input.speedNowMps, input.paceNowSecPerKm);   // 724: 정지·없음은 큰 숫자 대신 글자로
+    putBump('metric-pace', actual.text);
+    actualLine([{label: null, actual: actual}]);
     var grade = num(input.gradeNext120sPct);
     put('metric-grade', '다음 2분 경사 ' + (grade != null ? (grade > 0 ? '+' : '') + grade.toFixed(1) + '%' : '—'));
     var distance = num(input.distanceM);
@@ -629,6 +632,9 @@
       if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
     }
     putBump('metric-pace', d.fromPaceSecPerKm != null ? L().formatPace(d.fromPaceSecPerKm) : '—');
+    actualLine((g.members || []).map(function (m, i) {
+      return {label: m.label || '러너 ' + (i + 1), actual: L().actualPace(m.speedNowMps, m.paceNowSecPerKm)};
+    }));
     put('metric-grade', g.goalPaceSecPerKm != null ? '목표 ' + L().formatPace(g.goalPaceSecPerKm) + '/km' : '목표 —');
     var hrCount = (g.members || []).length;
     putBump('metric-distance', hrCount + (g.paceOnlyCount || 0));
@@ -674,6 +680,20 @@
     put('guide-allow', allow != null ? Math.round(allow) : '—');
     var side = byId('guide-side');
     if (side) side.classList.toggle('over', pred != null && allow != null && pred >= allow);
+  }
+
+  // 724: 안내 페이스 옆 '실제' 줄. 개인은 한 값, 그룹은 러너마다(라벨 · 값).
+  function actualLine(items) {
+    var host = byId('actual-text');
+    if (!host) return;
+    clear(host);
+    (items || []).forEach(function (item, index) {
+      if (index) host.appendChild(document.createTextNode(' · '));
+      var span = el('span', 'actual-' + item.actual.kind, (item.label ? item.label + ' ' : '') + item.actual.text);
+      host.appendChild(span);
+    });
+    if (!(items || []).length) host.textContent = '—';
+    put('actual-note', L().ACTUAL_WINDOW_TEXT);
   }
 
   function reasonLine(trace) {
@@ -784,6 +804,7 @@
     put('guide-delivery', '대기');
     put('guide-pred', '—'); put('guide-allow', '—');
     put('reason-line', '판단 기록을 기다리고 있습니다.');
+    actualLine([]);
     put('record-count', '0'); put('mae-line', '10분 평균 오차 —');
     var checkLine = document.querySelector('.check-line');
     if (checkLine) checkLine.textContent = '2분 전 예측 비교 대기';

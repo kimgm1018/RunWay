@@ -173,3 +173,15 @@ def test_offline_group_replay_runner_count_follows_demo_size(tmp_path):
     assert "SPEED_UP" in codes and "SLOW_DOWN" in codes                       # 마지막 러너가 감속 이야기를 맡는다
     with pytest.raises(ValueError):
         build_group_recording(recording_id="group_zero", label="합성", out_dir=tmp_path, runners=0)
+
+
+def test_group_trace_carries_display_speed_per_member(tmp_path):
+    # 724 표시용: 러너마다 최근 속도 평균(m/s). 멈춘 러너는 0 → 콘솔이 '정지'로 보인다. 응답은 그대로
+    data = body(participants=[participant(1, pace=340), participant(2, pace=340)])
+    data["participants"][1]["history"]["speedMps"] = [0.0] * 12
+    with client(tmp_path) as c:
+        r = c.post("/v1/group/pace", json=data)
+        members = c.app.state.demo.buffer.traces(group_key(3))[-1]["group"]["members"]
+    assert r.status_code == 200 and "speedNowMps" not in json.dumps(r.json())
+    assert members[0]["speedNowMps"] == round(1000 / 340, 2)
+    assert members[1]["speedNowMps"] == 0.0 and members[1]["paceNowSecPerKm"] is None

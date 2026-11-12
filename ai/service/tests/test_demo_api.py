@@ -62,3 +62,11 @@ def test_static_served_when_enabled(tmp_path):
     with demo_client(tmp_path) as c:
         r = c.get("/demo/")
     assert r.status_code == 200 and "<title>" in r.text
+
+
+def test_decide_trace_carries_display_speed(tmp_path):
+    # 724 표시용: 최근 속도 12칸 평균. 응답 계약에는 없다
+    with demo_client(tmp_path) as c:
+        r = c.post("/v1/pace/decide", json=decide_body())
+        t = c.app.state.demo.buffer.traces(201)[-1]
+    assert t["input"]["speedNowMps"] == 3.0 and "speedNowMps" not in r.text
