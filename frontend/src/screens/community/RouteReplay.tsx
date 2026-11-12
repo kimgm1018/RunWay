@@ -1120,6 +1120,8 @@ function MapReplay({
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
+      // Android TextureView needs an accelerated window when its surface is recreated after app resume.
+      hardwareAccelerated
     >
       <StatusBar barStyle="light-content" />
       <Pressable
