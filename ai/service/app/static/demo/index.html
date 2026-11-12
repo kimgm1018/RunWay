@@ -9,10 +9,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+  <!-- 실시간 경로 지도(722): Leaflet 1.9.4(cdnjs, 버전·SRI 고정) + OpenStreetMap 타일. 못 읽으면 SVG 코스 그림만 보인다 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <link rel="stylesheet" href="style.css">
   <script defer src="js/logic.js"></script>
   <script defer src="js/render.js"></script>
   <script defer src="js/stream.js"></script>
+  <script defer src="js/livemap.js"></script>
   <script defer src="js/main.js"></script>
 </head>
 <body class="is-waiting">
@@ -107,7 +111,7 @@
       <aside class="context">
         <section class="panel map-panel tone-dark">
           <div class="panel-head"><h2>코스</h2><span id="course-meta" class="meta">—</span></div>
-          <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg></div>
+          <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg><div id="live-map" class="live-map hidden" aria-label="실시간 러닝 경로 지도"></div><button id="map-follow" class="map-follow hidden" type="button" aria-pressed="true">따라가기 켬</button></div>
           <div class="elev-wrap"><svg id="elevation" role="img" aria-label="코스 고도 단면"></svg></div>
         </section>
         <section class="panel records-panel">

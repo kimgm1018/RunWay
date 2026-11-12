@@ -12,6 +12,7 @@ class DemoState:
     settings: DemoSettings
     buffer: DemoBuffer
     rate_per_sec: int = 2
+    routes: object | None = None      # 722: 지도용 실제 경로(DemoRoutes). AI DB가 없으면 None
 
     @property
     def config(self):
@@ -79,6 +80,8 @@ def record_group_trace(state: DemoState, body, response, detail: dict, *, policy
     if not state.buffer.allowed(key):
         return None
     stage, profile = state.profile_for(key)
+    if state.routes is not None:
+        state.routes.set_group_members(key, [p.user_id for p in body.participants])
     trace = build_group_trace(body, response, detail, boot_id=state.buffer.boot_id, seq=state.buffer.next_seq(),
                               stage=stage, label=profile.label, policy_version=policy_version,
                               decided_at=decided_at, decide_ms=decide_ms)

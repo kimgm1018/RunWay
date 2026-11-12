@@ -33,6 +33,7 @@ from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
+from app.demo.routes import DbDemoRouteSource, DemoRoutes
 from app.demo.recorder import decide_allowed, group_allowed, new_demo_state, record_group_trace, record_trace
 from app.demo.stream import build_stream_router
 from app.demo.inlet import build_inlet_router
@@ -168,6 +169,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                clock: Callable[[], datetime] = utc_now,
                demo_loader: Callable[[], DemoSettings] = load_demo_settings,
                demo_rate_per_sec: int = 2,
+               demo_route_source=None,
                ode_loader: Callable[[], object | None] = default_ode_loader,
                personal_plan_course_lookup=None,
                personal_plan_user_lookup=None,
@@ -267,6 +269,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     demo_settings = demo_loader()
     demo_state = (new_demo_state(demo_settings, rate_per_sec=demo_rate_per_sec, now=clock)
                   if demo_settings.enabled else None)
+    if demo_state is not None:
+        # 722: 시연 콘솔 지도. AI 읽기 전용 DB로 대상 세션의 running_route_points만 읽는다(없으면 지도 선 없음)
+        # userAllowlist가 null(전체)이면 경로를 아예 읽지 않는다. 대상 회원이 정해졌을 때만 켠다.
+        user_allow = demo_settings.config.user_allowlist if demo_settings.config else None
+        if demo_route_source is None and ai_db is not None:
+            demo_route_source = DbDemoRouteSource(ai_db)
+        demo_state.routes = (DemoRoutes(demo_route_source, allowed_users=user_allow)
+                             if demo_route_source is not None and user_allow is not None else None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
