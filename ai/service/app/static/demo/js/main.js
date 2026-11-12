@@ -3,7 +3,8 @@
 
   var state = {traces: [], snapshot: null, stream: null, bootId: null, serverOffsetMs: 0,
     lastMessageAtMs: null, mode: 'replay', recording: null, playbackIndex: -1, playbackSpeed: 1,
-    playbackTimer: null, playing: false, restartSeen: false};
+    playbackTimer: null, playing: false, restartSeen: false, sessions: [], token: null, liveSession: null,
+    viewing: null};
   root.__demoState = state;
   root.__demoMetrics = {renderLagMs: null};
 
@@ -11,6 +12,12 @@
   function show(el, visible) { if (el) el.classList.toggle('hidden', !visible); }
   function setBanner(kind, text) { root.RunwayDemoRender.setBanner(kind ? {kind: kind, text: text} : null); }
   function updateBanner() {
+    if (state.mode === 'history') {                       // 738: 지난 기록은 경고·'마지막 판단' 없음
+      root.RunwayDemoRender.setBanner(null);
+      var ageEl = document.getElementById('record-age');
+      if (ageEl) ageEl.classList.add('hidden');
+      return;
+    }
     var trace = state.traces[state.traces.length - 1];
     var age = document.getElementById('record-age');
     if (age) {                                   // 736: 라이브에서만 '마지막 판단 N초 전'
@@ -52,7 +59,117 @@
     list.insertBefore(marker, list.firstChild);
   }
 
+  // ── 738 '이전 기록' ─────────────────────
+  function renderHistory() {
+    var list = byId('history-list');
+    var button = byId('history-toggle');
+    if (button) button.classList.toggle('hidden', state.mode === 'replay');
+    if (!list) return;
+    list.textContent = '';
+    var rows = state.sessions || [];
+    if (!rows.length) {
+      var empty = document.createElement('li');
+      empty.className = 'history-empty';
+      empty.textContent = '아직 보관된 기록이 없습니다';
+      list.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (row) {
+      var item = document.createElement('li');
+      var pick = document.createElement('button');
+      pick.type = 'button';
+      pick.className = 'history-item' + (row.live ? ' live' : '') + (state.viewing === row.sessionId ? ' current' : '');
+      pick.textContent = root.RunwayDemoLogic.historyRowText(row);
+      if (row.label) pick.title = row.label;
+      pick.addEventListener('click', function () { openHistory(row); });
+      item.appendChild(pick);
+      list.appendChild(item);
+    });
+  }
+
+  function toggleHistoryPanel(open) {
+    var panel = byId('history-panel');
+    var button = byId('history-toggle');
+    if (!panel) return;
+    var willOpen = open == null ? panel.classList.contains('hidden') : open;
+    show(panel, willOpen);
+    if (button) button.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) renderHistory();
+  }
+
+  async function openHistory(row) {
+    toggleHistoryPanel(false);
+    if (!state.token) return;
+    setBanner(null);
+    root.RunwayDemoRender.setConnection('이전 기록 불러오는 중…');
+    var data;
+    try {
+      data = await root.RunwayDemoStream.fetchSnapshot({token: state.token, session: 'h' + row.sessionId});
+    } catch (error) {
+      root.RunwayDemoRender.setConnection('이전 기록을 불러오지 못했습니다');
+      return;
+    }
+    if (state.stream) { state.stream.close(); state.stream = null; }
+    state.mode = 'history';
+    state.viewing = row.sessionId;
+    state.sessions = data.sessions || state.sessions;
+    var traces = Array.isArray(data.traces) ? data.traces : [];
+    var recording = {id: 'h' + row.sessionId, label: (data.label || '이전 기록') + ' · ' + root.RunwayDemoLogic.historyRowText(row),
+      modelLabel: traces.length ? traces[traces.length - 1].modelVersion || null : null,
+      snapshot: {stage: 'L3', label: data.label, course: data.course || null}, traces: traces};
+    show(byId('replay-controls'), true);
+    show(byId('recording-select'), false);
+    show(byId('history-chip'), true);
+    bindHistoryControls();
+    var chipText = byId('history-chip-text');
+    if (chipText) chipText.textContent = '이전 기록 · ' + root.RunwayDemoLogic.historyRowText(row);
+    selectRecording([recording], 0);
+    gotoReplay(traces.length - 1);
+    if (root.RunwayDemoLiveMap) {
+      root.RunwayDemoLiveMap.reset();
+      root.RunwayDemoLiveMap.setCourse(data.course || null);
+      root.RunwayDemoLiveMap.setRoutes(data.routes || []);
+      root.RunwayDemoLiveMap.setCourse(data.course || null);
+    }
+    root.RunwayDemoRender.setConnection('이전 기록 다시 보기 · 슬라이더로 처음부터 볼 수 있습니다');
+  }
+
+  // 라이브 모드에서는 재생 조작을 묶지 않았으므로(startReplayMode에서만) 다시 보기 때 한 번만 묶는다
+  function bindHistoryControls() {
+    if (state.historyControlsBound) return;
+    state.historyControlsBound = true;
+    byId('play-toggle').addEventListener('click', function () {
+      if (state.mode === 'history') { state.playing ? stopPlayback() : startPlayback(); }
+    });
+    byId('play-speed').addEventListener('change', function (event) {
+      if (state.mode !== 'history') return;
+      state.playbackSpeed = Number(event.target.value) || 1;
+      root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
+      if (state.playing) { if (state.playbackTimer) clearTimeout(state.playbackTimer); schedulePlayback(); }
+    });
+    byId('progress').addEventListener('input', function (event) {
+      if (state.mode === 'history') gotoReplay(Number(event.target.value));
+    });
+  }
+
+  function backToLive() {
+    stopPlayback();
+    show(byId('replay-controls'), false);
+    show(byId('recording-select'), true);
+    show(byId('history-chip'), false);
+    state.mode = 'live';
+    state.viewing = null;
+    state.recording = null;
+    state.traces = [];          // 지난 기록을 라이브 기록과 합치지 않게 비운다
+    state.bootId = null;
+    state.playbackIndex = -1;
+    if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.reset();
+    if (state.token) connectLive(state.token, state.liveSession);
+    renderHistory();
+  }
+
   function handleSnapshot(snapshot) {
+    if (Array.isArray(snapshot.sessions)) { state.sessions = snapshot.sessions; renderHistory(); }
     var previousBoot = state.bootId;
     var previousTraces = state.traces.slice();
     state.bootId = snapshot.bootId || state.bootId;
@@ -85,6 +202,11 @@
       updateBanner();
       return;
     }
+    if (name === 'SESSIONS') {               // 738: 목록이 바뀌었을 때
+      state.sessions = data && Array.isArray(data.sessions) ? data.sessions : state.sessions;
+      renderHistory();
+      return;
+    }
     if (name === 'COURSE_UPDATE') {
       // 722: 실제 경로는 같은 이벤트의 routes로 온다. course가 없는 이벤트는 코스를 지우지 않는다
       if (data && Object.prototype.hasOwnProperty.call(data, 'course')) {
@@ -109,6 +231,8 @@
   }
 
   function connectLive(token, session) {
+    state.token = token;
+    state.liveSession = session;
     if (state.stream) state.stream.close();
     state.snapshot = {stage: 'L1A', label: '실시간 세션 대기', course: null};
     root.RunwayDemoRender.reset(state.snapshot);
@@ -346,6 +470,14 @@
       root.RunwayDemoRender.setZoom(active);
     });
     state.mode = params.get('mode') === 'live' ? 'live' : 'replay';
+    var historyToggle = byId('history-toggle');
+    if (historyToggle) historyToggle.addEventListener('click', function () { toggleHistoryPanel(); });
+    var historyBack = byId('history-back');
+    if (historyBack) historyBack.addEventListener('click', backToLive);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && byId('history-panel') && !byId('history-panel').classList.contains('hidden')) toggleHistoryPanel(false);
+    });
+    renderHistory();
     if (state.mode === 'live') startLiveMode(params);
     else startReplayMode();
   });

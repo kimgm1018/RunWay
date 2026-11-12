@@ -15,6 +15,8 @@ from app.schemas import ErrorResponse
 
 HEARTBEAT_SEC = 15.0
 POLL_SEC = 0.2
+SESSIONS_EVERY_SEC = 5.0        # 738: '이전 기록' 목록이 바뀌었는지 보는 간격
+MAX_HISTORY_TRACES = 1500       # 738: 다시 보기 한 번에 보내는 기록 상한(넘으면 고르게 솎고 마지막은 남김)
 
 
 def sse(event: str, data: dict) -> str:
@@ -26,12 +28,15 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                        is_disconnected: Callable[[], Awaitable[bool]] = lambda: asyncio.sleep(0, result=False),
                        max_loops: int | None = None,
                        initial_course_version: int | None = None,
-                       routes=None, initial_route_version: int = 0) -> AsyncIterator[str]:
+                       routes=None, initial_route_version: int = 0,
+                       sessions: Callable[[], list] | None = None) -> AsyncIterator[str]:
     last_seq = 0
     last_course_version = initial_course_version
     if last_course_version is None:
         last_course_version = buffer.course_state(session_id)[0] if hasattr(buffer, "course_state") else 0
     last_route_version = initial_route_version
+    last_sessions_key = None
+    last_sessions_check = float("-inf")
     last_send = monotonic()
     try:
         payload = dict(snapshot)
@@ -40,6 +45,9 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
             payload["traces"] = traces
         else:
             payload.setdefault("traces", buffer.traces(session_id))
+        if "sessions" in payload:
+            last_sessions_key = _sessions_key(payload["sessions"])
+            last_sessions_check = monotonic()
         yield sse("SNAPSHOT", payload)
         loops = 0
         while max_loops is None or loops < max_loops:
@@ -66,6 +74,13 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                 if route_changed:
                     payload["routes"] = route_list   # 실제 경로가 바뀌었을 때만 싣는다(기존 콘솔은 이 키를 무시)
                 yield sse("COURSE_UPDATE", payload)
+            if sessions is not None and monotonic() - last_sessions_check >= SESSIONS_EVERY_SEC:
+                last_sessions_check = monotonic()
+                rows = sessions()
+                key = _sessions_key(rows)
+                if key != last_sessions_key:
+                    last_sessions_key = key
+                    yield sse("SESSIONS", {"sessions": rows})
             for seq, trace in buffer.since(session_id, last_seq):
                 yield sse("MPC_TRACE", trace)
                 last_seq = max(last_seq, seq)
@@ -76,6 +91,37 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                 last_send = current
     finally:
         buffer.unsubscribe(session_id)
+
+
+def _sessions_key(rows) -> tuple:
+    return tuple((r.get("sessionId"), r.get("traceCount"), r.get("live")) for r in rows or ())
+
+
+def _thin(traces: list[dict], limit: int) -> list[dict]:
+    if len(traces) <= limit:
+        return traces
+    step = (len(traces) - 1) / (limit - 1)
+    return [traces[round(i * step)] for i in range(limit)]
+
+
+async def _one(event: str, data: dict, release: Callable[[], None]) -> AsyncIterator[str]:
+    try:
+        yield sse(event, data)
+    finally:
+        release()
+
+
+def session_rows(state: DemoState) -> list[dict]:
+    """738 '이전 기록' 목록: 버퍼 목록에 화면 이름(label)만 붙인다. 회원 ID·좌표는 없다."""
+    rows = []
+    for row in state.buffer.sessions():
+        try:
+            _, profile = state.profile_for(row["sessionId"])
+            label = profile.label
+        except KeyError:
+            label = None
+        rows.append({**row, "label": label})
+    return rows
 
 
 def build_stream_router(state: DemoState) -> APIRouter:
@@ -95,8 +141,11 @@ def build_stream_router(state: DemoState) -> APIRouter:
     async def events(session_ref: str, request: Request):
         reject_query_token(request)
         require_bearer(request, state.settings.view_token)
+        history = session_ref.startswith("h") and session_ref[1:].isdigit()
         if session_ref == "latest":
             session_id = state.buffer.latest_session()
+        elif history:                       # 738: 'h<id>' = 지난 기록 전체를 한 번 보내고 닫는다
+            session_id = int(session_ref[1:])
         else:
             try:
                 session_id = int(session_ref)
@@ -121,13 +170,21 @@ def build_stream_router(state: DemoState) -> APIRouter:
         snapshot = {"bootId": state.buffer.boot_id, "serverTime": request.app.state.clock().isoformat(),
                     "stage": stage, "label": profile.label,
                     "course": course, "routes": route_list,
-                    "traces": state.buffer.traces(session_id)}
+                    "traces": state.buffer.traces(session_id),
+                    "sessionId": session_id, "sessions": session_rows(state)}
+        if history:
+            snapshot["traces"] = _thin(state.buffer.all_traces(session_id), MAX_HISTORY_TRACES)
+            snapshot["history"] = True
+            return StreamingResponse(_one("SNAPSHOT", snapshot, lambda: state.buffer.unsubscribe(session_id)),
+                                     media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
         max_loops = getattr(request.app.state, "demo_stream_max_loops", None)
         body = event_stream(state.buffer, session_id, snapshot=snapshot,
                             server_time=lambda: request.app.state.clock().isoformat(),
                             is_disconnected=request.is_disconnected, max_loops=max_loops,
                             initial_course_version=course_version,
-                            routes=routes, initial_route_version=route_version)
+                            routes=routes, initial_route_version=route_version,
+                            sessions=lambda: session_rows(state))
         return StreamingResponse(body, media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
