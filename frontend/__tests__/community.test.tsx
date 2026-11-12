@@ -16,9 +16,9 @@ import { NaverMapPathOverlay } from '@mj-studio/react-native-naver-map';
 import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
 import {
+  FeedRouteReplay,
   pointAt,
   replayPlayMs,
-  replaySpeedup,
 } from '../src/screens/community/RouteReplay';
 import { routeLengthM, walkAlong, type LngLat } from '../src/geo';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
@@ -96,6 +96,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  // A test that held the maps' drawn tiles back lets them go for the next one.
+  naverMap.__holdMapsLoaded(false);
   const screen = mounted;
   mounted = null;
   try {
@@ -211,6 +213,8 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
 // 7.1 (S15P31E105-561, 담당자 시안): one full-screen page per post, the run's numbers at the foot, the actions down
 // the right, and the route drawn only for a post that shares its course.
 test('7.1 shows each post as a full-screen page with its numbers, and the route only when the course is shared', async () => {
+  // The page's map holds back its drawn tiles, so the test says when the first one is up.
+  naverMap.__holdMapsLoaded(true);
   const screen = await openCommunity();
   const pages = screen.root.findAllByType(FeedPage);
   expect(pages.length).toBeGreaterThan(1);
@@ -236,7 +240,8 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
   expect(words).not.toContain('예시 경로');
   // The page below waits for the first map to be up, then draws its own.
   expect(mapsOf(pages[1])).toBe(0);
-  const [firstMap] = first.findAllByType(RunMap);
+  // The page's map is its course replay (S15P31E105-721, 704에서 처리), which says when its tiles are drawn.
+  const [firstMap] = first.findAllByType(FeedRouteReplay);
   await act(async () => firstMap.props.onShown());
   await settle(50);
   if (pages[1].props.post.courseShared) {
@@ -285,6 +290,7 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
 // 사용자 요청: the map's light ground covers a new map until it says its first view is set, then fades, so the
 // course does not jump into place on screen.
 test('7.1 uncovers the real map once its first view is in place', async () => {
+  naverMap.__holdMapsLoaded(true);
   const screen = await openCommunity();
   await settle(50);
   const [first] = screen.root.findAllByType(FeedPage);
@@ -294,10 +300,33 @@ test('7.1 uncovers the real map once its first view is in place', async () => {
         typeof node.type === 'string' && node.props.testID === 'feed-map-cover',
     );
   expect(covers()).toHaveLength(1);
-  const [map] = first.findAllByType(RunMap);
+  const [map] = first.findAllByType(FeedRouteReplay);
   await act(async () => map.props.onShown());
   await settle(400);
   expect(covers()).toHaveLength(0);
+});
+
+// 작업 요청자 (S15P31E105-721, 704에서 처리): the page's map is its course replay — the page on screen plays it (the
+// whole course first, then the run) without opening 7.2; the pages around it hold their whole course, drawn
+// ahead on the same map, so a swipe plays without loading again; no page keeps a second map.
+test('7.1 plays the course replay in the page on screen', async () => {
+  const screen = await openCommunity();
+  await settle(50);
+  const pages = screen.root.findAllByType(FeedPage);
+  const [first] = pages;
+  const [replay] = first.findAllByType(FeedRouteReplay);
+  expect(replay.props.playing).toBe(true);
+  expect(replay.props.route.length).toBeGreaterThan(1);
+  expect(first.findAllByType(RunMap)).toHaveLength(0);
+  await act(async () => replay.props.onShown());
+  await settle(400);
+  const below = pages[1];
+  if (below.props.post.courseShared) {
+    const [held] = below.findAllByType(FeedRouteReplay);
+    expect(held.props.playing).toBe(false);
+  }
+  // No buttons or numbers of its own: the feed's words and actions stay as they were.
+  expect(texts(screen)).not.toContain('탭하면 일시정지');
 });
 
 // 사용자 요청 (7.2 지도를 바로): 7.2 draws the course 7.1 already read while the post itself is still on its way,
@@ -309,7 +338,7 @@ test('7.2 draws the shared course before the post has been read', async () => {
   await settle(50);
   const [feedMap] = screen.root
     .findAllByType(FeedPage)[0]
-    .findAllByType(RunMap);
+    .findAllByType(FeedRouteReplay);
   const feedRoute = feedMap.props.route;
   expect(feedRoute.length).toBeGreaterThan(1);
   await openFirstPost(screen);
@@ -551,10 +580,11 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(km()).toBeLessThan(0.1);
   expect(texts(screen)).toContain('탭하면 일시정지');
   expect(texts(screen)).toContain('평균 페이스 (/KM)');
-  // The replay says how sped up it is (S15P31E105-672).
-  expect(texts(screen)).toMatch(/×\d+ 배속/);
+  // No speed-up figure on the replay (S15P31E105-704, 작업 요청자).
+  expect(texts(screen)).not.toMatch(/배속/);
   // Only the part already run is drawn (S15P31E105-672 review): every replay line is see-through past the
-  // runner, shares the same progress and has its own layer; the grey outline shows over the opening overview.
+  // runner, shares the same progress and has its own layer. The opening overview shows the whole course drawn
+  // (작업 요청자, S15P31E105-704) over the thin grey course.
   const replayLines = () =>
     screen.root.findAll(
       node =>
@@ -570,7 +600,7 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   expect(replayLines()).toHaveLength(3);
   for (const line of replayLines()) {
     expect(line.props.color).toBe('rgba(0,0,0,0)');
-    expect(line.props.progress).toBe(0);
+    expect(line.props.progress).toBe(1);
     expect(typeof line.props.zIndex).toBe('number');
   }
   expect(outlines()).toHaveLength(1);
@@ -585,7 +615,8 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   const halfway = km();
   expect(halfway).toBeGreaterThan(0);
   expect(halfway).toBeLessThan(5.02);
-  // The lines grow with the runner, all together, and the outline is gone once the camera swoops in.
+  // Once the camera leans in the course is clear; the lines draw again from the start and grow with the runner,
+  // all together, and the grey course is gone.
   const grown = replayLines().map(line => line.props.progress);
   expect(grown[0]).toBeGreaterThan(0);
   expect(grown[0]).toBeLessThan(1);
@@ -646,9 +677,6 @@ test('a replay plays longer for a longer run, within 8 to 15 seconds', () => {
   expect(replayPlayMs(42195)).toBe(15000);
   expect(replayPlayMs(Number.NaN)).toBe(8000);
   expect(replayPlayMs(3000)).toBeLessThan(replayPlayMs(7000));
-  // 30 minutes in 11.02 s is about 163 times as fast.
-  expect(replaySpeedup(1800, 11020)).toBe(163);
-  expect(replaySpeedup(0, 11020)).toBeNull();
 });
 
 // The replay's camera point comes from legs measured once (S15P31E105-686) and lands exactly where walking the

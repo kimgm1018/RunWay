@@ -12,7 +12,6 @@ import {
   Easing,
   Modal,
   Pressable,
-  Share,
   StatusBar,
   StyleSheet,
   useWindowDimensions,
@@ -27,6 +26,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import {
+  NaverMapMarkerOverlay,
   NaverMapPathOverlay,
   NaverMapView,
 } from '@mj-studio/react-native-naver-map';
@@ -45,6 +45,8 @@ import { formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { feedLook, MapBackdrop } from './FeedPage';
 import { Avatar, recordLabel, stamp } from './parts';
+import { useReplayShare } from './replayShare';
+import { postShareUrl } from '../../navigation/shareLinks';
 
 // 코스 재생 (S15P31E105-561, 담당자 레퍼런스): from 7.2 the run plays back on a close-up map that follows the runner
 // from the start, the path drawn behind them, with the distance counting up and the pace, time and steps under it.
@@ -61,6 +63,9 @@ export type ReplayRun = {
   byline: string;
   startedAt: string;
   shareMessage: string;
+  // The link 공유 sends with the picture (S15P31E105-704): a post's page, or my run's link made on the server when
+  // shared. null, or a failure, shares without one.
+  link: (() => Promise<string | null>) | null;
   runner: {
     nickname: string;
     userId: string;
@@ -91,6 +96,7 @@ export function replayOfPost(post: Post): ReplayRun {
       record,
       post.courseShared,
     )} · 평균 페이스 ${formatPace(record.averagePaceSecPerKm)}/km`,
+    link: () => Promise.resolve(postShareUrl(post.id)),
     runner: {
       nickname: post.author.nickname,
       userId: post.author.userId,
@@ -115,13 +121,6 @@ const maxPlayMs = 15000;
 export function replayPlayMs(distanceM: number) {
   const metres = Number.isFinite(distanceM) ? Math.max(0, distanceM) : 0;
   return Math.round(Math.min(maxPlayMs, Math.max(minPlayMs, 6000 + metres)));
-}
-// How many times faster than the run the playback goes, shown as ×N 배속 so the speed-up is plain.
-export function replaySpeedup(durationSec: number, playMs: number) {
-  if (!Number.isFinite(durationSec) || durationSec <= 0 || playMs <= 0) {
-    return null;
-  }
-  return Math.max(1, Math.round((durationSec * 1000) / playMs));
 }
 // The runner stays at this height on the screen while the map moves under them.
 const markerAt = 0.42;
@@ -169,6 +168,13 @@ function ShapeReplay({
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
+  const shot = useRef<View>(null);
+  const { capturing, share } = useReplayShare(
+    shot,
+    run.shareMessage,
+    run.link,
+    visible,
+  );
   const canvas = { width: width * zoom, height: height * zoom };
   const route = useMemo(
     () => lay(run.shape, canvas.width, canvas.height),
@@ -325,6 +331,8 @@ function ShapeReplay({
         }
         onPress={toggle}
         style={styles.root}
+        ref={shot}
+        collapsable={false}
       >
         <Animated.View
           pointerEvents="none"
@@ -397,7 +405,8 @@ function ShapeReplay({
           playing={playing}
           done={done}
           onClose={onClose}
-          speedup={replaySpeedup(run.durationSec, playMs)}
+          onShare={share}
+          capturing={capturing}
         />
       </Pressable>
     </Modal>
@@ -413,8 +422,15 @@ const close = { zoom: 16.6, tilt: 60 };
 // (레퍼런스 시작 부분).
 const flat = { tilt: 0, bearing: 0 };
 const introMs = 2200;
+// The run starts a beat after the swoop's own animation, so the camera has come to rest on the start first and
+// the first step does not cut the swoop short (작업 요청자: 시작할 때 뚝 끊김).
+const swoopSettleMs = 300;
+// A camera move's length goes to the map this long before the move itself.
+const motionLeadMs = 120;
 // The overview holds this long once the map is ready, so its tiles draw and it is seen before the swoop.
 const holdMs = 1500;
+// The feed's page fades its map in first, so it holds the whole course a little longer.
+const inlineHoldMs = 2000;
 // A map that never says it is ready still starts after this long.
 const readyLimitMs = 4000;
 // S15P31E105-719: the intro waits until the map has drawn its first tiles (onMapLoaded), so it is not played over a
@@ -424,8 +440,11 @@ const drawnLimitMs = 8000;
 const againMs = 300;
 // At the end the camera waits a beat on the finish, then pulls back to the whole course.
 const outroDelayMs = 600;
+// 공유: how long the map gets to draw the overview before its picture is taken.
+const pictureSettleMs = 900;
 const outroMs = 2400;
-const tickMs = 100;
+// Each playback step: the camera glides over it, so a shorter step keeps the pin and the line closer together.
+const tickMs = 50;
 // How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it: a
 // gentle rate, so corners turn the map over several ticks instead of snapping.
 const lookAhead = 0.025;
@@ -433,7 +452,14 @@ const turnRate = 0.22;
 
 // The camera that fits the whole course in the part of the screen above the numbers (the camera's middle sits at
 // `markerAt` of the height, see mapPadding).
-function overviewOf(route: LngLat[], width: number, height: number) {
+// `share`: how much of the room above and below the camera's middle the course may fill. The feed keeps it
+// between the author row and the run's words (작업 요청자), so it fills less there.
+function overviewOf(
+  route: LngLat[],
+  width: number,
+  height: number,
+  share = 0.62,
+) {
   const lngs = route.map(([lng]) => lng);
   const lats = route.map(([, lat]) => lat);
   const [west, east] = [Math.min(...lngs), Math.max(...lngs)];
@@ -453,7 +479,7 @@ function overviewOf(route: LngLat[], width: number, height: number) {
     Math.log2((points * base) / metres);
   const fitted = Math.min(
     fit(width * 0.72, spanX),
-    fit(height * 2 * markerAt * 0.62, spanY),
+    fit(height * 2 * markerAt * share, spanY),
     16,
   );
   return { latitude, longitude, zoom: fitted, ...flat };
@@ -572,6 +598,9 @@ function MapReplay({
   drawConnectors,
   visible,
   onClose,
+  inline = false,
+  hold = false,
+  onShown,
 }: {
   run: ReplayRun;
   route: LngLat[];
@@ -581,9 +610,18 @@ function MapReplay({
   drawConnectors: boolean;
   visible: boolean;
   onClose: () => void;
+  // 7.0 피드 (S15P31E105-721, 704에서 처리): the same playback drawn in the page itself, as the page's only map, under
+  // the feed's own words — no window, no buttons or numbers, no taps.
+  inline?: boolean;
+  // The feed's pages around the one on screen: their map is made and holds the whole course, ready to play the
+  // moment the page comes on screen, without loading again (작업 요청자: 다시 로딩).
+  hold?: boolean;
+  // Once, when the map has drawn its tiles, so the feed can lift its cover.
+  onShown?: () => void;
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const shot = useRef<View>(null);
   const playMs = replayPlayMs(run.distanceM);
   const coords = useMemo(
     () => route.map(([longitude, latitude]) => ({ latitude, longitude })),
@@ -616,19 +654,36 @@ function MapReplay({
   }, [route, unmeasuredEdges]);
   const size = useRef({ width, height });
   size.current = { width, height };
-  const [camera, setCamera] = useState(() => overviewOf(route, width, height));
+  // The whole course keeps clear of the title above and the big pace (or the feed's author row and words) below,
+  // so its start and finish pins are not covered (작업 요청자).
+  const fitShare = 0.45;
+  const [camera, setCamera] = useState(() =>
+    overviewOf(route, width, height, fitShare),
+  );
   const [motion, setMotion] = useState<{
     duration: number;
     easing: 'EaseOut' | 'Linear';
   }>({ duration: 0, easing: 'Linear' });
   const [shown, setShown] = useState(0);
+  // Where the line ends while it plays: halfway along the step the camera is gliding over, so the runner's pin
+  // and the end of the line stay together (작업 요청자); the line ahead of the step would lead the pin.
+  const [trail, setTrail] = useState(0);
   const [intro, setIntro] = useState(true);
+  // How much of the course the opening draws: all of it over the overview, none once the camera leans in, so the run
+  // starts from a clear start (작업 요청자).
+  const [whole, setWhole] = useState(1);
   const [ready, setReady] = useState(false);
-  // Whether the map has drawn its tiles (S15P31E105-719): until then a loading cover stands over it and the
-  // timeline does not start.
-  const [drawn, setDrawn] = useState(false);
-  // The whole course shows faintly over the overview, until the swoop.
-  const [outline, setOutline] = useState(true);
+  // Whether the map has drawn its tiles (S15P31E105-719): until then a loading cover stands over it (or, in the
+  // feed, the page's own map) and the timeline does not start.
+  const [mapDrawn, setMapDrawn] = useState(false);
+  // The feed lifts its cover over the page once the map has drawn.
+  const shownSaid = useRef(false);
+  useEffect(() => {
+    if (mapDrawn && !shownSaid.current) {
+      shownSaid.current = true;
+      onShown?.();
+    }
+  }, [mapDrawn, onShown]);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
   // Each play from the start: 0 on opening, one more on every restart, so the swoop runs again.
@@ -641,6 +696,35 @@ function MapReplay({
   path.current = route;
   const edges = useRef(unmeasuredEdges);
   edges.current = unmeasuredEdges;
+  // Set while 공유 holds the finished overview for its picture: the opening swoop waits instead of moving in.
+  const [still, setStill] = useState(false);
+  // 공유's picture is the whole route on the overview (작업 요청자), wherever the replay was: playback stops at its
+  // end, the camera goes straight to the overview, and the map gets a moment to draw it.
+  const finishForPicture = useCallback(async () => {
+    setStill(true);
+    setIntro(false);
+    setPlaying(false);
+    at.current = 1;
+    setShown(1);
+    setDone(true);
+    setMotion({ duration: 0, easing: 'Linear' });
+    setCamera(
+      overviewOf(
+        path.current,
+        size.current.width,
+        size.current.height,
+        fitShare,
+      ),
+    );
+    await new Promise<void>(resolve => setTimeout(resolve, pictureSettleMs));
+  }, [fitShare]);
+  const { capturing, share } = useReplayShare(
+    shot,
+    run.shareMessage,
+    run.link,
+    visible,
+    finishForPicture,
+  );
 
   // Every opening: the overview at once, then the swoop in to the start, turned to the way ahead.
   useEffect(() => {
@@ -654,37 +738,72 @@ function MapReplay({
     setDone(false);
     setPlaying(false);
     setIntro(true);
-    setOutline(true);
+    setWhole(1);
     setRound(0);
+    setStill(false);
     setMotion({ duration: 0, easing: 'Linear' });
     setCamera(
-      overviewOf(path.current, size.current.width, size.current.height),
+      overviewOf(
+        path.current,
+        size.current.width,
+        size.current.height,
+        fitShare,
+      ),
     );
     // The map is made anew on every opening and its tiles stay blank until it is ready; the swoop waits for
     // that (or for the limit) so it is not spent over an empty map.
     const limit = setTimeout(() => setReady(true), readyLimitMs);
     // The overview stays still until its tiles are in (the map says so only once its camera rests), or the limit.
-    const drawnLimit = setTimeout(() => setDrawn(true), drawnLimitMs);
+    const drawnLimit = setTimeout(() => setMapDrawn(true), drawnLimitMs);
     return () => {
       clearTimeout(limit);
       clearTimeout(drawnLimit);
       setReady(false);
-      setDrawn(false);
+      setMapDrawn(false);
     };
-  }, [visible]);
+  }, [visible, fitShare]);
 
-  // The swoop: from the overview down to the start, leaning back and turning to the way ahead, then the run. It
-  // waits for the drawn map, so the hold shows the course over real streets.
+  // A feed page leaving the screen goes back to the whole course, ready to play again when it comes back.
   useEffect(() => {
-    if (!visible || !ready || !drawn) {
+    if (!hold) {
+      return;
+    }
+    at.current = 0;
+    heading.current = headingAt(path.current, 0, edges.current);
+    setShown(0);
+    setDone(false);
+    setPlaying(false);
+    setIntro(true);
+    setWhole(1);
+    setRound(0);
+    setMotion({ duration: 0, easing: 'Linear' });
+    setCamera(
+      overviewOf(
+        path.current,
+        size.current.width,
+        size.current.height,
+        fitShare,
+      ),
+    );
+  }, [hold, fitShare]);
+
+  // The swoop: from the overview down to the start, leaning back and turning to the way ahead, then the run.
+  useEffect(() => {
+    if (!visible || !ready || !mapDrawn || still || hold) {
       return;
     }
     const [first] = path.current;
     // The first play holds on the overview so it is seen; a restart is already looking at it.
-    const wait = round === 0 ? holdMs : againMs;
+    const wait = round === 0 ? (inline ? inlineHoldMs : holdMs) : againMs;
+    // The swoop's length is set first and the camera moves a step later (작업 요청자: 기울어진 화면으로 뚝 바뀜): set
+    // together, the map took the new camera before the new length and jumped there at once.
+    const lean = setTimeout(
+      () => setMotion({ duration: introMs, easing: 'EaseOut' }),
+      Math.max(0, wait - motionLeadMs),
+    );
     const swoop = setTimeout(() => {
-      setOutline(false);
-      setMotion({ duration: introMs, easing: 'EaseOut' });
+      // The course clears as the camera starts to lean in (작업 요청자: 선 없이 전환).
+      setWhole(0);
       setCamera({
         latitude: first[1],
         longitude: first[0],
@@ -695,12 +814,13 @@ function MapReplay({
     const go = setTimeout(() => {
       setIntro(false);
       setPlaying(true);
-    }, wait + introMs);
+    }, wait + introMs + swoopSettleMs);
     return () => {
+      clearTimeout(lean);
       clearTimeout(swoop);
       clearTimeout(go);
     };
-  }, [visible, ready, drawn, round]);
+  }, [visible, ready, mapDrawn, round, still, inline, hold]);
 
   // Playback: each tick moves the camera to the next point over the tick's length, so the moves join into one
   // glide; progress follows the clock, so a slow phone keeps the same pace.
@@ -723,6 +843,7 @@ function MapReplay({
           easing: 'Linear',
         });
       }
+      setTrail((at.current + progress) / 2);
       at.current = progress;
       heading.current = turnToward(
         heading.current,
@@ -751,14 +872,26 @@ function MapReplay({
     if (!visible || !done) {
       return;
     }
+    // Like the swoop: the length first, the camera a step later, so the pull back glides instead of cutting.
+    const rise = setTimeout(
+      () => setMotion({ duration: outroMs, easing: 'EaseOut' }),
+      outroDelayMs - motionLeadMs,
+    );
     const outro = setTimeout(() => {
-      setMotion({ duration: outroMs, easing: 'EaseOut' });
       setCamera(
-        overviewOf(path.current, size.current.width, size.current.height),
+        overviewOf(
+          path.current,
+          size.current.width,
+          size.current.height,
+          fitShare,
+        ),
       );
     }, outroDelayMs);
-    return () => clearTimeout(outro);
-  }, [visible, done]);
+    return () => {
+      clearTimeout(rise);
+      clearTimeout(outro);
+    };
+  }, [visible, done, fitShare]);
 
   const toggle = () => {
     if (intro || Date.now() - openedAt.current < 500) {
@@ -771,7 +904,8 @@ function MapReplay({
       setShown(0);
       setDone(false);
       setIntro(true);
-      setOutline(true);
+      setWhole(1);
+      setStill(false);
       setRound(value => value + 1);
       return;
     }
@@ -780,7 +914,183 @@ function MapReplay({
 
   // Every replay line draws only the part already run: the rest is fully transparent (a part-see-through colour
   // drew solid black on Android).
-  const reveal = { color: darkMapLook.unpassed, progress: shown };
+  // The opening overview shows the whole course drawn with the runner on its start (작업 요청자); it clears as the
+  // camera leans in, and the line draws again as the runner moves.
+  const drawn = intro ? whole : playing ? trail : shown;
+  const reveal = { color: darkMapLook.unpassed, progress: drawn };
+  // The runner stands on the map where they are while the camera moves over the course (작업 요청자): on the start
+  // until the run, on the finish after it (so 공유's picture shows where the run ended); while it plays the camera
+  // keeps them in the middle of the screen.
+  const runnerOnMap = intro ? route[0] : done ? route[route.length - 1] : null;
+
+  const mapLayer = (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <NaverMapView
+        style={StyleSheet.absoluteFill}
+        camera={camera}
+        // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
+        // flat. With no custom style to load, the map is ready once made.
+        onInitialized={() => setReady(true)}
+        // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
+        onMapLoaded={() => setMapDrawn(true)}
+        animationDuration={motion.duration}
+        animationEasing={motion.easing}
+        mapType="Basic"
+        layerGroups={{
+          BUILDING: true,
+          TRAFFIC: false,
+          TRANSIT: false,
+          BICYCLE: false,
+          MOUNTAIN: false,
+          CADASTRAL: false,
+        }}
+        buildingHeight={1}
+        isLiteModeEnabled={false}
+        // 공유 takes a picture of this screen (S15P31E105-704): a TextureView map is in it, a SurfaceView one
+        // comes out black.
+        isUseTextureViewAndroid
+        // The camera's middle sits where the runner's pin is, above the numbers.
+        mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
+        // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
+        // still bright, instead of the foot where the dark band and the numbers cover it.
+        // In the feed the author row sits there, so the logo goes where the feed's own map puts it: just over
+        // the run's words (feedMapArea's foot at 60% of the page), counted from above the map's bottom padding.
+        logoAlign={inline ? 'BottomLeft' : 'TopLeft'}
+        logoMargin={
+          inline
+            ? { left: 18, bottom: height * (2 * markerAt - 0.6) + 6 }
+            : { left: 18, top: insets.top + 86 }
+        }
+        isScrollGesturesEnabled={false}
+        isZoomGesturesEnabled={false}
+        isTiltGesturesEnabled={false}
+        isRotateGesturesEnabled={false}
+        isShowLocationButton={false}
+        isShowZoomControls={false}
+        isShowScaleBar={false}
+        isShowCompass={false}
+        locale="ko"
+      >
+        {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+            later, and removing them first (a feed switch) crashed in its getChildAt. */}
+        {ready ? (
+          <>
+            {drawConnectors &&
+              replaySections?.connectors.map((part, index) => (
+                <NaverMapPathOverlay
+                  key={`connector-${index}`}
+                  coords={part}
+                  width={3}
+                  color="#8A979E"
+                  outlineWidth={0}
+                  zIndex={0}
+                />
+              ))}
+            {intro && whole === 1 && !replaySections ? (
+              // The whole course, thin and grey, over the opening overview; under the run's lines.
+              <NaverMapPathOverlay
+                coords={coords}
+                width={3}
+                color={darkMapLook.outline}
+                outlineWidth={0}
+                zIndex={0}
+              />
+            ) : null}
+            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
+            {!replaySections ? (
+              <NaverMapPathOverlay
+                coords={coords}
+                width={darkMapLook.glowOuterWidth}
+                {...reveal}
+                passedColor={darkMapLook.glowOuter}
+                outlineWidth={0}
+                zIndex={1}
+              />
+            ) : null}
+            {!replaySections ? (
+              <NaverMapPathOverlay
+                coords={coords}
+                width={darkMapLook.glowInnerWidth}
+                {...reveal}
+                passedColor={darkMapLook.glowInner}
+                outlineWidth={0}
+                zIndex={2}
+              />
+            ) : null}
+            {!replaySections ? (
+              <NaverMapPathOverlay
+                coords={coords}
+                width={darkMapLook.coreWidth}
+                {...reveal}
+                passedColor={darkMapLook.ink}
+                outlineColor={darkMapLook.unpassed}
+                passedOutlineColor={darkMapLook.ribbon}
+                outlineWidth={darkMapLook.coreEdge}
+                zIndex={3}
+              />
+            ) : null}
+            {replaySections?.parts.map((part, index) => {
+              const progress =
+                part.length > 0
+                  ? Math.max(
+                      0,
+                      Math.min(
+                        1,
+                        (drawn * replaySections.total - part.start) /
+                          part.length,
+                      ),
+                    )
+                  : 0;
+              return (
+                <NaverMapPathOverlay
+                  key={`measured-${index}`}
+                  coords={part.part}
+                  width={darkMapLook.coreWidth}
+                  color={darkMapLook.unpassed}
+                  progress={progress}
+                  passedColor={darkMapLook.ink}
+                  outlineColor={darkMapLook.unpassed}
+                  passedOutlineColor={darkMapLook.ribbon}
+                  outlineWidth={darkMapLook.coreEdge}
+                  zIndex={3}
+                />
+              );
+            })}
+            {runnerOnMap ? (
+              <NaverMapMarkerOverlay
+                latitude={runnerOnMap[1]}
+                longitude={runnerOnMap[0]}
+                width={52}
+                height={76}
+                // The dot under the pin stands on the point.
+                anchor={{ x: 0.5, y: 66 / 76 }}
+                zIndex={4}
+              >
+                <RunnerOnMap run={run} />
+              </NaverMapMarkerOverlay>
+            ) : null}
+          </>
+        ) : null}
+      </NaverMapView>
+    </View>
+  );
+  if (inline) {
+    return visible ? (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        {mapLayer}
+        {runnerOnMap ? null : (
+          <ReplayPin
+            nickname={run.runner.nickname}
+            userId={run.runner.userId}
+            photo={run.runner.photo}
+            mine={run.runner.mine}
+            playing={playing}
+            accent={darkMapLook.ink}
+          />
+        )}
+      </View>
+    ) : null;
+  }
 
   return (
     <Modal
@@ -801,136 +1111,11 @@ function MapReplay({
         }
         onPress={toggle}
         style={styles.root}
+        ref={shot}
+        collapsable={false}
       >
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <NaverMapView
-            style={StyleSheet.absoluteFill}
-            camera={camera}
-            // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
-            // flat. With no custom style to load, the map is ready once made.
-            onInitialized={() => setReady(true)}
-            // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
-            onMapLoaded={() => setDrawn(true)}
-            animationDuration={motion.duration}
-            animationEasing={motion.easing}
-            mapType="Basic"
-            lightness={darkMapLook.lightness}
-            layerGroups={{
-              BUILDING: true,
-              TRAFFIC: false,
-              TRANSIT: false,
-              BICYCLE: false,
-              MOUNTAIN: false,
-              CADASTRAL: false,
-            }}
-            buildingHeight={1}
-            isLiteModeEnabled={false}
-            // The camera's middle sits where the runner's pin is, above the numbers.
-            mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
-            // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
-            // still bright, instead of the foot where the dark band and the numbers cover it.
-            logoAlign="TopLeft"
-            logoMargin={{ left: 18, top: insets.top + 86 }}
-            isScrollGesturesEnabled={false}
-            isZoomGesturesEnabled={false}
-            isTiltGesturesEnabled={false}
-            isRotateGesturesEnabled={false}
-            isShowLocationButton={false}
-            isShowZoomControls={false}
-            isShowScaleBar={false}
-            isShowCompass={false}
-            locale="ko"
-          >
-            {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
-                later, and removing them first (a feed switch) crashed in its getChildAt. */}
-            {ready ? (
-              <>
-                {drawConnectors &&
-                  replaySections?.connectors.map((part, index) => (
-                    <NaverMapPathOverlay
-                      key={`connector-${index}`}
-                      coords={part}
-                      width={3}
-                      color="#8A979E"
-                      outlineWidth={0}
-                      zIndex={0}
-                    />
-                  ))}
-                {outline && !replaySections ? (
-                  // The whole course, thin and grey, over the opening overview; under the run's lines.
-                  <NaverMapPathOverlay
-                    coords={coords}
-                    width={3}
-                    color={darkMapLook.outline}
-                    outlineWidth={0}
-                    zIndex={0}
-                  />
-                ) : null}
-                {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
-                {!replaySections ? (
-                  <NaverMapPathOverlay
-                    coords={coords}
-                    width={darkMapLook.glowOuterWidth}
-                    {...reveal}
-                    passedColor={darkMapLook.glowOuter}
-                    outlineWidth={0}
-                    zIndex={1}
-                  />
-                ) : null}
-                {!replaySections ? (
-                  <NaverMapPathOverlay
-                    coords={coords}
-                    width={darkMapLook.glowInnerWidth}
-                    {...reveal}
-                    passedColor={darkMapLook.glowInner}
-                    outlineWidth={0}
-                    zIndex={2}
-                  />
-                ) : null}
-                {!replaySections ? (
-                  <NaverMapPathOverlay
-                    coords={coords}
-                    width={darkMapLook.coreWidth}
-                    {...reveal}
-                    passedColor={darkMapLook.ink}
-                    outlineColor={darkMapLook.unpassed}
-                    passedOutlineColor={darkMapLook.ribbon}
-                    outlineWidth={darkMapLook.coreEdge}
-                    zIndex={3}
-                  />
-                ) : null}
-                {replaySections?.parts.map((part, index) => {
-                  const progress =
-                    part.length > 0
-                      ? Math.max(
-                          0,
-                          Math.min(
-                            1,
-                            (shown * replaySections.total - part.start) /
-                              part.length,
-                          ),
-                        )
-                      : 0;
-                  return (
-                    <NaverMapPathOverlay
-                      key={`measured-${index}`}
-                      coords={part.part}
-                      width={darkMapLook.coreWidth}
-                      color={darkMapLook.unpassed}
-                      progress={progress}
-                      passedColor={darkMapLook.ink}
-                      outlineColor={darkMapLook.unpassed}
-                      passedOutlineColor={darkMapLook.ribbon}
-                      outlineWidth={darkMapLook.coreEdge}
-                      zIndex={3}
-                    />
-                  );
-                })}
-              </>
-            ) : null}
-          </NaverMapView>
-        </View>
-        {drawn ? null : (
+        {mapLayer}
+        {mapDrawn ? null : (
           // Until the map has drawn, a quiet cover in the feed's ground with a spinner, instead of an empty map
           // with the intro already moving over it (S15P31E105-719).
           <View
@@ -952,8 +1137,10 @@ function MapReplay({
           playing={playing || intro}
           done={done}
           onClose={onClose}
+          onShare={share}
+          capturing={capturing}
           accent={darkMapLook.ink}
-          speedup={replaySpeedup(run.durationSec, playMs)}
+          pin={!runnerOnMap}
         />
       </Pressable>
     </Modal>
@@ -994,6 +1181,43 @@ export function RouteReplay({
   );
 }
 
+// 7.0 피드 (S15P31E105-721, 704에서 처리, 작업 요청자): the page on screen plays its course in place — the whole course
+// for a moment, then the swoop and the run — without opening 7.2. `route` is the course the page read (the list
+// carries no points); `playing` is false off screen, which takes the map away.
+export function FeedRouteReplay({
+  post,
+  route,
+  unmeasuredEdges,
+  playing,
+  onShown,
+}: {
+  post: Post;
+  route: LngLat[];
+  unmeasuredEdges: number[];
+  // false for the pages around the one on screen: their map waits on the whole course.
+  playing: boolean;
+  onShown?: () => void;
+}) {
+  const run = useMemo(
+    () => replayOfPost({ ...post, record: { ...post.record, route } }),
+    [post, route],
+  );
+  return route.length >= 2 ? (
+    <MapReplay
+      run={run}
+      route={route}
+      unmeasuredEdges={unmeasuredEdges}
+      drawConnectors
+      visible
+      hold={!playing}
+      onClose={noop}
+      onShown={onShown}
+      inline
+    />
+  ) : null;
+}
+const noop = () => undefined;
+
 // The runner's pulse: one ring this wide, spreading every this long.
 const pulseSize = 28;
 const pulseMs = 1400;
@@ -1008,18 +1232,23 @@ function ReplayChrome({
   playing,
   done,
   onClose,
+  onShare,
+  capturing,
   accent = darkMapLook.ink,
-  speedup = null,
+  pin = true,
 }: {
   run: ReplayRun;
   shown: number;
   playing: boolean;
   done: boolean;
   onClose: () => void;
+  onShare: () => void;
+  // While the picture is taken: no buttons in it.
+  capturing: boolean;
   // The path's colour, for the dot under the pin.
   accent?: string;
-  // How many times faster than the run this plays (×N 배속); null when the run's time is unknown.
-  speedup?: number | null;
+  // false while the runner stands on the map instead (the start before the run, the finish after it).
+  pin?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const percent = Math.round(Math.min(1, Math.max(0, shown)) * 100);
@@ -1030,21 +1259,24 @@ function ReplayChrome({
   return (
     <>
       <ReplayBands />
-      <ReplayPin
-        nickname={run.runner.nickname}
-        userId={run.runner.userId}
-        photo={run.runner.photo}
-        mine={run.runner.mine}
-        playing={playing}
-        accent={accent}
-      />
+      {pin ? (
+        <ReplayPin
+          nickname={run.runner.nickname}
+          userId={run.runner.userId}
+          photo={run.runner.photo}
+          mine={run.runner.mine}
+          playing={playing}
+          accent={accent}
+        />
+      ) : null}
       <ReplayHeader
         title={run.title}
         byline={run.byline}
         startedAt={run.startedAt}
-        shareMessage={run.shareMessage}
         closeLabel={`${run.kind} 재생 닫기`}
         onClose={onClose}
+        onShare={onShare}
+        hideActions={capturing}
       />
 
       <View
@@ -1079,7 +1311,7 @@ function ReplayChrome({
             <AppText style={styles.cellLabel}>걸음</AppText>
           </View>
         </View>
-        {/* How far through the replay, and honestly how sped up it is. */}
+        {/* How far through the replay. */}
         <View
           style={styles.progress}
           accessible
@@ -1098,9 +1330,6 @@ function ReplayChrome({
               ]}
             />
           </View>
-          {speedup ? (
-            <AppText style={styles.speed}>{`×${speedup} 배속`}</AppText>
-          ) : null}
         </View>
         <AppText style={styles.hint}>
           {done
@@ -1229,25 +1458,44 @@ const ReplayPin = memo(function Pin({
   );
 });
 
+// The feed's runner standing on the map (on the start or the finish): the same pin as ReplayPin, drawn by the map.
+function RunnerOnMap({ run }: { run: ReplayRun }) {
+  return (
+    <View style={styles.pinOnMap}>
+      <View style={styles.pinHead}>
+        <Avatar
+          nickname={run.runner.nickname}
+          userId={run.runner.userId}
+          photo={run.runner.photo}
+          mine={run.runner.mine}
+          size={44}
+        />
+      </View>
+      <View style={styles.pinTip} />
+      <View style={[styles.pinDot, { backgroundColor: darkMapLook.ink }]} />
+    </View>
+  );
+}
+
 // The title with 공유 · 닫기.
 const ReplayHeader = memo(function Header({
   title,
   byline,
   startedAt,
-  shareMessage,
   closeLabel,
   onClose,
+  onShare,
+  hideActions,
 }: {
   title: string;
   byline: string;
   startedAt: string;
-  shareMessage: string;
   closeLabel: string;
   onClose: () => void;
+  onShare: () => void;
+  hideActions: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const share = () =>
-    Share.share({ message: shareMessage }).catch(() => undefined);
   return (
     <View
       style={[styles.header, { top: insets.top + 10 }]}
@@ -1267,9 +1515,13 @@ const ReplayHeader = memo(function Header({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="공유"
-        onPress={share}
+        onPress={onShare}
         hitSlop={6}
-        style={({ pressed }) => [styles.round, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.round,
+          pressed && styles.pressed,
+          hideActions && styles.hidden,
+        ]}
       >
         <Icon name="share" color={feedLook.white} size={18} />
       </Pressable>
@@ -1278,7 +1530,11 @@ const ReplayHeader = memo(function Header({
         accessibilityLabel={closeLabel}
         onPress={onClose}
         hitSlop={6}
-        style={({ pressed }) => [styles.round, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.round,
+          pressed && styles.pressed,
+          hideActions && styles.hidden,
+        ]}
       >
         <Icon name="close" color={feedLook.white} size={18} />
       </Pressable>
@@ -1289,6 +1545,7 @@ const ReplayHeader = memo(function Header({
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden', backgroundColor: feedLook.ground },
   pressed: { opacity: 0.6 },
+  hidden: { opacity: 0 },
   canvas: { position: 'absolute', left: 0, top: 0 },
   loading: { backgroundColor: feedLook.ground },
   loadingMark: {
@@ -1305,6 +1562,7 @@ const styles = StyleSheet.create({
     color: feedLook.sub,
   },
   pin: { position: 'absolute', width: 52, alignItems: 'center' },
+  pinOnMap: { width: 52, height: 76, alignItems: 'center' },
   pinHead: {
     width: 52,
     height: 52,
@@ -1430,12 +1688,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.22)',
   },
   fill: { height: 3, borderRadius: 1.5 },
-  speed: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    lineHeight: 16,
-    color: feedLook.sub,
-  },
   hint: {
     marginTop: 14,
     fontFamily: fontFamily.medium,

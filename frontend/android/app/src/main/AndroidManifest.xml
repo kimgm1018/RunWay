@@ -43,6 +43,18 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- S15P31E105-704 경로 재생 링크: /r/{token} (shared run) and /p/{postId} (post) on our site open here.
+             Verified through https://k15e105.p.ssafy.io/.well-known/assetlinks.json; https only, so it never
+             matches the runway://spotify-callback filter below (ADR-0023). -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+            <data android:host="k15e105.p.ssafy.io" />
+            <data android:pathPrefix="/r/" />
+            <data android:pathPrefix="/p/" />
+        </intent-filter>
       </activity>
       <!-- S15P31E105-573: Spotify sign-in (PKCE) returns to the auth library, which hands the code to RunWay.
            Spotify auth 5.0.0 requires this filter and checks it even for the Spotify app sign-in; MainActivity no

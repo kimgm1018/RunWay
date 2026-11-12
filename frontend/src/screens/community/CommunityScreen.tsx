@@ -17,12 +17,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
 import { useRepositories, type FeedScope, type Post } from '../../data';
 import { onPostChanged, takePostsChanged } from '../../data/postsChanged';
+import type { LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
 import { FeedPage, feedLook } from './FeedPage';
 import { takePrefetchedFeed } from './feedPrefetch';
 import { PostMenu } from './parts';
+import { FeedRouteReplay } from './RouteReplay';
 import { NATIONWIDE, RegionSheet, type FeedRegion } from './RegionSheet';
 import { usePostPages } from './usePostPages';
 
@@ -42,6 +44,15 @@ export const feedPageTop = (insetTop: number) => insetTop + headerHeight + 8;
 // 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope), one full-screen page per
 // post paged up and down (S15P31E105-561, 담당자 시안). 20 posts a page, the next read near the end
 // (S15P31E105-647).
+// The page on screen plays its course in place (S15P31E105-721, 704에서 처리, 작업 요청자).
+const feedReplay = (shown: {
+  post: Post;
+  route: LngLat[];
+  unmeasuredEdges: number[];
+  playing: boolean;
+  onShown: () => void;
+}) => <FeedRouteReplay {...shown} />;
+
 export function CommunityScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -276,6 +287,7 @@ export function CommunityScreen() {
                 focused && firstMapUp && Math.abs(index - shownPage) === 1
               }
               onMapShown={markFirstMapUp}
+              replay={feedReplay}
             />
           )}
         />

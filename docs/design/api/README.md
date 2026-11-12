@@ -16,14 +16,14 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
 | [러닝 세션](./sessions.md) | 러닝 세션 | 11 |
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
-| [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 5 |
+| [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 7 |
 | [그룹런](./group-runs.md) | 그룹런·만남 장소 검색 | 14 |
 | [크루](./crews.md) | 크루 | 12 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **100개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
+총 **102개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -49,7 +49,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 탈퇴·향후 정지 후 기존 JWT는 원래 만료시각까지 최대 10분 유효하다. 즉시 차단용 요청별 상태 조회·차단 목록은 두지 않으며 기존 자원 권한·동의 검사는 유지한다.
 
 
-토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인·U28~U30 휴대전화 인증과 비밀번호 재설정은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
+토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인·U28~U30 휴대전화 인증과 비밀번호 재설정은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다. [H09 공유 기록 조회](running-records.md#h09-공유-기록-조회)의 `GET`/`HEAD`도 Access Token 없이 호출하며, 소유자가 H08로 링크를 발급한 기록 하나의 표시용 요약·경로만 연다(S15P31E105-704).
 
 U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그인 계열의 갱신 권한을 폐기한다. U03은 해당 계열만 폐기하고 `204 No Content`를 반환한다. 앱은 갱신을 한 번으로 모으고 결과가 불확실한 갱신을 무조건 재시도하지 않는다. 오류 응답·로그아웃 반복·갱신 경합의 정확한 결과는 [U01~U03](users.md#인증-정책-적용-범위)을 따른다. 이 절과 U01~U03에서 확정한 항목은 문서 전체의 일반적인 초안 표시와 구분한다.
 
@@ -217,6 +217,8 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | H03 | [구간별 러닝 분석 결과 조회](./running-records.md#h03-구간별-러닝-분석-결과-조회) | GET | `/running-records/{sessionId}/splits` | [running-records.md](./running-records.md) |
 | H06 | [러닝 통계 요약](./running-records.md#h06-러닝-통계-요약) | GET | `/running-records/statistics` | [running-records.md](./running-records.md) |
 | H07 | [평균 페이스 추이](./running-records.md#h07-평균-페이스-추이) | GET | `/running-records/statistics/pace-trend` | [running-records.md](./running-records.md) |
+| H08 | [기록 공유 링크 발급](./running-records.md#h08-기록-공유-링크-발급) | POST | `/running-records/{sessionId}/share-link` | [running-records.md](./running-records.md) |
+| H09 | [공유 기록 조회](./running-records.md#h09-공유-기록-조회) | GET | `/shared-runs/{token}` | [running-records.md](./running-records.md) |
 | G01 | [그룹런 생성](./group-runs.md#g01-그룹런-생성) | POST | `/group-runs` | [group-runs.md](./group-runs.md) |
 | PLS01 | [만남 장소 검색](./group-runs.md#pls01-만남-장소-검색) | GET | `/places/search` | [group-runs.md](./group-runs.md) |
 | G02 | [그룹런 검색](./group-runs.md#g02-그룹런-검색) | GET | `/group-runs` | [group-runs.md](./group-runs.md) |

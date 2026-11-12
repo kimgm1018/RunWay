@@ -31,6 +31,7 @@ import {
 } from './profile';
 import { createReadinessApi, createReadinessOnApi } from './readiness';
 import { createRecordsApi } from './records';
+import { sharedRunsApi } from './sharedRuns';
 import { createRegions } from './regions';
 import { placeAddressOf } from '../placeName';
 import { serverRequest } from './request';
@@ -105,6 +106,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       getConditionOn: createReadinessOnApi(),
     },
     records,
+    // 공유 링크로 받은 기록(S15P31E105-704).
+    sharedRuns: sharedRunsApi,
     // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.
     consents: consentsApi,
     // 8.1 설정·8.1b 위치 기록: U19·U20 app settings and U13·U14 account visibility.

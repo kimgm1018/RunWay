@@ -27,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
           add(RunwayNaverMapLegalPackage())
           add(SpotifyRemotePackage())
           add(CoachingVoicePackage())
+          add(ScreenCapturePackage())
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
         },

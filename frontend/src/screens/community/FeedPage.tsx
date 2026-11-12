@@ -423,6 +423,7 @@ export function FeedPage({
   active = false,
   nearby = false,
   onMapShown,
+  replay,
 }: {
   post: Post;
   width: number;
@@ -441,6 +442,16 @@ export function FeedPage({
   nearby?: boolean;
   // The page on screen has its real map uncovered (or has none to draw), so the feed can start the pages around it.
   onMapShown?: () => void;
+  // The course replay as the page's map (S15P31E105-721, 704에서 처리): the page on screen plays it, the pages around
+  // it hold its whole course ready, so a swipe plays at once on a map already drawn (작업 요청자: 다시 로딩 없이).
+  // Passed in by 7.0, since the replay itself draws with this page's look and cannot be imported back here.
+  replay?: (shown: {
+    post: Post;
+    route: LngLat[];
+    unmeasuredEdges: number[];
+    playing: boolean;
+    onShown: () => void;
+  }) => React.ReactNode;
 }) {
   const navigation = useNavigation();
   const { clock, community } = useRepositories();
@@ -520,16 +531,26 @@ export function FeedPage({
       {realMap ? (
         // The native map would keep the swipe for itself, so it takes no touches and the feed pages on.
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <RunMap
-            route={realMap}
-            unmeasuredEdges={unmeasuredEdges}
-            view="lean"
-            interactive={false}
-            // The course between the author row and the run's words; the NAVER logo sits just over the words.
-            area={feedMapArea(top, height)}
-            style={[StyleSheet.absoluteFill, styles.mapGround]}
-            onShown={uncover}
-          />
+          {replay ? (
+            replay({
+              post,
+              route: realMap,
+              unmeasuredEdges,
+              playing: !!active,
+              onShown: uncover,
+            })
+          ) : (
+            <RunMap
+              route={realMap}
+              unmeasuredEdges={unmeasuredEdges}
+              view="lean"
+              interactive={false}
+              // The course between the author row and the run's words; the NAVER logo sits just over the words.
+              area={feedMapArea(top, height)}
+              style={[StyleSheet.absoluteFill, styles.mapGround]}
+              onShown={uncover}
+            />
+          )}
           {coverView}
         </View>
       ) : mapPending ? (
