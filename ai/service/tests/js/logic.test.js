@@ -143,3 +143,13 @@ test('724 그룹 판정판 행에 러너별 실제 페이스', () => {
   const matrix = m.groupMatrix(group);
   assert.deepEqual(matrix.rows.map(r => r.actual.text), ['정지', '7\'02"']);
 });
+
+test('738 이전 기록 목록 한 줄', () => {
+  const start = new Date(2026, 10, 12, 14, 7).toISOString();
+  assert.equal(m.historyRowText({startedAt: start, kind: 'GROUP', durationSec: 725, traceCount: 24, live: false}),
+    '14:07 · 그룹 · 12분 · 판단 24건');
+  assert.equal(m.historyRowText({startedAt: start, kind: 'PERSONAL', durationSec: 20, traceCount: 3, live: true}),
+    '14:07 · 개인 · 1분 미만 · 판단 3건 · 진행 중');
+  assert.equal(m.historyRowText({startedAt: 'x', kind: 'PERSONAL', durationSec: null, traceCount: null}), '— · 개인 · 1분 미만 · 판단 0건');
+  assert.equal(m.historyRowText(null), '');
+});

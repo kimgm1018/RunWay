@@ -29,6 +29,18 @@
     return 5000;
   }
 
+  // 738: '이전 기록' 목록 한 줄. 시각(브라우저 현지), 개인/그룹, 길이, 판단 수, 진행 중 여부.
+  function historyRowText(row) {
+    if (!row) return '';
+    var date = new Date(row.startedAt || '');
+    var time = Number.isNaN(date.getTime()) ? '—' :
+      String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+    var minutes = Math.max(0, Math.round(Number(row.durationSec) / 60) || 0);
+    var kind = row.kind === 'GROUP' ? '그룹' : '개인';
+    return time + ' · ' + kind + ' · ' + (minutes < 1 ? '1분 미만' : minutes + '분') + ' · 판단 ' + (Number(row.traceCount) || 0) + '건' +
+      (row.live ? ' · 진행 중' : '');
+  }
+
   function bannerFor(options) {
     var trace = options.trace || {};
     var nowMs = options.nowMs;
@@ -297,6 +309,7 @@
     groupMatrix: groupMatrix,
     recordingOptionTexts: recordingOptionTexts,
     parseSseChunk: parseSseChunk,
+    historyRowText: historyRowText,
     backoffMs: backoffMs,
     bannerFor: bannerFor,
     checkText: checkText,
