@@ -33,6 +33,7 @@ import numpy as np
 
 from . import shortest_path, snap
 from .data import api
+from .env_flags import flag as env_flag
 from .graph import route_csr
 from .scorer import Preferences
 
@@ -46,6 +47,9 @@ PREF_FLAG = {"river": "river_near", "beach": "coastal_near", "park": "green_near
 AVOID_FLAG = {"major_road": "major", "steps": "hw_steps", "tunnel": "tunnel"}
 M_MIN, M_MAX = 0.4, 4.0
 _PATCH_LOCK = threading.Lock()
+# 왕복 반환점 탐색(배열 graph): 도달한 node마다 경로 list를 복사하지 않고 Dijkstra pred 트리에서 실제 길이를 구한 뒤
+# 뽑힌 반환점의 경로만 복원한다(결과 bit 단위 같음). "0"이면 예전처럼 모든 node의 경로 dict를 만든다(env_flags 규칙).
+OAB_LAZY_PATHS = env_flag("RUNWAY_OAB_LAZY_PATHS")
 
 
 @dataclass(frozen=True)
@@ -340,15 +344,8 @@ def _probe_sum_steps() -> bool:
 _SUM_STEPS_EXACT = _probe_sum_steps()
 
 
-def _tree_lengths(rg, paths: dict) -> dict:
-    """{n: length(rg, paths[n])}와 bit 단위로 같은 값을 경로별 재합산 없이 구한다(key 순서도 paths와 같다).
-    Dijkstra 경로 dict는 트리다(paths[n] == paths[부모] + [n]). rrg._length의 sum()은 왼쪽→오른쪽으로 (합, 보정)
-    상태를 갱신하므로 부모의 상태에 마지막 간선 한 단계를 더하면 같은 연산을 같은 순서로 한 결과다.
-    단순 누적합(부모 합 + 간선)은 Neumaier 보정 때문에 값이 달라지므로 쓰면 안 된다.
-    sum()이 위 단계와 다르게 동작하거나 길이가 정확한 float가 아니면 기존 경로별 재합산으로 계산한다."""
-    if not _SUM_STEPS_EXACT:
-        return {n: length(rg, p) for n, p in paths.items()}
-    H, state = rg.H, {}
+def _edge_length_fn(rg):
+    """rrg._length가 경로의 간선 (a, b)에서 읽는 것과 같은 길이 값을 돌려주는 함수."""
     if _array_rg(rg):
         # 배열 H(H21 R1): H[a][b]["length"]는 float(csr.length[eid])다. view를 거치지 않고 같은 값을 직접 읽는다.
         csr = route_csr(rg)
@@ -357,8 +354,22 @@ def _tree_lengths(rg, paths: dict) -> dict:
         def edge_length(a, b):
             return float(L[eid[key(a, b)]])
     else:
+        H = rg.H
+
         def edge_length(a, b):
             return H[a][b]["length"]
+    return edge_length
+
+
+def _tree_lengths(rg, paths: dict) -> dict:
+    """{n: length(rg, paths[n])}와 bit 단위로 같은 값을 경로별 재합산 없이 구한다(key 순서도 paths와 같다).
+    Dijkstra 경로 dict는 트리다(paths[n] == paths[부모] + [n]). rrg._length의 sum()은 왼쪽→오른쪽으로 (합, 보정)
+    상태를 갱신하므로 부모의 상태에 마지막 간선 한 단계를 더하면 같은 연산을 같은 순서로 한 결과다.
+    단순 누적합(부모 합 + 간선)은 Neumaier 보정 때문에 값이 달라지므로 쓰면 안 된다.
+    sum()이 위 단계와 다르게 동작하거나 길이가 정확한 float가 아니면 기존 경로별 재합산으로 계산한다."""
+    if not _SUM_STEPS_EXACT:
+        return {n: length(rg, p) for n, p in paths.items()}
+    state, edge_length = {}, _edge_length_fn(rg)
     for n, p in sorted(paths.items(), key=lambda kv: len(kv[1])):   # 부모(짧은 경로)를 먼저
         if len(p) == 1:
             state[n] = None
@@ -421,6 +432,64 @@ def single_source_paths(rg, start: int, cutoff: float, mult: dict) -> dict:
     return paths
 
 
+def single_source_tree(rg, start: int, cutoff: float, mult: dict) -> tuple[list, dict]:
+    """single_source_paths와 같은 탐색을 하고 경로 list 대신 (order, parent)를 돌려준다(S15P31E105 OAB lazy paths).
+    order: pop 순서의 node 목록(첫 항목은 start 그 객체, = single_source_paths의 key 순서). parent: {node: 부모 node}.
+    pop된 node의 pred는 더 바뀌지 않으므로 path_from_tree(parent, start, t) == single_source_paths(...)[t]다."""
+    csr = route_csr(rg)
+    if start not in csr.index:
+        raise nx.NodeNotFound(f"Node {start} not found in graph")
+    s = csr.index[start]
+    dist, pred = _dijkstra_csr(csr, s, csr.mult_array(mult), cutoff)
+    ids = csr.ids
+    order, parent = [start], {}
+    for v in islice(dist, 1, None):
+        n = ids[v]
+        order.append(n)
+        parent[n] = ids[pred[v]]
+    return order, parent
+
+
+def path_from_tree(parent: dict, start, t) -> list:
+    """parent 트리에서 start → t 경로(single_source_paths[t]와 같은 list: 첫 항목은 start 그 객체)."""
+    rev = []
+    while t != start:
+        rev.append(t)
+        t = parent[t]
+    rev.append(start)
+    rev.reverse()
+    return rev
+
+
+def _paths_from_tree(order: list, parent: dict) -> dict:
+    """single_source_paths와 같은 전체 경로 dict(폴백용): pop 순서대로 paths[v] = paths[부모] + [v]."""
+    it = iter(order)
+    start = next(it)
+    paths = {start: [start]}
+    for n in it:
+        paths[n] = paths[parent[n]] + [n]
+    return paths
+
+
+def _parent_tree_lengths(rg, order: list, parent: dict) -> dict:
+    """_tree_lengths(rg, _paths_from_tree(order, parent))와 bit 단위로 같은 값(key 순서도 같음)을 경로 list 없이 구한다.
+    pop 순서는 부모가 먼저이므로 부모의 (합, 보정) 상태에 마지막 간선 한 단계(_sum_step)를 더하면 _tree_lengths와 같은 연산이다.
+    sum()이 _sum_step과 다르거나(_SUM_STEPS_EXACT 거짓) 간선 길이가 정확한 float가 아니면 전체 경로를 만들어
+    _tree_lengths의 기존 폴백(경로별 재합산)을 그대로 탄다."""
+    if not _SUM_STEPS_EXACT:
+        return _tree_lengths(rg, _paths_from_tree(order, parent))
+    edge_length = _edge_length_fn(rg)
+    it = iter(order)
+    state = {next(it): None}
+    for n in it:
+        b = parent[n]
+        x = edge_length(b, n)
+        if type(x) is not float:   # numpy float 등은 sum()의 보정 경로를 타지 않는다
+            return _tree_lengths(rg, _paths_from_tree(order, parent))
+        state[n] = _sum_step(state[b], x)
+    return {n: _sum_result(state[n]) for n in order}
+
+
 def path_length(rg, s: int, t: int) -> float:
     """nx.shortest_path_length(rg.H, s, t, weight="length")와 같은 값(dijkstra_path_length: 출발=도착이면 0)."""
     csr = route_csr(rg)
@@ -465,11 +534,20 @@ def oab_candidates(rg, start: int, target: float, seed: int, cfg: dict, mult: di
     def w(u, v, d):
         return d["length"] * mult.get(rrg._key(u, v), 1.0)
 
-    if _array_rg(rg):   # 배열 graph(H21 R1): networkx와 같은 알고리즘·순서를 RouteCSR 위에서
-        paths = single_source_paths(rg, start, (half + win) * mmax, mult)
+    if _array_rg(rg) and OAB_LAZY_PATHS:   # 경로 list 없이 pred 트리로 길이, 뽑힌 반환점만 경로 복원(결과 같음)
+        order, parent = single_source_tree(rg, start, (half + win) * mmax, mult)
+        real = _parent_tree_lengths(rg, order, parent)
+        csr = route_csr(rg)
+
+        def path_to(t):   # t는 int(...)라 csr.ids의 그 node 객체로 바꿔 예전 paths[t]와 원소 형식까지 같게
+            return path_from_tree(parent, start, csr.ids[csr.index[t]])
     else:
-        _, paths = nx.single_source_dijkstra(rg.H, start, cutoff=(half + win) * mmax, weight=w)
-    real = _tree_lengths(rg, paths)
+        if _array_rg(rg):   # 배열 graph(H21 R1): networkx와 같은 알고리즘·순서를 RouteCSR 위에서
+            paths = single_source_paths(rg, start, (half + win) * mmax, mult)
+        else:
+            _, paths = nx.single_source_dijkstra(rg.H, start, cutoff=(half + win) * mmax, weight=w)
+        real = _tree_lengths(rg, paths)
+        path_to = paths.__getitem__
     cand = sorted(n for n, d in real.items() if abs(d - half) <= win and n not in forbidden)
     if not cand:
         return []
@@ -489,7 +567,7 @@ def oab_candidates(rg, start: int, target: float, seed: int, cfg: dict, mult: di
             continue
         t = int(np.random.default_rng([seed, i]).choice(pick_from))
         used.add(t)
-        p = paths[t]
+        p = path_to(t)
         out.append({"path": p + p[-2::-1], "turnaround": t, "sector": int(sec), "attempt": i, "seed": seed + i,
                     "junction_turnaround": rg.H.degree(t) >= mind, "half_m": real[t]})
     return out
