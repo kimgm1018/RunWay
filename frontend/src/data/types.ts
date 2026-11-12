@@ -1083,6 +1083,7 @@ export type SessionGoalDraft = {
 };
 
 export type RunningSessionView = {
+  plan?: SessionPacePlan | null;
   sessionId: string;
   controlDeviceId: string | null;
   relayDeviceId: string | null;
@@ -1109,6 +1110,18 @@ export type RunningSessionView = {
   // S02 rhythmCueEnabled(S15P31E105-706): BPM 안내 설정을 끈 사용자는 false이며 워치가 리듬을 재생하지 않는다. 서버가 아직
   // 주지 않으면 기존처럼 재생한다(true로 본다).
   rhythmCueEnabled?: boolean;
+};
+
+// S01/S02 persisted pace plan. Kept separate from the pre-start course selection plan.
+export type SessionPacePlan = {
+  planId: string;
+  recommendedPaceSecPerKm: number;
+  segments: {
+    sequence: number;
+    startDistanceM: number;
+    endDistanceM: number;
+    recommendedPaceSecPerKm: number;
+  }[];
 };
 
 // STATE_RESULT analysis.summary(S15P31E105-663): H02 값을 그대로 옮긴다. 폰·워치는 계산하지 않는다.

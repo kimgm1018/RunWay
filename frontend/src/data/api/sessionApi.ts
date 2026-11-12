@@ -8,6 +8,7 @@ import type {
   RecordComparison,
   Repositories,
   RunningSessionView,
+  SessionPacePlan,
   SessionCommand,
   SessionStatus,
 } from '../types';
@@ -56,6 +57,11 @@ type ServerCommand = {
 };
 
 export type ServerSession = {
+  plan?: {
+    planId: number;
+    recommendedPaceSecPerKm: number;
+    segments: SessionPacePlan['segments'];
+  } | null;
   sessionId: number;
   controlDeviceId: number | null;
   relayDeviceId: number | null;
@@ -118,6 +124,11 @@ function command(value: ServerCommand | null | undefined): SessionCommand | null
 // S02 응답과 S10 스냅샷(data)을 앱 모양으로 바꾼다.
 export function sessionView(value: ServerSession): RunningSessionView {
   return {
+    plan: value.plan == null ? null : {
+      planId: String(value.plan.planId),
+      recommendedPaceSecPerKm: value.plan.recommendedPaceSecPerKm,
+      segments: value.plan.segments.map(segment => ({ ...segment })),
+    },
     sessionId: String(value.sessionId),
     controlDeviceId: text(value.controlDeviceId),
     relayDeviceId: text(value.relayDeviceId),

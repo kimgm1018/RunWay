@@ -33,6 +33,22 @@ const sessionResponse = {
   analysis: { status: 'PENDING' },
 };
 
+test('S01 and S02 retain the persisted pace plan, including an absent plan', async () => {
+  const plan = {
+    planId: 88,
+    recommendedPaceSecPerKm: 360.25,
+    segments: [{ sequence: 1, startDistanceM: 0, endDistanceM: 1000, recommendedPaceSecPerKm: 355.5 }],
+  };
+  const { repository } = fake([{ ...sessionResponse, plan }, { ...sessionResponse, plan: null }]);
+  const created = await repository.create({
+    controlDeviceId: '101', relayDeviceId: '102',
+    goal: { courseId: null, comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: null },
+  });
+  const fetched = await repository.get('201');
+  expect(created.plan).toEqual({ ...plan, planId: '88' });
+  expect(fetched.plan).toBeNull();
+});
+
 // S15P31E105-533: S01은 서버 AI 계획 상한(40초)보다 긴 상한으로 기다린다. 다른 요청은 공통 기본값을 쓴다.
 test('create waits longer than the server plan deadline; other calls keep the default', async () => {
   const options: unknown[] = [];
