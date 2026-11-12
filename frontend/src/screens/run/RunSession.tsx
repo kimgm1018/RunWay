@@ -22,13 +22,14 @@ import {
   type RunControlState,
 } from './runControl';
 import { runClockSec, type RunClock } from './runClock';
-import { speakCoaching, stopCoaching } from './coachingVoiceOutput';
+import { speakCoaching, stopCoaching, voiceIsQuiet } from './coachingVoiceOutput';
 import { useSession } from '../../session/SessionProvider';
 import {
   createGapAlertTracker,
   createPaceChangeTracker,
   watchGroupStatus,
 } from '../../watch/groupStatus';
+import { createGroupGapVoice } from '../../watch/groupGapVoice';
 import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
@@ -630,9 +631,13 @@ export function RunSessionProvider({
     !!groupLink &&
     control?.sessionId === groupLink.sessionId &&
     (control.status === 'RUNNING' || control.status === 'PAUSED');
+  // 내 운동이 달리는 중인지. 그룹 뒤처짐 음성 안내는 일시정지 동안 말하지 않고 기다린다(S15P31E105-735).
+  const myRunning = useRef(false);
+  myRunning.current = control?.status === 'RUNNING';
   useEffect(() => {
     const send = watchSession.sendGroupStatus;
-    if (!groupActive || !groupLink || !send) {
+    // 워치가 없어도 폰이 G10 현황을 읽어 뒤처짐 음성 안내를 판단한다(S15P31E105-735). 워치 전달은 워치가 있을 때만.
+    if (!groupActive || !groupLink) {
       return;
     }
     const { groupRunId, sessionId } = groupLink;
@@ -641,9 +646,22 @@ export function RunSessionProvider({
     const paceChange = createPaceChangeTracker();
     // 그룹장 폰만 선두–후미 간격 벌어짐을 알린다(S15P31E105-629, 같은 규칙). 기준은 groupStatus.ts GROUP_GAP_ALERT_M.
     const gapAlert = createGapAlertTracker();
+    // 그룹장·뒤처진 본인 음성 안내(S15P31E105-735). 음성 코칭 설정이 켜져 있을 때만, 코칭 문장을 끊지 않게 말한다.
+    const gapVoice = createGroupGapVoice({
+      enabled: () => voiceOn.current,
+      running: () => myRunning.current,
+      canSpeak: () => voiceIsQuiet(),
+      speak: sentence => {
+        speakCoaching(sentence).catch(() => undefined);
+      },
+    });
     return groupRuns.watchLive(
       groupRunId,
       value => {
+        gapVoice.next(value);
+        if (!send) {
+          return;
+        }
         const status = watchGroupStatus(
           groupRunId,
           value,
@@ -659,6 +677,7 @@ export function RunSessionProvider({
       () => {
         paceChange.reset();
         gapAlert.reset();
+        gapVoice.reset();
       },
     );
   }, [groupActive, groupLink, groupRuns, watchSession]);
