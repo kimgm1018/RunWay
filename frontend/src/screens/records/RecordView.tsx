@@ -85,7 +85,13 @@ function paceNote(record: RunRecordDetail) {
 }
 
 // The date chip (no RUNWAY, 담당자 결정), the run's name and the goal line: the top of the 5.1 card.
-function CardHead({ record }: { record: RunRecordDetail }) {
+function CardHead({
+  record,
+  action,
+}: {
+  record: RunRecordDetail;
+  action?: React.ReactNode;
+}) {
   const goal = goalLine(record);
   return (
     <View>
@@ -96,9 +102,12 @@ function CardHead({ record }: { record: RunRecordDetail }) {
           </AppText>
         </View>
       </View>
-      <AppText style={styles.name} numberOfLines={1}>
-        {record.title}
-      </AppText>
+      <View style={styles.nameRow}>
+        <AppText style={styles.name} numberOfLines={1}>
+          {record.title}
+        </AppText>
+        {action}
+      </View>
       {goal ? (
         <AppText
           style={[styles.goal, !goal.achieved && styles.goalMissed]}
@@ -147,6 +156,7 @@ export function RecordView({
   chartHeight,
   onOpen,
   openLabel,
+  headerAction,
   layout = 'records',
   metric = 'pace',
 }: {
@@ -154,6 +164,7 @@ export function RecordView({
   chartHeight: number;
   onOpen?: () => void;
   openLabel?: string;
+  headerAction?: React.ReactNode;
   // home: 2.1 홈 최근 러닝 (S15P31E105-615).
   layout?: 'records' | 'home';
   metric?: SplitMetric;
@@ -181,6 +192,7 @@ export function RecordView({
         record={record}
         onOpen={onOpen}
         openLabel={openLabel}
+        headerAction={headerAction}
         action={
           record.runType === 'SOLO' && !record.courseId ? (
             <SaveCourseButton key={record.id} recordId={record.id} />
@@ -257,7 +269,7 @@ export function RecordView({
   );
   return (
     <View style={styles.recordsRoot}>
-      <CardHead record={record} />
+      <CardHead record={record} action={headerAction} />
       {onOpen ? (
         <Pressable
           accessibilityRole="button"
@@ -369,8 +381,14 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: 'rgba(255,255,255,0.92)',
   },
-  name: {
+  nameRow: {
     marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  name: {
+    flex: 1,
     fontFamily: fontFamily.bold,
     fontSize: 22,
     lineHeight: 28,

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { ScrollView, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
-import { RunMap } from '../src/components/RunMap';
+import { InlineRunReplay } from '../src/screens/community/RouteReplay';
 import { ToastProvider } from '../src/components/Toast';
 import {
   createMockRepositories,
@@ -14,6 +14,7 @@ import {
 } from '../src/data';
 import { createCommunityApi } from '../src/data/api/community';
 import { RouteLine } from '../src/screens/community/FeedPage';
+import { Avatar } from '../src/screens/community/parts';
 import {
   PostEditScreen,
   postFailure,
@@ -23,12 +24,14 @@ import {
 // 7.3 · 7.3e against the server (S15P31E105-632): the preview shows what 코스도 함께 공유 shares, the run's
 // course (C03), never my GPS track; 7.3e sends courseShared in CMT04.
 
-let mockParams: Record<string, string> = {};
+let mockParams: Record<string, string | boolean> = {};
 const mockGoBack = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     canGoBack: () => true,
     goBack: mockGoBack,
+    replace: mockReplace,
     navigate: jest.fn(),
     dispatch: jest.fn(),
   }),
@@ -155,11 +158,15 @@ function serve({ courseReadable = true } = {}) {
 
 let mounted: Screen | null = null;
 
-async function render(Screen: React.ComponentType) {
+async function render(
+  Screen: React.ComponentType,
+  change: Partial<RunRecordDetail> = {},
+) {
   const mock = createMockRepositories({ latencyMs: 0 });
   const records = {
     ...mock.records,
-    getDetail: async () => detail,
+    getDetail: async () => ({ ...detail, ...change }),
+    getRoute: async () => change.routeParts ?? null,
   } as Repositories['records'];
   let screen: Screen;
   await act(async () => {
@@ -180,7 +187,9 @@ async function render(Screen: React.ComponentType) {
   mounted = screen!;
   for (
     let tries = 0;
-    tries < 40 && !texts(screen!).includes('코스도');
+    tries < 40 &&
+    screen!.root.findAll(node => node.props.accessibilityLabel === '글 내용')
+      .length === 0;
     tries++
   ) {
     await act(async () => {
@@ -190,7 +199,7 @@ async function render(Screen: React.ComponentType) {
   return screen!;
 }
 
-const maps = (screen: Screen) => screen.root.findAllByType(RunMap);
+const maps = (screen: Screen) => screen.root.findAllByType(InlineRunReplay);
 const drawn = (screen: Screen) => screen.root.findAllByType(RouteLine);
 const courseSwitch = (screen: Screen) =>
   screen.root.findAll(
@@ -202,6 +211,7 @@ const courseSwitch = (screen: Screen) =>
 
 beforeEach(async () => {
   mockGoBack.mockReset();
+  mockReplace.mockReset();
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
@@ -223,19 +233,106 @@ test('7.3 previews the course the post will share, not my GPS track', async () =
   mockParams = { recordId: '55' };
   const screen = await render(PostWriteScreen);
 
-  expect(courseSwitch(screen).props.accessibilityState).toEqual({
-    checked: true,
-    disabled: false,
-  });
+  expect(courseSwitch(screen)).toBeUndefined();
   expect(maps(screen)).toHaveLength(1);
-  expect(maps(screen)[0].props.route).toEqual(course);
-  expect(maps(screen)[0].props.route).not.toEqual(gps);
+  expect(maps(screen)[0].props.run.parts[0]).toEqual(course);
+  expect(maps(screen)[0].props.run.parts[0]).not.toEqual(gps);
   expect(texts(screen)).not.toContain('예시 경로');
+});
 
-  // Turning sharing off leaves the course off the page.
-  await act(async () => courseSwitch(screen).props.onPress());
-  expect(maps(screen)).toHaveLength(0);
-  expect(drawn(screen)).toHaveLength(0);
+test('7.3 uses a bright community map with my profile pin instead of S and F markers', async () => {
+  serve();
+  mockParams = { recordId: '55' };
+  const screen = await render(PostWriteScreen);
+  const map = screen.root.findAll(
+    node => typeof node.type === 'string' && node.props.testID === 'naver-map',
+  )[0];
+  expect(map.props.lightness ?? 0).toBe(0);
+  expect(
+    screen.root
+      .findAllByType(Text)
+      .filter(
+        node => node.props.children === 'S' || node.props.children === 'F',
+      ),
+  ).toHaveLength(0);
+  const pin = map.findAllByType(Avatar);
+  expect(pin).toHaveLength(1);
+  expect(pin[0].props.mine).toBe(true);
+  expect(pin[0].props.userId).toBeTruthy();
+});
+
+test('the focused draft stays in view when the keyboard shrinks the viewport or multiline content grows', async () => {
+  serve();
+  mockParams = { recordId: '55' };
+  const screen = await render(PostWriteScreen);
+  const input = screen.root.findByType(TextInput);
+  const scroll = screen.root.findByType(ScrollView);
+  const scrollToEnd = scroll.instance.scrollToEnd as jest.Mock;
+  const focused = input.instance.isFocused as jest.Mock;
+  scrollToEnd.mockClear();
+  focused.mockReturnValue(true);
+
+  await act(async () => {
+    input.props.onChangeText('여러 줄의 러닝 기록\n마지막 줄도 보여야 해요');
+    scroll.props.onLayout?.({ nativeEvent: { layout: { height: 320 } } });
+    scroll.props.onContentSizeChange?.(390, 580);
+  });
+  expect(scrollToEnd).toHaveBeenCalled();
+  expect(input.props.value).toContain('마지막 줄도 보여야 해요');
+
+  scrollToEnd.mockClear();
+  focused.mockReturnValue(false);
+  await act(async () => {
+    scroll.props.onLayout?.({ nativeEvent: { layout: { height: 700 } } });
+  });
+  expect(scrollToEnd).not.toHaveBeenCalled();
+});
+
+test('7.3 previews the measured route of a free run and always requests course sharing without a toggle', async () => {
+  serve();
+  mockParams = { recordId: '55' };
+  const screen = await render(PostWriteScreen, {
+    courseId: null,
+    routeParts: [gps],
+  });
+  expect(courseSwitch(screen)).toBeUndefined();
+  expect(maps(screen)).toHaveLength(1);
+  expect(maps(screen)[0].props.run.parts).toHaveLength(1);
+  const line = maps(screen)[0].props.run.parts[0] as [number, number][];
+  expect(line).toHaveLength(gps.length);
+  line.forEach(([longitude, latitude], index) => {
+    expect(longitude).toBeCloseTo(gps[index][0], 8);
+    expect(latitude).toBeCloseTo(gps[index][1], 8);
+  });
+  await submit(screen, '게시');
+  const sent = fetchMock.mock.calls.find(
+    ([url, init]) => String(url).endsWith('/posts') && init.method === 'POST',
+  );
+  expect(JSON.parse(sent![1].body)).toMatchObject({
+    sessionId: 55,
+    courseShared: true,
+  });
+});
+
+test('7.3 keeps the post and explains when the server cannot turn GPS into a shared course', async () => {
+  serve();
+  const served = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, init: { method: string }) =>
+    String(url).endsWith('/posts') && init.method === 'POST'
+      ? respond(201, {
+          id: 204,
+          courseShared: false,
+          courseShareFailureReason: 'INSUFFICIENT_GPS',
+        })
+      : served(url, init),
+  );
+  mockParams = { recordId: '55', fromRecords: true };
+  const screen = await render(PostWriteScreen, { courseId: null });
+  await submit(screen, '게시');
+  expect(texts(screen)).toContain(
+    'GPS 경로가 부족해 기록만 공유했어요. 코스 공유는 꺼졌어요.',
+  );
+  expect(mockReplace).toHaveBeenCalledWith('PostDetail', { postId: '204' });
 });
 
 test('7.3 falls back to the drawn shape when the course cannot be read, never to the GPS track', async () => {
@@ -261,7 +358,7 @@ test('7.3e shows the course again when I turn sharing back on and sends courseSh
 
   await act(async () => courseSwitch(screen).props.onPress());
   expect(maps(screen)).toHaveLength(1);
-  expect(maps(screen)[0].props.route).toEqual(course);
+  expect(maps(screen)[0].props.run.parts[0]).toEqual(course);
   // Not an empty 예시 경로: the real course is on the map.
   expect(texts(screen)).not.toContain('예시 경로');
 
@@ -372,3 +469,110 @@ test('7.3e says the post is gone when CMT04 answers POST_NOT_FOUND', async () =>
   expect(texts(screen)).toContain('이미 삭제된 게시물이에요');
   expect(mockGoBack).not.toHaveBeenCalled();
 });
+
+test('a saved record submits once on rapid taps and opens the created post', async () => {
+  serve();
+  const served = fetchMock.getMockImplementation()!;
+  let finish!: (value: ReturnType<typeof respond>) => void;
+  fetchMock.mockImplementation((url: string, init: { method: string }) =>
+    String(url).endsWith('/posts') && init.method === 'POST'
+      ? new Promise(resolve => {
+          finish = resolve;
+        })
+      : served(url, init),
+  );
+  mockParams = { recordId: '55', fromRecords: true };
+  const screen = await render(PostWriteScreen);
+  const button = screen.root
+    .findAll(
+      node =>
+        node.props.accessibilityLabel === '게시' &&
+        typeof node.props.onPress === 'function',
+    )
+    .pop()!;
+  let requests!: Promise<unknown>[];
+  await act(async () => {
+    requests = [button.props.onPress(), button.props.onPress()];
+  });
+  const posts = () =>
+    fetchMock.mock.calls.filter(
+      ([url, init]) => String(url).endsWith('/posts') && init.method === 'POST',
+    );
+  expect(posts()).toHaveLength(1);
+  expect(JSON.parse(posts()[0][1].body)).toEqual({
+    sessionId: 55,
+    body: null,
+    courseShared: true,
+  });
+  await act(async () => {
+    finish(respond(201, { id: 202, courseShared: true }));
+    await Promise.all(requests);
+  });
+  expect(mockReplace).toHaveBeenCalledWith('PostDetail', { postId: '202' });
+});
+
+test('a failed saved-record post keeps the draft and can retry the same session', async () => {
+  serve();
+  failing(
+    (path, method) => path === '/posts' && method === 'POST',
+    503,
+    'SERVER_ERROR',
+  );
+  mockParams = { recordId: '55', fromRecords: true };
+  const screen = await render(PostWriteScreen);
+  const input = screen.root
+    .findAll(
+      node =>
+        node.props.accessibilityLabel === '글 내용' &&
+        typeof node.props.onChangeText === 'function',
+    )
+    .pop()!;
+  await act(async () => input.props.onChangeText('다시 공유할 러닝'));
+  await submit(screen, '게시');
+  expect(mockReplace).not.toHaveBeenCalled();
+  expect(input.props.value).toBe('다시 공유할 러닝');
+  const served = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, init: { method: string }) =>
+    String(url).endsWith('/posts') && init.method === 'POST'
+      ? respond(201, { id: 203, courseShared: true })
+      : served(url, init),
+  );
+  await submit(screen, '게시');
+  const posts = fetchMock.mock.calls.filter(
+    ([url, init]) => String(url).endsWith('/posts') && init.method === 'POST',
+  );
+  expect(posts).toHaveLength(2);
+  for (const [, init] of posts) {
+    expect(JSON.parse(init.body)).toMatchObject({
+      sessionId: 55,
+      body: '다시 공유할 러닝',
+    });
+  }
+  expect(mockReplace).toHaveBeenCalledWith('PostDetail', { postId: '203' });
+  expect(
+    fetchMock.mock.calls.some(([, init]) => init.method === 'DELETE'),
+  ).toBe(false);
+});
+
+test.each([
+  [403, 'RESOURCE_NOT_OWNED', '내 러닝 기록만 공유할 수 있어요'],
+  [422, 'INVALID_POST', '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요'],
+])(
+  'saved-record posting respects CMT01 rejection %s %s',
+  async (status, code, message) => {
+    serve();
+    failing(
+      (path, method) => path === '/posts' && method === 'POST',
+      status,
+      code,
+    );
+    mockParams = { recordId: '55', fromRecords: true };
+    const screen = await render(PostWriteScreen);
+    await submit(screen, '게시');
+    expect(texts(screen)).toContain(message);
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init.method === 'DELETE'),
+    ).toBe(false);
+  },
+);

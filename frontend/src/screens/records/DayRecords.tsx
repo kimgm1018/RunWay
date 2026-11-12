@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { AppText, EmptyState, FadeIn } from '../../components';
+import { GlassIconButton } from '../../components/GlassIconButton';
 import {
   useResource,
   type Repositories,
@@ -208,6 +210,7 @@ export function DayRecords({
   home?: boolean;
   onStartRun?: () => void;
 }) {
+  const navigation = useNavigation();
   const dayRuns = useDayRuns(day);
   const list = dayRuns.status === 'ready' ? dayRuns.data.runs : [];
   const monthHasRuns =
@@ -244,7 +247,7 @@ export function DayRecords({
   return (
     <>
       <RunChips runs={list} run={run} onRun={onRun} />
-      {detail.status === 'ready' && detail.data ? (
+      {detail.status === 'ready' && detail.data?.id === run.id ? (
         // Another day's run fades in rather than swap at once (S15P31E105-478).
         <FadeIn appearKey={detail.data.id}>
           <RecordView
@@ -257,6 +260,19 @@ export function DayRecords({
             }
             openLabel={rowLabel(run)}
             layout={home ? 'home' : 'records'}
+            headerAction={
+              <GlassIconButton
+                icon="send"
+                tone="dark"
+                accessibilityLabel="기록 공유"
+                onPress={() =>
+                  navigation.navigate('PostWrite', {
+                    recordId: run.id,
+                    fromRecords: true,
+                  })
+                }
+              />
+            }
           />
         </FadeIn>
       ) : detail.status === 'error' ? (

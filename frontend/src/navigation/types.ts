@@ -54,7 +54,7 @@ export type RootStackParamList = Record<
   // 7.x open one post; 7.3 shares one of my runs (my newest without an id); 7.4 shows one runner.
   // replay: opened from a shared link, so the course replay starts once the post is read (S15P31E105-704).
   PostDetail: { postId: string; replay?: boolean } | undefined;
-  PostWrite: { recordId: string } | undefined;
+  PostWrite: { recordId: string; fromRecords?: boolean } | undefined;
   PostEdit: { postId: string } | undefined;
   RunnerProfile: { userId: string } | undefined;
   // 7.4c opens on one of the runner's two lists.

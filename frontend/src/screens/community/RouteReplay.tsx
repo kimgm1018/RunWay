@@ -1238,6 +1238,29 @@ export function FeedRouteReplay({
     />
   ) : null;
 }
+// A draft uses the feed's bright map, camera and profile pin before a post exists.
+export function InlineRunReplay({
+  run,
+  onShown,
+}: {
+  run: ReplayRun;
+  onShown?: () => void;
+}) {
+  const line = useMemo(() => lineOfParts(run.parts ?? []), [run.parts]);
+  return line.route.length >= 2 ? (
+    <MapReplay
+      run={run}
+      route={line.route}
+      unmeasuredEdges={line.unmeasuredEdges}
+      drawConnectors={false}
+      visible
+      onClose={noop}
+      onShown={onShown}
+      inline
+    />
+  ) : null;
+}
+
 const noop = () => undefined;
 
 // The runner's pulse: one ring this wide, spreading every this long.
