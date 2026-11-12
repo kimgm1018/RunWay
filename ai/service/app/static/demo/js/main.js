@@ -53,6 +53,10 @@
     state.serverOffsetMs = snapshot.serverTime ? Date.parse(snapshot.serverTime) - Date.now() : state.serverOffsetMs;
     state.traces = root.RunwayDemoLogic.mergeTraces(previousTraces, snapshot.traces || []);
     root.RunwayDemoRender.reset(snapshot);
+    if (root.RunwayDemoLiveMap) {          // 722: 실시간 경로 지도
+      root.RunwayDemoLiveMap.setRoutes(snapshot.routes || []);
+      root.RunwayDemoLiveMap.setCourse(snapshot.course || null);
+    }
     if (state.traces.length) {
       state.traces.forEach(function (trace) { processTrace(trace, false); });
     }
@@ -73,8 +77,15 @@
       return;
     }
     if (name === 'COURSE_UPDATE') {
-      state.snapshot = Object.assign({}, state.snapshot || {}, {course: data && data.course || null});
-      root.RunwayDemoRender.updateCourse(state.snapshot.course, state.traces[state.traces.length - 1] || null);
+      // 722: 실제 경로는 같은 이벤트의 routes로 온다. course가 없는 이벤트는 코스를 지우지 않는다
+      if (data && Object.prototype.hasOwnProperty.call(data, 'course')) {
+        state.snapshot = Object.assign({}, state.snapshot || {}, {course: data.course || null});
+        root.RunwayDemoRender.updateCourse(state.snapshot.course, state.traces[state.traces.length - 1] || null);
+      }
+      if (data && Array.isArray(data.routes) && root.RunwayDemoLiveMap) {
+        root.RunwayDemoLiveMap.setRoutes(data.routes);
+        root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
+      }
       return;
     }
     if (name === 'MPC_TRACE') {
@@ -316,6 +327,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     var params = new URLSearchParams(window.location.search);
+    if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.init();
     var zoom = byId('zoom-toggle');
     if (zoom) zoom.addEventListener('click', function () {
       var active = zoom.getAttribute('aria-pressed') !== 'true';

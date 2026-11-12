@@ -274,7 +274,7 @@ h1 { margin: .1rem 0 0; font-size: 1.55rem; font-weight: 800; letter-spacing: -.
 .chart-wrap { flex: 1; }
 .map-wrap { flex: 1; }
 .elev-wrap { height: 22%; min-height: 3rem; border-top: 1px solid var(--panel-line); margin-top: .35rem; }
-.chart-wrap svg, .map-wrap svg, .elev-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.chart-wrap > svg, .map-wrap > svg, .elev-wrap > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
 .svg-grid { stroke: var(--grid); stroke-width: 1; }
 .svg-axis { fill: var(--muted); font-family: var(--num); font-size: .85rem; }
 .svg-actual { fill: none; stroke: var(--mist); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
@@ -557,3 +557,21 @@ input[type="range"] { accent-color: var(--ink); }
 .auth-row button { height: 2.9rem; padding: 0 1.6rem; border-radius: 999px; font-weight: 500; font-size: 1rem; }
 .auth-panel .auth-error { color: var(--red-light); font-size: .9rem; }
 .auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--red-light); }
+
+/* 실시간 경로 지도(722): 앱 지도처럼 어두운 바탕에 민트 경로. OSM 타일을 어둡게 뒤집어 카드 톤에 맞춘다 */
+.live-map { position: absolute; inset: 0; border-radius: var(--radius-inner); overflow: hidden; background: #0B1522; z-index: 1; }
+.live-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.35); }
+.live-map .leaflet-control-attribution { font-family: var(--ui); font-size: .7rem; background: rgb(2 5 14 / 70%); color: rgb(232 238 244 / 70%); }
+.live-map .leaflet-control-attribution a { color: var(--ice); }
+.live-map .leaflet-bar a { background: rgb(2 5 14 / 80%); color: var(--ice); border-color: rgb(255 255 255 / 14%); }
+.live-map .route-tip { font-family: var(--num); font-weight: 600; font-size: .75rem; padding: .1rem .45rem; border: 0; border-radius: 999px;
+  background: var(--ink); color: var(--ice); box-shadow: none; }
+.live-map .route-tip::before { display: none; }
+.map-follow { position: absolute; right: .6rem; top: .6rem; z-index: 2; font-size: .85rem; font-weight: 500; padding: .35rem .9rem;
+  background: rgb(2 5 14 / 80%); color: var(--ice); border: 1px solid rgb(255 255 255 / 18%); }
+.map-follow[aria-pressed="true"] { background: #4DFFD2; color: #02050E; border-color: #4DFFD2; }
+body.has-live-map #course-map { visibility: hidden; }
+body.has-live-map .elev-wrap { display: none; }
+/* 그룹 화면처럼 계획 코스가 없어도 실시간 경로가 있으면 지도 칸을 보인다 */
+body.has-live-map .context.no-course { grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr); }
+body.has-live-map .context.no-course .map-panel { display: flex; }
