@@ -726,7 +726,7 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 | `groupPaceSecPerKm` | number | 반환 공동 페이스, sec/km |
 | `changed` | boolean | 현재와 차이가 10초/km 이상이고 변경 제한을 통과했는지 여부 |
 | `direction` | string | `SLOW` / `FAST` / `HOLD` |
-| `reason` | string | `HR_LIMIT` / `RECOVERED` / `COOLDOWN` / `WARMUP_CAP` / `FLOOR` / `SMALL_CHANGE` / `NO_DATA` |
+| `reason` | string | `HR_LIMIT` / `RECOVERED` / `COOLDOWN` / `WARMUP_CAP` / `FLOOR` / `SMALL_CHANGE` / `NO_DATA` / `AHEAD`(여유 가속, `direction=FAST`, 아래 절) |
 | `strugglingCount` | integer | 실제 반환 페이스에서 심박 상한이 개인 허용선 이상인 심박 판단 참가자 수 |
 | `excludedCount` | integer | 전달된 참가자 중 active=false 또는 데이터 부족으로 판단에서 제외한 수. 호출자가 보내지 않은 인원은 셀 수 없음 |
 | `paceOnlyCount` | integer | active=true 중 userId가 없거나 심박 기록이 없는 참가자 수. 속도도 없어 제외한 참가자를 포함 |
@@ -743,6 +743,19 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 6. 마지막 변경부터 120초 미만이면 방향과 관계없이 현재를 유지한다(`COOLDOWN`). 단 G에서 누군가의 **여유값을 더하기 전** 120초 예측이 혼합된 위험 기준 이상이면 감속은 허용한다. 정확히 120초면 제한하지 않는다.
 7. `elapsedSec` < 180이면 감속은 최대 +10초/km다(`WARMUP_CAP`). 위험으로 쿨다운을 벗어난 경우에도 적용한다. 제한 후 반환 페이스에서 `strugglingCount`를 다시 센다.
 8. 현재와 차이가 10초/km 미만이면 현재를 유지한다(`HOLD`, `changed=false`, `SMALL_CHANGE`). 정확히 10초는 변경한다. 회복 가능한 후보가 없어 유지하는 경우도 `SMALL_CHANGE`다. 활성 참가자 전원에게 쓸 수 있는 데이터가 없으면 HTTP 200, 현재 페이스, `HOLD`, `NO_DATA`를 반환한다.
+
+### 여유 가속 (`reason=AHEAD`)
+
+S15P31E105-728. 기존 회복은 목표 또는 출발 추천 페이스까지만 올린다. `GROUP_PACE_AHEAD_ENABLED=true`(코드 기본 false, 끄면 출력이 이전과 같음)이면 위 규칙이 페이스를 바꾸지 않은 판정에서만 다음을 모두 만족할 때 한 번에 10초/km 빠르게 올린다.
+
+1. `paceMode`가 `GOAL`이 아니다(목표 페이스 모드는 목표가 상한).
+2. 전달된 참가자 전원이 심박으로 판단된다(`excludedCount`·`paceOnlyCount` 0).
+3. 전원의 G와 G−10 후보 상한이 허용선 − `GROUP_PACE_AHEAD_MARGIN_BPM`(기본 15) 아래다.
+4. 연속 조건: AI10은 상태를 저장하지 않으므로 "연속 N번 판정" 대신 각 회원의 실측 심박이 최근 N×30초(`GROUP_PACE_AHEAD_STREAK`, 기본 2 → 60초) 동안 같은 선 아래였는지 본다. 그 구간 칸의 절반 이상이 측정돼 있어야 한다.
+5. 출발 뒤 `GROUP_PACE_AHEAD_WAIT_SEC`(기본 180초)가 지났다. 시연 설정 `userAllowlist` 회원이 참가자에 있으면 시연 설정 `speedUpWarmupSec`(기본 60초)를 쓴다. 목록이 null이면 쓰지 않는다.
+6. 마지막 변경 뒤 120초가 지났고 위험 심박이 아니다. `startRecommendedPaceSecPerKm`이 있어야 하며, 결과는 그보다 최대 30초/km 빠르게까지다.
+
+백엔드는 `reason`을 문자열로만 검사하고 저장하지 않으므로 새 값으로 바뀌는 동작은 없다.
 
 ### 목표 페이스 모드 (`paceMode=GOAL`)
 
