@@ -4,7 +4,10 @@ import { createPhoneRecorder } from '../phoneRecorder';
 
 // 폰 인계 뒤 폰 GPS batch(S15P31E105-464). 합성 좌표만 쓴다.
 
-function harness(upload: (body: string) => Promise<unknown>) {
+function harness(
+  upload: (body: string) => Promise<unknown>,
+  options: Partial<Parameters<typeof createPhoneRecorder>[0]> = {},
+) {
   const listeners = new Set<(fix: PhoneFix) => void>();
   const location = {
     start: jest.fn(async () => true),
@@ -40,6 +43,7 @@ function harness(upload: (body: string) => Promise<unknown>) {
     finishRetryMs: 10,
     sleep,
     now: () => fakeNow,
+    ...options,
   });
   const fix = (latitude: number, longitude: number, time = Date.UTC(2026, 10, 6, 1, 0, 0)) =>
     listeners.forEach(listener =>
@@ -75,6 +79,32 @@ test('the body is a W07 batch of GPS points with a valid hash and the phone devi
     },
   ]);
   expect(body.payloadHash).toBe(payloadHash(body.id, '102', '5001', body.items));
+});
+
+test('disposing during a retry delay does not upload after the run is cancelled', async () => {
+  let releaseRetry!: () => void;
+  let enteredRetry!: () => void;
+  const waiting = new Promise<void>(resolve => {
+    enteredRetry = resolve;
+  });
+  const { recorder, fix, bodies } = harness(() => Promise.reject(new DataError('NETWORK_ERROR', 'offline')), {
+    retryDelaysMs: [0, 1000],
+    sleep: () => {
+      enteredRetry();
+      return new Promise<void>(resolve => {
+        releaseRetry = resolve;
+      });
+    },
+  });
+  await recorder.start();
+  recorder.resume();
+  fix(35.1, 129.1);
+  recorder.pause();
+  await waiting;
+  recorder.dispose();
+  releaseRetry();
+  await recorder.finish();
+  expect(bodies).toHaveLength(1);
 });
 
 test('points while paused or before resume are not recorded; invalid fixes are dropped', async () => {

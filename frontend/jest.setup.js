@@ -1,4 +1,6 @@
 /* eslint-env jest */
+// A mounted app starts visible. RN's preset supplies a jest.fn here instead of a valid native AppState value.
+require('react-native').AppState.currentState = 'active';
 // react-native-keychain is a native module; tests get an in-memory keystore that starts empty in every test,
 // so a login in one test does not sign in the next one.
 jest.mock('react-native-keychain', () => {

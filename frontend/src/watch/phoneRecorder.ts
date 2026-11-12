@@ -70,6 +70,10 @@ export function createPhoneRecorder({
       if (delay > 0) {
         await sleep(delay + Math.floor(Math.random() * Math.min(500, delay)));
       }
+      // 화면 잠금 중 재시도를 기다리다가 취소된 운동은 깨어난 뒤에도 다시 전송하지 않는다.
+      if (disposed) {
+        return 'UNCONFIRMED';
+      }
       try {
         const ack = await upload(batch.body);
         // 다른 batch·개수의 응답은 저장 확인으로 쓰지 않는다.

@@ -13,6 +13,62 @@ pnpm typecheck
 pnpm lint
 ```
 
+### 화면 잠금 중 러닝 기록 검증 (S15P31E105-753)
+
+`RunTimersKeeper`의 headless 작업은 RN 타이머가 백그라운드에서도 실행될 수 있게 한다.
+하지만 작업 등록과 foreground 알림만으로 CPU 절전을 막지는 않는다. 러닝 서비스가 foreground로
+시작된 뒤 `PARTIAL_WAKE_LOCK` 하나를 유지하고 서비스 종료 시 해제한다. 화면은 계속 꺼질 수 있다.
+폰 단독·WATCH·PHONE_FALLBACK은 기존 서비스와 수집·업로드 경로를 그대로 사용한다.
+또한 폰 GPS 재시도 대기 중 취소된 운동은 대기 종료 후 새 업로드를 시작하지 않는다.
+
+진행 중 러닝에서 Activity가 중지됐다가 창 포커스를 되찾으면 다음 프레임에 기존 뷰의 재레이아웃·재그리기를 요청한다.
+React 화면·러닝 세션·수집 구독을 재시작하지 않는다. 개인 러닝 시작 확정·종료·세션 복원에 따른 화면 전환은
+앱이 foreground로 돌아올 때까지 보류하고, 대기 중 일시정지·종료된 경우 최신 상태에 맞춰 이동한다.
+Android 포커스 이벤트를 관찰하며, foreground 상태에서 이미 마운트된 창의 초기 포커스는 가정한다.
+그룹 진행 화면의 자동 종료 전환은 이 변경의 대상이 아니다.
+
+네이티브 회귀 테스트는 `frontend/android`에서 실행한다. 기존 지도 Client ID와 삼성 SDK 설정이 필요하다.
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --console=plain
+```
+
+2026-11-12 확인: React Native **0.85.3** 설치 소스의 `JavaTimerManager`, `HeadlessJsTaskContext`,
+`HeadlessJsTaskService`를 대조했다. Context7 조회는 성공했으나 해당 버전 문서를 제공하지 않아
+설치 소스로 버전을 맞췄다. wake lock 사용법은 [Android 공식 문서](https://developer.android.com/develop/background-work/background-tasks/awake/wakelock)를 확인했다.
+Robolectric **4.16.1**의 Context7 상세 API 조회는 결과가 없어 [공식 4.16 API 문서](https://robolectric.org/javadoc/4.16/org/robolectric/shadows/ShadowService.html)로 보완했다.
+네이티브 테스트는 Android API 29·34 시뮬레이션에서 반복 시작·위치 서비스 유형 전환·종료 해제를 검증한다.
+compile/target SDK는 기존 **36**이며, JDK 17 자동 테스트 런타임은 API 29·34를 사용했다.
+2026-11-13 최종 검증: `:app:testDebugUnitTest` 9개 suite/78개 테스트와 전체 Jest 158개 suite/1,700개 테스트가
+종료 코드 0으로 통과했다. TypeScript 검사와 lint도 오류 없이 통과했다(기존 shareWebRoute 테스트 경고 4개).
+수정 전 wake lock 누락·취소 후 재시도·잠금 중 화면 전환·복귀 대기 중 일시정지·초기 포커스 경계의 실패를 확인했다.
+native 복귀 테스트는 재그리기 요청과 기존 뷰 보존을 검증하며, 실제 GPU의 버퍼 복구를 직접 검증하는 테스트는 아니다.
+
+최종 통합 기준은 dev `e438988f`다. ARM64 디버그 APK를 빌드했다.
+Galaxy S22(SM-S901N), Android 16/API 36에 `adb install -r`로 업데이트 설치하고 MainActivity 실행을 확인했다
+(versionName 1.0/versionCode 1). 위치·알림·wake lock 권한과 위치 서비스·Bluetooth가 켜져 있다.
+절전 모드는 켜져 있고 자동 화면 꺼짐은 10분이다. 반영한 dev와 753 수정에는 워치 코드 변경이 없어 워치 재설치는 필요하지 않다.
+수정 후 시작 직후 화면 잠금→복귀와 절전 ON·정지 상태에서 10분 이상 잠금→복귀를 확인했다.
+최근 앱을 열지 않고 정상 표시됐고 같은 앱 프로세스가 유지됐다. 일시정지·재개·종료 후 결과 화면까지 확인했다.
+사용자는 절전 모드의 실제 이동 후 기록이 이어졌다고 보고했지만, 최소 이동 시간·경계별 건수·서버 COMMITTED 연속성은
+독립 검증하지 않았다. 원래의 지속적인 전체 검정 화면은 완전히 재현하거나 원인을 확정하지 못했다.
+기존 러닝 시간대의 Surface `queueBuffer -19` 로그와 장시간 잠금 직후의 검정 프레임을 관찰했으나,
+관찰 시에는 최근 앱을 열지 않아도 화면이 돌아왔다. 모든 기기에서 지속 검정 화면이 해결됐다고 단정하지 않는다.
+워치 앱의 실제 연결·심박 수집 상태와 폰 단독·WATCH·PHONE_FALLBACK 각 모드의 10분 이동·서버 저장 연속성은 미검증이다.
+자동 테스트의 서비스 리소스 검증을 실제 GPS 생산·심박 수신·서버 저장 연속성 검증으로 해석하지 않는다.
+기기가 연결되면 다음 순서로 확인한다.
+
+1. APK 버전·기종·OS·위치/알림/워치 센서 권한·배터리 절전 상태·연결된 심박 수집원·러닝 모드를 기록한다.
+2. 폰 단독·WATCH·기존 PHONE_FALLBACK 각각에서 화면 켜짐을 기준으로 자동 꺼짐·전원 버튼 잠금·홈/다른 앱 전환을 비교한다.
+   각 화면 꺼짐 시나리오에서 최소 10분 실제 이동하고, 잠금 직전·잠금 중·복귀 후의 측정 시각·수신 건수·COMMITTED 건수를 확인한다.
+3. 센서/GPS 생산 → 폰 네이티브 수신 → JS 수신/타이머 → batch 업로드 → 서버 저장 → 화면 표시를 구분한다.
+   첫 중단 경계를 확인하며, 화면에서 경로가 보이는 것만으로 저장 성공으로 판단하지 않는다.
+4. 복귀 → 일시정지 → 재개 → 종료 → 기록 상세를 확인한다. 원래 측정 시각·생산 기기·중복 제거를 유지하고,
+   일시정지/결측 구간에 가짜 점·심박·연결 선이 없어야 한다. 폰 단독의 심박 미측정은 정상 제한이다.
+5. 반복 화면 전환·종료·취소 후 GPS 구독과 업로드가 정리되고 서비스 wake lock이 남지 않는지 확인한다.
+   `adb logcat -s RunWayWatch`의 `run CPU kept on/off`와 `timers kept on/off`는 실행 자원 상태만 의미한다.
+   절전·권한 거부·심박 수집원 중단은 별도로 비교하며, 원본 좌표·심박 수치·인증정보는 로그나 Jira에 남기지 않는다.
+
 ### Windows에서 Android APK 빌드
 
 해당 Jira worktree의 `frontend/android`에서 실행한다. 네이버 지도 Client ID와 삼성 헬스 SDK는 아래 설정을 먼저 준비한다.

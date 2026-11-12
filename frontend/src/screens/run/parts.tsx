@@ -30,6 +30,7 @@ import {
   useTheme,
 } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
+import { useRunForeground } from './useRunForeground';
 
 // Simplified marks for the two music services (2.0 음악 버튼, 2.8 음원 목록).
 // mono draws only the white mark, for a K1 badge.
@@ -152,9 +153,12 @@ export function RunStartBar({
   const { ensureRunLogin, signedIn } = useSession();
   const control = useRunControlState();
   const focused = useIsFocused();
+  const foreground = useRunForeground();
+  const pendingGroupScreen = useRef(false);
+  const pendingRunScreen = useRef(false);
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
-  const latest = useRef({ config, navigation, start: startRun, prepare });
-  latest.current = { config, navigation, start: startRun, prepare };
+  const latest = useRef({ config, navigation, start: startRun, prepare, foreground });
+  latest.current = { config, navigation, start: startRun, prepare, foreground };
   // 미리 준비(S15P31E105-533): 목표가 정해진 채 이 화면에 있으면 세션 생성·AI 계획·워치 준비를 미리 끝내 둔다.
   // 3초 카운트다운은 그대로이고, 카운트다운 뒤에는 시작 승인·워치 실행·저장 확인만 남는다. 목표를 바꾸는 동안에는
   // 잠시 기다렸다가 마지막 목표로 준비한다. 이 화면이 준비한 세션은 시작하지 않고 떠나면 취소한다.
@@ -206,20 +210,35 @@ export function RunStartBar({
   const previousStatus = useRef(control?.status ?? null);
   useEffect(() => {
     const status = control?.status ?? null;
-    if (
-      focused &&
-      status === 'RUNNING' &&
-      previousStatus.current !== 'RUNNING'
-    ) {
-      setRequested(false);
-      navigateTo(navigation, 'RunProgress');
+    if (focused && status === 'RUNNING' && previousStatus.current !== 'RUNNING') {
+      pendingRunScreen.current = true;
     }
     previousStatus.current = status;
+    if (status === 'COMPLETED') {
+      pendingGroupScreen.current = false;
+    }
+    if (!focused || status === 'CANCELLED' || status === 'INTERRUPTED') {
+      pendingRunScreen.current = false;
+      pendingGroupScreen.current = false;
+    }
+    if (!foreground) {
+      return;
+    }
+    if (
+      focused &&
+      ((pendingRunScreen.current && (status === 'RUNNING' || status === 'PAUSED' || status === 'COMPLETED')) ||
+        (pendingGroupScreen.current && status !== 'COMPLETED'))
+    ) {
+      pendingRunScreen.current = false;
+      pendingGroupScreen.current = false;
+      setRequested(false);
+      navigateTo(navigation, status === 'COMPLETED' ? 'RunResult' : 'RunProgress');
+    }
     // 문제 표시, 또는 시작하려다 이미 진행·일시정지 중인 본인 세션에 붙어 그 화면으로 돌아간 경우(S01 409).
     if (control?.problem || (status !== null && status !== 'READY')) {
       setRequested(false);
     }
-  }, [control, focused, navigation]);
+  }, [control, focused, navigation, foreground]);
   const confirming =
     requested || (control?.pending?.action === 'START' && !control.problem);
   const notice =
@@ -249,7 +268,11 @@ export function RunStartBar({
       const { config: chosen, navigation: nav, start } = latest.current;
       if (chosen?.mode === 'GROUP') {
         start(chosen);
-        navigateTo(nav, 'RunProgress');
+        if (latest.current.foreground) {
+          navigateTo(nav, 'RunProgress');
+        } else {
+          pendingGroupScreen.current = true;
+        }
       } else if (chosen) {
         setRequested(true);
         start(chosen);

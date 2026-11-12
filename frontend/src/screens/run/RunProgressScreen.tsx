@@ -35,6 +35,7 @@ import { comparisonLine } from './recordComparison';
 import { useLiveMusic } from './useLiveMusic';
 import type { RunControlState } from './runControl';
 import { goalPaceOf, useRunControlState, useRunSession } from './RunSession';
+import { useRunForeground } from './useRunForeground';
 
 const noSample = {
   elapsedSec: 0,
@@ -129,13 +130,14 @@ export function RunProgressScreen() {
     run?.startedAt ?? 'none',
   );
   const status = useRef(run?.status);
+  const foreground = useRunForeground();
   status.current = run?.status;
   const latest = useRef({ pause, toast });
   latest.current = { pause, toast };
 
   // 워치에서 종료해도 결과로 넘어간다. 결과는 진행 화면을 대신하므로 뒤로 가도 끝난 러닝이 다시 열리지 않는다.
   useEffect(() => {
-    if (run?.status === 'finished') {
+    if (foreground && run?.status === 'finished') {
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
@@ -143,7 +145,7 @@ export function RunProgressScreen() {
         }),
       );
     }
-  }, [navigation, run?.status]);
+  }, [foreground, navigation, run?.status]);
 
   // The back key never leaves or resumes a run: while running it asks to pause, while paused it stays.
   useFocusEffect(
