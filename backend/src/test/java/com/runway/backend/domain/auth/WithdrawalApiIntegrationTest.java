@@ -111,6 +111,30 @@ class WithdrawalApiIntegrationTest extends RefreshIntegrationSupport {
             .andExpect(jsonPath("$.nickname").value("탈퇴한 회원")).andExpect(jsonPath("$.loginId").isEmpty()).andExpect(jsonPath("$.birthDate").isEmpty());
         mvc.perform(get("/api/v1/users/me/withdrawal-summary").header("Authorization",auth())).andExpect(status().isUnauthorized());
     }
+    /** S15P31E105-704: 탈퇴(U18)는 본인이 발급한 기록 공유 링크 행을 지우고, 타인의 링크는 남긴다. 지운 링크는 H09에서 404다. */
+    @Test void withdrawalDeletesOwnRunShareLinks() throws Exception {
+        String completed = "INSERT INTO running_sessions(user_id,status,analysis_status,started_at,ended_at)"
+                + " VALUES (?,'COMPLETED','READY',now()-interval '2 hours',now()-interval '1 hour') RETURNING id";
+        long mine=jdbc.queryForObject(completed,Long.class,user);
+        long otherUser=other();
+        long others=jdbc.queryForObject(completed,Long.class,otherUser);
+        String token=mapper.readTree(mvc.perform(post("/api/v1/running-records/"+mine+"/share-link")
+                .header("Authorization",auth()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"자유 러닝\"}")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).get("token").asString();
+        mvc.perform(post("/api/v1/running-records/"+others+"/share-link")
+                .header("Authorization",SecurityTestSupport.bearer(otherUser)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"다른 러닝\"}")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/shared-runs/"+token)).andExpect(status().isOk());
+
+        withdraw().andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM run_share_links WHERE user_id=?",Integer.class,user)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM run_share_links WHERE user_id=?",Integer.class,otherUser)).isEqualTo(1);
+        mvc.perform(get("/api/v1/shared-runs/"+token)).andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("SHARED_RUN_NOT_FOUND"));
+    }
+
     @Test void missingRedisIndexCannotAllowRefreshOrLoginAfterWithdrawal() throws Exception {
         var token=grant(); redis.delete(com.runway.backend.domain.auth.repository.RefreshTokenStore.userKey(user));
         withdraw().andExpect(status().isOk());

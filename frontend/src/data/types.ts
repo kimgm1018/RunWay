@@ -12,6 +12,20 @@ export type UserProfile = {
   profileImageUrl: string | null;
 };
 
+// A run someone shared by link (S15P31E105-704): only what its replay shows. Anyone with the link reads it, signed
+// in or not.
+export type SharedRun = {
+  title: string;
+  startedAt: string;
+  distanceM: number;
+  durationSec: number;
+  averagePaceSecPerKm: number | null;
+  cadence: number | null;
+  runner: { nickname: string; profileImageUrl: string | null };
+  // The measured route in parts that are never joined across their breaks; empty without GPS.
+  parts: [number, number][][];
+};
+
 export type TodayCondition = {
   date: string;
   syncedAt: string | null;
@@ -1344,6 +1358,10 @@ export type Repositories = {
     getConditionOn: (day: string) => Promise<TodayCondition | null>;
     getMonthlySummary: () => Promise<MonthlyRunSummary>;
   };
+  // A run shared by link (S15P31E105-704); fails with SHARED_RUN_NOT_FOUND when it cannot be shown.
+  sharedRuns: {
+    get: (token: string) => Promise<SharedRun>;
+  };
   records: {
     // 2.1 과거 러닝 기록: my own runs only; group runs are listed in 5.1.
     getRecent: (sort: RecordSort, limit: number) => Promise<RunRecordSummary[]>;
@@ -1355,6 +1373,9 @@ export type Repositories = {
     // S11 실제로 뛴 경로만 읽는다(S15P31E105-690 러닝 종료 화면 지도). 출처 전환·공백에서 끊은 조각이며, 경로가 없거나
     // 읽지 못하면 null이다.
     getRoute: (recordId: string) => Promise<[number, number][][] | null>;
+    // The link that opens this run's replay for anyone (S15P31E105-704). The same run keeps one link; title is the
+    // name the replay shows.
+    shareLink: (recordId: string, title: string) => Promise<string>;
     // baseDate is any day (YYYY-MM-DD) inside the period.
     getStatistics: (
       period: AnalysisPeriod,

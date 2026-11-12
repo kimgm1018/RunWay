@@ -52,7 +52,8 @@ export type RootStackParamList = Record<
   CrewDetail: { crewId: string } | undefined;
   CrewJoinRequests: { crewId: string } | undefined;
   // 7.x open one post; 7.3 shares one of my runs (my newest without an id); 7.4 shows one runner.
-  PostDetail: { postId: string } | undefined;
+  // replay: opened from a shared link, so the course replay starts once the post is read (S15P31E105-704).
+  PostDetail: { postId: string; replay?: boolean } | undefined;
   PostWrite: { recordId: string } | undefined;
   PostEdit: { postId: string } | undefined;
   RunnerProfile: { userId: string } | undefined;

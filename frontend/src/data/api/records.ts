@@ -92,6 +92,21 @@ async function routePartsOf(sessionId: string): Promise<[number, number][][] | n
     return null;
   }
 }
+// H08 제목은 1~40자이고 제어·서식 문자를 받지 않는다. 화면 제목(코스 이름·별칭)이 더 길어도 링크가 만들어지게
+// 문자를 쪼개지 않고 40자 안으로 줄인다(S15P31E105-704).
+const shareTitleLimit = 40;
+export function shareTitleOf(title: string) {
+  const clean = title.replace(/[\p{Cc}\p{Cf}]/gu, '').trim();
+  let kept = '';
+  for (const character of clean) {
+    if (kept.length + character.length > shareTitleLimit) {
+      break;
+    }
+    kept += character;
+  }
+  return kept.trim() || '러닝';
+}
+
 // The server's largest H01 page.
 const pageLimit = 50;
 const kstOffsetMs = 9 * 60 * 60 * 1000;
@@ -301,6 +316,14 @@ export function createRecordsApi() {
       };
     },
     getRoute: recordId => routePartsOf(recordId),
+    // 공유 링크 발급(S15P31E105-704). 같은 기록은 같은 링크를 돌려받는다.
+    shareLink: async (recordId, title) => {
+      const response = await apiRequest<{ token: string; url: string }>(
+        `${path}/${recordId}/share-link`,
+        { method: 'POST', body: { title: shareTitleOf(title) } },
+      );
+      return response.url;
+    },
     getDetail: async recordId => {
       const [detail, { splits }, summary, routeParts] = await Promise.all([
         apiRequest<DetailResponse>(`${path}/${recordId}`),

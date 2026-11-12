@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
+  createNavigationContainerRef,
   NavigationContainer,
   useNavigation,
   type Theme as NavigationTheme,
@@ -34,6 +35,7 @@ import { useSession } from '../session/SessionProvider';
 import { fontFamily, useTheme } from '../theme';
 import { navigateTo } from './navigateTo';
 import { PillTabBar } from './PillTabBar';
+import { ShareLinkOpener } from './ShareLinkOpener';
 import {
   authRoutes,
   groupTabRoutes,
@@ -51,6 +53,8 @@ import type {
 } from './types';
 
 const Root = createNativeStackNavigator<RootStackParamList>();
+// For opening shared links from outside any screen (S15P31E105-704).
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -259,7 +263,8 @@ export function RootNavigator() {
     },
   };
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+      <ShareLinkOpener navigation={navigationRef} signedIn={signedIn} />
       <SignUpDraftProvider>
         <CourseSearchProvider>
           <RunSessionProvider>

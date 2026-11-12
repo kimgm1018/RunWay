@@ -250,6 +250,38 @@ curl -s https://k15e105.p.ssafy.io/ | sha256sum
 두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
 `nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
 
+### 경로 재생 링크 (S15P31E105-704)
+
+- **경로:** 같은 Nginx 볼륨(`/usr/share/nginx/landing`)에서 아래 두 가지를 제공한다. 규약은 [ADR-0023](../docs/adr/0023-run-share-app-links.md)을 따른다.
+  - `/.well-known/assetlinks.json`: Android App Links 검증 파일이다. `frontend/landing/.well-known/assetlinks.json`을 그대로 올린다.
+  - `/r/{token}`·`/p/{postId}`: 웹 화면 `share.html`이다. 경로가 정규식 `^/(r|p)/[A-Za-z0-9_-]{1,64}/?$`에 맞을 때만 제공한다.
+- **App Links 서명:**
+  - `assetlinks.json`에는 `com.runway.health`와 팀 테스트 서명(`frontend/android/app/debug.keystore`, debug·release 공통)의 SHA-256이 들어 있다.
+  - 서명 키를 바꾸면 이 파일도 함께 바꾼다. 지문 확인: `keytool -J-Duser.language=en -list -v -keystore frontend/android/app/debug.keystore -storepass android`
+- **네이버 지도 웹 키:**
+  - `share.html`은 Web Dynamic Map을 쓴다.
+  - 저장소에는 자리표시자 `__NAVER_MAP_CLIENT_ID__`만 있다. 올릴 때 앱과 같은 Maps Application의 클라이언트 ID(`MOBILE_NAVER_MAP_CLIENT_ID`)로 바꾼다.
+  - NCP 콘솔의 그 Application에 Web 서비스 URL `https://k15e105.p.ssafy.io`를 등록해야 지도가 뜬다.
+  - 요금은 Dynamic Map 이용 횟수 기준이다. 대표 계정은 월 6,000,000건까지 무료이고, 넘으면 0.1원/건이다(2026-11-12 요금표).
+- **갱신(수동):** master 체크아웃의 저장소 루트에서 아래를 실행한다. 키 값은 로컬 `.env`에서 셸로만 읽고 출력하지 않는다.
+
+```bash
+set -a; . ./.env; set +a
+sed "s/__NAVER_MAP_CLIENT_ID__/${MOBILE_NAVER_MAP_CLIENT_ID}/" frontend/landing/share.html > /tmp/runway-share.html
+scp -i <SSH 키> /tmp/runway-share.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.share.html.new
+ssh -i <SSH 키> ubuntu@k15e105.p.ssafy.io 'mkdir -p runway/frontend/landing/.well-known && mv runway/frontend/landing/.share.html.new runway/frontend/landing/share.html'
+scp -i <SSH 키> frontend/landing/.well-known/assetlinks.json ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.well-known/assetlinks.json
+rm /tmp/runway-share.html
+```
+
+- **반영 순서:**
+  1. 처음 반영할 때는 위 파일을 올린 뒤 운영 Nginx 설정(`infra/nginx/default.conf`)을 적용한다.
+  2. `nginx -t` 통과 후 reload한다.
+- **확인:**
+  - `curl -s https://k15e105.p.ssafy.io/.well-known/assetlinks.json`이 JSON을 돌려주는지 본다.
+  - `curl -sI https://k15e105.p.ssafy.io/r/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`가 `200 text/html`인지 본다.
+  - 앱 설치 후 `adb shell pm get-app-links com.runway.health`에서 도메인이 `verified`로 나오는지 본다.
+
 ### 랜딩 폰·워치 APK 갱신
 
 master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼저 보관한다. 공개용 release APK는 폰 `artifacts/runway.apk`, 워치 `artifacts/runway-watch.apk`로 추가 보관하며 랜딩에 복사하는 대상이다. 두 빌드 유형은 같은 팀 테스트 서명을 사용하고, 버전 코드는 각 작업의 Jenkins 빌드 번호를 사용한다.

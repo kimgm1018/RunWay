@@ -75,6 +75,9 @@ runway:
   images:
     volume-path: ${BACKEND_IMAGE_VOLUME_PATH:data/images}
     max-bytes: 5242880
+  # H08 기록 공유 링크(S15P31E105-704)의 공개 origin. 링크는 {base-url}/r/{token}이다. 경로·쿼리는 넣지 않는다.
+  share:
+    base-url: ${BACKEND_SHARE_BASE_URL:https://k15e105.p.ssafy.io}
   # C01 코스 생성(S15P31E105-423). 기본은 Route HTTP이며 주소가 비면 C01이 503 ROUTE_UNAVAILABLE이다.
   # stub은 개발자가 명시할 때만 쓰는 가짜 경로다. 시간 상한은 ai-service.md Route 계약 초안(연결 1초, 전체 15초, C01 20초)이다.
   course:

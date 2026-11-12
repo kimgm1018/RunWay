@@ -34,6 +34,16 @@ jest.mock('react-native-image-picker', () => ({
   launchImageLibrary: jest.fn(async () => ({ didCancel: true })),
 }));
 
+// 경로 재생 공유 (S15P31E105-704): the picture and the share sheet are native; tests get a file name and a sheet
+// that resolves, and set failures per test.
+jest.mock('react-native-view-shot', () => ({
+  captureRef: jest.fn(async () => '/data/cache/replay.png'),
+}));
+jest.mock('react-native-share', () => ({
+  __esModule: true,
+  default: { open: jest.fn(async () => ({ success: true, message: '' })) },
+}));
+
 // react-native-get-random-values polyfills crypto.getRandomValues through a native module; Node already has it.
 jest.mock('react-native-get-random-values', () => ({}));
 

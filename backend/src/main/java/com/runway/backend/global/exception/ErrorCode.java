@@ -335,6 +335,7 @@ public enum ErrorCode {
     ASSESSMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSESSMENT_NOT_FOUND", "준비도 결과가 없습니다."),
     RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "RECORD_NOT_FOUND", "러닝 기록을 찾을 수 없습니다."),
     RECORD_NOT_OWNER(HttpStatus.FORBIDDEN, "NOT_OWNER", "본인 러닝 기록만 조회할 수 있습니다."),
+    SHARED_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "SHARED_RUN_NOT_FOUND", "공유된 러닝 기록을 찾을 수 없습니다."),
     INVALID_FILTER_RUNNINGRECORD_PARSE_SORT(
             HttpStatus.BAD_REQUEST, "INVALID_FILTER", "sort는 LATEST, DISTANCE, PACE만 허용됩니다."),
     INVALID_FILTER_RUNNINGRECORD_PARSE_RUN_TYPE(

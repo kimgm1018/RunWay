@@ -1,17 +1,23 @@
 package com.runway.backend.domain.runningrecord.controller;
 
+import com.runway.backend.domain.runningrecord.dto.request.RunShareLinkRequest;
+import com.runway.backend.domain.runningrecord.dto.response.RunShareLinkResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordDetailResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordListResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordPaceTrendResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordSplitsResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordStatisticsResponse;
+import com.runway.backend.domain.runningrecord.service.RunShareLinkService;
 import com.runway.backend.domain.runningrecord.service.RunningRecordService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RunningRecordController {
 
     private final RunningRecordService runningRecordService;
+    private final RunShareLinkService runShareLinkService;
 
     @GetMapping
     public RunningRecordListResponse list(
@@ -70,5 +77,15 @@ public class RunningRecordController {
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long sessionId) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return runningRecordService.getSplits(userId, sessionId);
+    }
+
+    /** H08 기록 공유 링크 발급. 같은 기록은 같은 token을 돌려준다. */
+    @PostMapping("/{sessionId}/share-link")
+    public RunShareLinkResponse issueShareLink(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long sessionId,
+            @Valid @RequestBody RunShareLinkRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return runShareLinkService.issue(userId, sessionId, request);
     }
 }
