@@ -396,8 +396,7 @@ test('C01 sends km, loop, preference flags and seed and shows the routes as they
     // Heights 0 → 10 → 15 → 0: 15m of climb.
     elevationGainM: 15,
     elevationProfile: [0, 0, 67, 67, 67, 100, 100, 100, 0, 0],
-    reason:
-      '강변을 많이 지나는 코스예요.\n· 강변 구간이 40%예요\n주의: 계단이 1곳 있어요',
+    reason: '· 강변 구간이 40%예요\n주의: 계단이 1곳 있어요',
     route: loop,
     saved: false,
     generated: true,
@@ -412,6 +411,29 @@ test('C01 sends km, loop, preference flags and seed and shows the routes as they
     // Plain text, not markup.
     reason: '<b>평지</b> 위주예요',
   });
+});
+
+test('C01 shows detailed reasons once without repeating their summary and keeps caveats', async () => {
+  serve((url, init) =>
+    url.pathname.endsWith('/courses/recommendations')
+      ? respond(200, {
+          ...generatedAnswer,
+          courses: [
+            {
+              ...generatedAnswer.courses[0],
+              summary: '평지 위주인 코스예요.',
+              reasons: ['평지 위주예요'],
+              caveats: ['계단이 1곳 있어요'],
+            },
+          ],
+        })
+      : common(url, init),
+  );
+  const { courses } = api();
+  const found = await courses.recommend(search);
+  expect(found.courses[0].reason).toBe(
+    '· 평지 위주예요\n주의: 계단이 1곳 있어요',
+  );
 });
 
 test('C01 sends the seed asked for and stops 다른 코스 past the seed range', async () => {
@@ -966,7 +988,11 @@ test('2.0 keeps the course without km paces when C12 fails, so the run can still
   serve((url, init) => {
     const path = url.pathname.replace(/^.*\/api\/v1/, '');
     if (path === '/courses/7/pace-plan') {
-      return respond(503, { code: 'SERVICE_UNAVAILABLE', message: '', details: {} });
+      return respond(503, {
+        code: 'SERVICE_UNAVAILABLE',
+        message: '',
+        details: {},
+      });
     }
     return common(url, init);
   });
@@ -987,9 +1013,15 @@ test('2.0 keeps the course without km paces when C12 fails, so the run can still
 test('C12 maps an average plan and an even plan', () => {
   const { planFromServer } = require('../courses');
   expect(planFromServer(pacePlan(false))?.planSource).toBe('AVERAGE');
-  const even = { ...pacePlan(false), segments: pacePlan(false).segments.map(
-    (segment: { recommendedPaceSecPerKm: number }) => ({ ...segment, recommendedPaceSecPerKm: 400 }),
-  ) };
+  const even = {
+    ...pacePlan(false),
+    segments: pacePlan(false).segments.map(
+      (segment: { recommendedPaceSecPerKm: number }) => ({
+        ...segment,
+        recommendedPaceSecPerKm: 400,
+      }),
+    ),
+  };
   expect(planFromServer(even)?.strategy).toBe('고른 페이스');
   expect(planFromServer({ ...even, segments: [] })).toBeNull();
 });
@@ -1000,6 +1032,8 @@ test('callers that do not ask for the pace plan (group create) make no C12 call'
   await courses.getSaved();
   await courses.choose('7');
   await courses.getTodayPlan();
-  const paths = fetchMock.mock.calls.map(([address]) => new URL(address).pathname);
+  const paths = fetchMock.mock.calls.map(
+    ([address]) => new URL(address).pathname,
+  );
   expect(paths.some(path => path.endsWith('/pace-plan'))).toBe(false);
 });

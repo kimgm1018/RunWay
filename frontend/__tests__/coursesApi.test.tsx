@@ -71,7 +71,7 @@ const generated = (seed: number) => ({
       { startDistanceM: 100, endDistanceM: 200, gradePercent: -1 },
     ],
     summary: `강변을 많이 지나는 코스예요 ${seed}-${index}`,
-    reasons: ['강변 구간이 40%예요'],
+    reasons: [`강변 구간이 40%예요 ${seed}-${index}`],
     caveats: [],
     score: 1.2,
     scoreTerms: [],
@@ -367,7 +367,9 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
 
 // S15P31E105-696: C09 isPrivate reaches the saved course, so 6.8 can leave a free run's private course out.
 test('C09 isPrivate marks a saved private course', async () => {
-  const saved = await createApiRepositories({ latencyMs: 0 }).courses.getSaved();
+  const saved = await createApiRepositories({
+    latencyMs: 0,
+  }).courses.getSaved();
   expect(saved.find(course => course.id === '7')?.isPrivate).toBe(false);
   expect(saved.find(course => course.id === '9')?.isPrivate).toBe(true);
 });
@@ -429,7 +431,7 @@ test('3.1b shows the generated routes, asks again with nextSeed, and saves and r
   expect(first).toMatchObject({ shape: 'loop', seed: 1 });
   expect(first).not.toHaveProperty('targetDistanceM');
   let page = texts(screen);
-  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
+  expect(page).toContain('강변 구간이 40%예요 1-0');
   expect(page).toContain('이 주변은 공원 정보가 일부만 있어요');
   expect(hasButton(screen, '5.0km 코스, 코스 정보 보기')).toBe(true);
   // A candidate index is not a course id: no C03 and no C09 lookup for the cards.
@@ -451,8 +453,8 @@ test('3.1b shows the generated routes, asks again with nextSeed, and saves and r
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual({ ...first, seed: 25 });
   page = texts(screen);
-  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
-  expect(page).toContain('강변을 많이 지나는 코스예요 25-0');
+  expect(page).toContain('강변 구간이 40%예요 1-0');
+  expect(page).toContain('강변 구간이 40%예요 25-0');
 
   // Saving a route C01 just made stores it with C10 first and bookmarks the stored course; running it
   // again uses the same course without a second C10.
@@ -490,7 +492,7 @@ test('3.1b says to ask again when C10 finds the route too old, and stays on the 
   const page = texts(screen);
   expect(page).toContain('추천받은 지 오래된 코스예요. 다시 추천받아 주세요');
   expect(page).not.toContain('오늘의 러닝 전략');
-  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
+  expect(page).toContain('강변 구간이 40%예요 1-0');
 });
 
 test('a second tap before the answer does not send C01 again', async () => {
@@ -535,7 +537,7 @@ test('3.1b adds the next page twice per search and again after a new search', as
   expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49]);
   const page = texts(screen);
   for (const seed of [1, 25, 49]) {
-    expect(page).toContain(`강변을 많이 지나는 코스예요 ${seed}-0`);
+    expect(page).toContain(`강변 구간이 40%예요 ${seed}-0`);
   }
   // The end of the third page asks for nothing more.
   await swipe(screen);
