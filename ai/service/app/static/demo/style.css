@@ -558,6 +558,22 @@ input[type="range"] { accent-color: var(--ink); }
 .auth-panel .auth-error { color: var(--red-light); font-size: .9rem; }
 .auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--red-light); }
 
+/* 이전 기록(738): 머리글 버튼·목록·보는 중 칩 */
+.history-box { position: relative; flex: none; }
+.history-toggle { font-size: .85rem; font-weight: 500; padding: .35rem .9rem; background: var(--card-bg); border: 1px solid var(--panel-line); }
+.history-toggle[aria-expanded="true"] { background: var(--ink); color: var(--ice); border-color: var(--ink); }
+.history-panel { position: absolute; top: calc(100% + .4rem); left: 0; z-index: 40; width: 26rem; max-height: 60vh; overflow: auto;
+  padding: .6rem; border-radius: 1rem; background: var(--card-bg); border: 1px solid var(--panel-line); box-shadow: 0 1rem 2.5rem rgb(2 5 14 / 25%); }
+.history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.history-item { width: 100%; text-align: left; font-size: .88rem; padding: .5rem .8rem; border-radius: .7rem; background: var(--field); border: 0; }
+.history-item:hover, .history-item:focus-visible { background: var(--ink); color: var(--ice); outline: none; }
+.history-item.live::before { content: "●"; color: var(--red); margin-right: .4rem; font-size: .7em; vertical-align: .1em; }
+.history-item.current { outline: 2px solid #4DFFD2; }
+.history-empty { color: var(--muted); font-size: .85rem; padding: .4rem .6rem; }
+.history-note { margin: .5rem .2rem 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.history-chip { display: inline-flex; align-items: center; gap: .5rem; padding: .25rem .3rem .25rem .8rem; border-radius: 999px;
+  background: var(--ink); color: var(--ice); font-size: .82rem; white-space: nowrap; }
+.history-chip button { font-size: .8rem; padding: .2rem .7rem; background: #4DFFD2; color: #02050E; border: 0; }
 /* 패널 확대 모달(736): 발표장 큰 화면용. 열린 동안 루트 글자 크기를 키워 rem 기준 글자·그래프가 함께 커진다 */
 html.zoom-open { font-size: calc(max(11px, min(1.5vh, 0.84vw)) * var(--zoom-scale, 1.6)); }
 .zoomable { cursor: zoom-in; }

@@ -20,8 +20,8 @@ POLL_SEC = 3.0                 # 같은 시연 키를 DB에서 다시 읽는 최
 SESSION_CACHE_SEC = 30.0       # 그룹 참가자의 진행 중 세션 ID를 다시 찾는 간격
 MAX_POINTS_PER_ROUTE = 20000   # 메모리 상한(1초 간격이면 5시간)
 MAX_SENT_POINTS = 1500         # SSE로 보내는 선 하나의 점 수 상한(고르게 솎음)
-MAX_KEYS = 6
-IDLE_EXPIRE_SEC = 1800.0
+MAX_KEYS = 10                  # 738: 이전 기록(버퍼 MAX_SESSIONS)과 같게
+IDLE_EXPIRE_SEC = 12 * 3600.0  # 738: 버퍼와 같게 12시간
 DB_TIMEOUT_MS = 800
 FETCH_LIMIT = 5000
 

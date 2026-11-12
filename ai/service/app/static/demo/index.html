@@ -34,6 +34,15 @@
       <div id="stage-badge" class="stage-badge" data-kind="idle"><i aria-hidden="true"></i><span id="stage-text">대기</span></div>
       <div id="mode-chip" class="mode-chip" data-kind="personal">개인 페이스 · AI04</div>
       <div id="runner-label" class="runner-label">러너 대기</div>
+      <!-- 738: 이전 기록(AI 메모리 보관). 라이브 모드에서만 보인다 -->
+      <div class="history-box">
+        <button id="history-toggle" class="history-toggle hidden" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="history-panel">이전 기록 ▾</button>
+        <div id="history-chip" class="history-chip hidden"><span id="history-chip-text">이전 기록</span><button id="history-back" type="button">실시간으로</button></div>
+        <div id="history-panel" class="history-panel hidden" aria-label="이전 기록">
+          <ul id="history-list" class="history-list"></ul>
+          <p class="history-note">AI 서버를 다시 시작하거나 배포하면 이전 기록은 사라집니다. 최근 10개·12시간까지 보관합니다.</p>
+        </div>
+      </div>
       <section id="banner" class="banner hidden" aria-live="polite"></section>
       <div class="version-block">
         <div id="model-label" class="model-label">예측기 대기</div>
