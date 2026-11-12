@@ -8,6 +8,10 @@
   var MINT = '#4DFFD2';
   var MEMBER_COLORS = [MINT, '#FFD84D', '#4D9BFF', '#FF7EB6', '#B58CFF', '#FF9F1C'];
   var FOLLOW_ZOOM = 16;
+  // 727: 위치가 이 시간 넘게 늘지 않으면 흐리게(서버 조회는 3초 간격, W07 batch는 보통 수 초~수십 초)
+  var STALE_MS = 30000;
+  var lastCourse = null;
+  var staleTimer = null;
 
   var map = null;
   var layers = {};          // label -> {ribbon, core, dot}
@@ -99,11 +103,17 @@
           ribbon: L().polyline([], {color: color, weight: 9, opacity: 0.35, lineCap: 'round', lineJoin: 'round', className: 'route-ribbon'}).addTo(map),
           core: L().polyline([], {color: '#B8FFEC', weight: 3, opacity: 0.95, lineCap: 'round', lineJoin: 'round', className: 'route-core'}).addTo(map),
           dot: L().circleMarker([0, 0], {radius: 7, color: '#02050E', weight: 3, fillColor: color, fillOpacity: 1, className: 'route-dot'}),
-          points: []
+          points: [], grewAt: Date.now(), lastKey: ''
         };
         if (color !== MINT) layer.core.setStyle({color: color});
-        layer.dot.bindTooltip(label, {permanent: list.length > 1, direction: 'top', offset: [0, -8], className: 'route-tip'});
+        // 727: 가까이 붙어 뛰면 이름표가 겹치지 않게 홀수 번째 러너는 위, 짝수 번째는 아래에 단다
+        var below = /(\d+)$/.test(label) && Number(/(\d+)$/.exec(label)[1]) % 2 === 0;
+        layer.dot.bindTooltip(label, {permanent: list.length > 1, direction: below ? 'bottom' : 'top',
+          offset: [0, below ? 8 : -8], className: 'route-tip'});
       }
+      var end = pts[pts.length - 1];
+      var key = pts.length + ':' + end[0] + ',' + end[1];
+      if (key !== layer.lastKey) { layer.lastKey = key; layer.grewAt = Date.now(); }
       layer.points = pts;
       layer.ribbon.setLatLngs(pts);
       layer.core.setLatLngs(pts);
@@ -115,6 +125,59 @@
     else if (follow) recenter();
     var meta = byId('course-meta');
     if (meta) meta.textContent = list.length > 1 ? '실시간 경로 · ' + list.length + '명' : '실시간 경로';
+    computeStandings();
+  }
+
+  // 727: 선두·후미 배지와 간격(standings.js). 판정은 새 좌표가 왔을 때만(computeStandings) 하고,
+  // 흐림 타이머·코스 변경은 마지막 판정으로 다시 그리기만 한다(깜빡임 방지 '2번 연속'이 타이머로 채워지지 않게).
+  var tracker = null;
+  var lastStanding = null;
+
+  function computeStandings() {
+    var S = root.RunwayDemoStandings;
+    var labels = Object.keys(layers);
+    if (S && !tracker) tracker = S.createTracker();
+    lastStanding = tracker && labels.length >= 2
+      ? tracker.update(labels.map(function (label) { return {label: label, points: layers[label].points}; }), lastCourse)
+      : null;
+    drawStandings();
+  }
+
+  function drawStandings() {
+    var S = root.RunwayDemoStandings;
+    var box = byId('map-standings');
+    var st = lastStanding;
+    Object.keys(layers).forEach(function (label) {
+      var layer = layers[label];
+      var badge = !st || !st.basis ? '' :
+        st.sideBySide ? '<i class="tip-badge side">나란히</i>' :
+        label === st.leader ? '<i class="tip-badge lead">선두</i>' :
+        label === st.trailer ? '<i class="tip-badge tail">후미</i>' : '';
+      var ageSec = Math.round((Date.now() - layer.grewAt) / 1000);
+      var stale = ageSec * 1000 > STALE_MS;
+      var html = '<b>' + escapeHtml(label) + '</b>' + badge + (stale ? '<i class="tip-stale">' + ageSec + '초 전</i>' : '');
+      if (layer.tipHtml !== html) { layer.dot.setTooltipContent(html); layer.tipHtml = html; }
+      layer.dot.setStyle({fillOpacity: stale ? 0.35 : 1, opacity: stale ? 0.45 : 1});
+      var tip = layer.dot.getTooltip && layer.dot.getTooltip();
+      var el = tip && tip.getElement && tip.getElement();
+      if (el) el.classList.toggle('is-stale', stale);
+    });
+    if (box) {
+      var text = S && st ? S.standingsText(st) : '';
+      box.textContent = text;
+      box.classList.toggle('hidden', !text);
+    }
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+
+  function startStaleTimer() {
+    if (staleTimer || typeof setInterval !== 'function') return;
+    staleTimer = setInterval(function () { if (active) drawStandings(); }, 5000);
   }
 
   function removeLayer(label) {
@@ -127,6 +190,7 @@
 
   // 계획 코스(있으면)를 흐린 선으로 깐다. course.points = [[lon, lat, alt, distM], ...]
   function setCourse(course) {
+    lastCourse = course || null;
     if (!map) return;
     if (courseLayer) { map.removeLayer(courseLayer); courseLayer = null; }
     var pts = course && Array.isArray(course.points) ? course.points : [];
@@ -135,12 +199,15 @@
     if (latlngs.length < 2 || !active) return;
     courseLayer = L().polyline(latlngs, {color: '#8C95A6', weight: 3, opacity: 0.7, dashArray: '6 8', className: 'route-plan'}).addTo(map);
     courseLayer.bringToBack();
+    drawStandings();
   }
 
   function reset() {
     Object.keys(layers).forEach(function (label) { removeLayer(label); });
     if (courseLayer && map) { map.removeLayer(courseLayer); courseLayer = null; }
     fitted = false;
+    if (tracker) tracker.reset();
+    lastStanding = null;
     setActive(false);
   }
 
@@ -148,6 +215,7 @@
     var button = byId('map-follow');
     if (button) button.addEventListener('click', function () { setFollow(!follow); });
     setFollow(true);
+    startStaleTimer();
   }
 
   root.RunwayDemoLiveMap = {init: init, setRoutes: setRoutes, setCourse: setCourse, reset: reset,

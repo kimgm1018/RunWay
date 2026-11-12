@@ -16,6 +16,6 @@ def test_single_html_inlines_assets_and_recordings(tmp_path):
     html = build(static, ["r1"], tmp_path / "one.html").read_text(encoding="utf-8")
     assert 'src="js/' not in html and 'href="style.css"' not in html          # 외부 파일을 읽지 않는다
     assert "window.RunwayDemoInlineRecordings" in html and "가짜 예측기" in html
-    # 기록 1 + 콘솔 5(logic·render·stream·livemap·main). 지도 Leaflet은 cdnjs 외부 script 1개(없어도 SVG 코스로 열림)
-    assert html.count("<script>") == 6 and html.lower().count("</script") == 7    # 기록 안의 </script>는 막는다
+    # 기록 1 + 콘솔 6(logic·render·stream·standings·livemap·main). 지도 Leaflet은 cdnjs 외부 script 1개(없어도 SVG 코스로 열림)
+    assert html.count("<script>") == 7 and html.lower().count("</script") == 8    # 기록 안의 </script>는 막는다
     assert html.count('src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"') == 1
