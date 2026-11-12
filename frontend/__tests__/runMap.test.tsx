@@ -6,7 +6,7 @@ import {
   RunMap,
   zoomFor,
 } from '../src/components/RunMap';
-import { darkMapLook } from '../src/components/mapRoute';
+import { darkMapLook, mintMapLook } from '../src/components/mapRoute';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -127,6 +127,31 @@ test('while running on a tilted map the course is a dim, thin guide under the mi
   expect(guide.pathParts[0].color).toBe(darkMapLook.guide);
   expect(guide.width).toBeLessThan(run?.width);
   expect(guide.outlineWidth).toBeLessThan(run?.outlineWidth);
+});
+
+// S15P31E105-720: the group run screens draw the course in the run start map's mint, not 673's black and purple.
+test('a mint line course is the neon mint ribbon round a pale centre; a cancelled one stays grey', () => {
+  const root = render(<RunMap route={route} mintLine />);
+  const [course] = overlays(root, 'naver-map-multipath');
+  expect(course.pathParts[0]).toEqual(
+    expect.objectContaining({
+      color: mintMapLook.ink,
+      outlineColor: mintMapLook.ribbon,
+    }),
+  );
+  expect(mintMapLook.ribbon).toBe('#4DFFD2');
+  expect(mintMapLook.ink).toBe('#B8FFEC');
+  expect(course.outlineWidth).toBe(mintMapLook.edge);
+  // The thin mint keeps the colours at the plain course line's widths.
+  const thin = render(<RunMap route={route} mintLine="thin" />);
+  const [thinCourse] = overlays(thin, 'naver-map-multipath');
+  expect(thinCourse.pathParts[0].outlineColor).toBe(mintMapLook.ribbon);
+  expect(thinCourse.width).toBe(2.2);
+  expect(thinCourse.outlineWidth).toBe(2.4);
+  expect(thinCourse.outlineWidth).toBeLessThan(mintMapLook.edge);
+  const muted = render(<RunMap route={route} mintLine muted />);
+  const [grey] = overlays(muted, 'naver-map-multipath');
+  expect(grey.pathParts[0].color).not.toBe(mintMapLook.ink);
 });
 
 // S15P31E105-691: the dark map's course line is the designated neon mint, as on the feed, not the 672 lime.

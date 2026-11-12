@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
+import { RunMap } from '../src/components/RunMap';
 import { createApiRepositories, tokenStore } from '../src/data';
 
 // 6.0 그룹런 목록, 6.4 상세·참가·수정, 6.5 대기방, 6.8 만들기 against the server (dataSource 'api'): G01–G07·G16.
@@ -447,6 +448,16 @@ test('6.4 shows participant photos from G07', async () => {
     .findAllByType(Image)
     .map(node => (node.props.source as { uri?: string })?.uri ?? '');
   expect(uris.some(uri => /^https?:\/\//.test(uri) && uri.endsWith(path))).toBe(true);
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-720: 6.4's map draws the course in the mint line, at the thinner widths of its small map.
+test('6.4 draws its map in the thin mint line', async () => {
+  const screen = await openGroup();
+  await press(screen, /^일요일, 함께 40분, /);
+  const maps = screen.root.findAllByType(RunMap);
+  expect(maps.length).toBeGreaterThan(0);
+  expect(maps.every(node => node.props.mintLine === 'thin')).toBe(true);
   await act(async () => screen.unmount());
 });
 
