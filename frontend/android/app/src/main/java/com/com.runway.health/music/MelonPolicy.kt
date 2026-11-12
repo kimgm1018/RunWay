@@ -74,6 +74,7 @@ object MelonPolicy {
     return JSONObject()
       .put("connected", snapshot.connected)
       .put("playing", snapshot.playing)
+      .put("buffering", snapshot.buffering)
       .put("loginRequired", snapshot.loginRequired)
       .put("commands", JSONArray(snapshot.commands))
       .put("track", track ?: JSONObject.NULL)
@@ -186,4 +187,5 @@ data class MelonSnapshot(
   val loginRequired: Boolean = false,
   val commands: List<String> = emptyList(),
   val track: MelonTrack? = null,
+  val buffering: Boolean = false,
 )

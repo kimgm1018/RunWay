@@ -854,7 +854,10 @@ export type MusicState = {
   services: Record<MusicService, MusicServiceStatus>;
   // 2.7b: the link between RunWay and the music app dropped.
   linked: boolean;
-  nowPlaying: (Track & { positionSec: number; playing: boolean }) | null;
+  // buffering: 재생하려고 곡을 받는 중. playing으로 보이지만 위치는 아직 움직이지 않는다(S15P31E105-717).
+  nowPlaying:
+    | (Track & { positionSec: number; playing: boolean; buffering?: boolean })
+    | null;
   library: MusicLibrary | null;
   // Spotify plays chosen tracks only with Premium (2.7S).
   premium: boolean;
@@ -1523,7 +1526,10 @@ export type Repositories = {
     getRoute: (postId: string) => Promise<CourseMapData | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
-    create: (recordId: string, draft: PostDraft) => Promise<{
+    create: (
+      recordId: string,
+      draft: PostDraft,
+    ) => Promise<{
       id: string;
       courseShared: boolean;
       courseShareFailureReason: string | null;

@@ -41,6 +41,17 @@ describe('useLivePosition', () => {
     expect(shown(renderer)).toBeCloseTo(12, 1);
   });
 
+  it('stays put while the song is still buffering', () => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <Probe track={song({ buffering: true })} />,
+      );
+    });
+    act(() => jest.advanceTimersByTime(3_000));
+    expect(shown(renderer)).toBe(10);
+  });
+
   it('stays put while paused', () => {
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
