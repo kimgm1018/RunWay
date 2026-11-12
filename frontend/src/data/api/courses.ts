@@ -409,6 +409,7 @@ export function createCoursesApi({
         `${kmLabel(course.distanceM)} 코스`,
       distanceM: course.distanceM,
       route: course.route.coordinates,
+      unmeasuredEdges: course.unmeasuredEdges ?? [],
       segmentPacesSecPerKm: [],
       strategy: null,
       targetPaceSecPerKm: null,

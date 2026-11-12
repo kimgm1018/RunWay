@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import {
+  NaverMapCircleOverlay,
   NaverMapMarkerOverlay,
   NaverMapMultiPathOverlay,
   NaverMapPathOverlay,
@@ -15,7 +16,13 @@ import {
   NaverMapViewRef,
   type Camera,
 } from '@mj-studio/react-native-naver-map';
-import { bearingOf, distanceM, routeSections, type LngLat } from '../geo';
+import {
+  bearingOf,
+  connectorDots,
+  distanceM,
+  routeSections,
+  type LngLat,
+} from '../geo';
 import { latinRuns } from './AppText';
 import { Icon } from './Icon';
 import { fontFamily, k1, palette } from '../theme';
@@ -185,6 +192,10 @@ const locationLook = {
   circleRadius: 28,
   circleColor: 'rgba(255, 255, 255, 0.12)',
 };
+
+// A pause connector's round grey dots (S15P31E105-715): circle overlays, radius in metres, so they are always round.
+const pauseDotRadiusM = 1.4;
+const pauseDotColor = '#8A979E';
 
 // A member's dot and the height of its name tag.
 const memberDot = 12;
@@ -911,15 +922,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               zIndex={1}
             />
           ) : null}
-          {sections?.connectors.map((line, index) => (
-            <NaverMapPathOverlay
-              key={`unmeasured-${index}`}
-              coords={coordsOf(line)}
-              width={pathLook.centre}
-              color="#8A979E"
-              zIndex={2}
-            />
-          ))}
+          {/* The pause connectors: round grey dots at an even spacing, none on the course points they join. */}
+          {sections?.connectors.flatMap((line, index) =>
+            connectorDots(line).map(([longitude, latitude], dot) => (
+              <NaverMapCircleOverlay
+                key={`unmeasured-${index}-${dot}`}
+                latitude={latitude}
+                longitude={longitude}
+                radius={pauseDotRadiusM}
+                color={pauseDotColor}
+                outlineWidth={0}
+                zIndex={2}
+              />
+            )),
+          )}
           {/* The run so far: the same ribbon in ink, from a white start. */}
           {trailLines.map((line, index) => (
             <NaverMapPathOverlay
