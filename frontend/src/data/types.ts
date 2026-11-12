@@ -472,8 +472,9 @@ export type CurrentPlace = {
   position: [number, number] | null;
 };
 
-// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. The server has no pace plan yet,
-// so a server course leaves segmentPacesSecPerKm empty and strategy and targetPaceSecPerKm null (S15P31E105-635).
+// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. A server course fills them from
+// C12's pre-run plan (S15P31E105-733); when that plan cannot be had they stay empty and strategy and
+// targetPaceSecPerKm null, as before (S15P31E105-635).
 export type CoursePlan = {
   courseId: string;
   name: string;
@@ -482,6 +483,8 @@ export type CoursePlan = {
   // C03 unmeasuredEdges: the edges after pauses or GPS gaps; the course map draws them grey (S15P31E105-715).
   unmeasuredEdges?: number[];
   segmentPacesSecPerKm: number[];
+  // Where the km paces come from: my own records (PERSONAL) or the average runner (AVERAGE). null without a plan.
+  planSource?: 'PERSONAL' | 'AVERAGE' | null;
   strategy: string | null;
   targetPaceSecPerKm: number | null;
   expectedDurationSec: number;
@@ -1396,7 +1399,8 @@ export type Repositories = {
     getSaved: () => Promise<SavedCourse[]>;
     // 2.0's plan for the course picked last with choose(). The server version answers null until a course is
     // picked (and after the app restarts); the mock keeps a default course for the prototype.
-    getTodayPlan: () => Promise<CoursePlan | null>;
+    // pacePlan: also ask C12 for the km paces (2.0 only; S15P31E105-733). Others (group create) skip the AI call.
+    getTodayPlan: (options?: { pacePlan?: boolean }) => Promise<CoursePlan | null>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,

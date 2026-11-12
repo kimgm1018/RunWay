@@ -552,7 +552,8 @@ test('2.0 plans a chosen server course with its name, route and distance', async
     distanceM: 5000,
     route: loop,
     expectedDurationSec: 2000,
-    // No pace plan API yet: nothing from the mock plan stands in (S15P31E105-635).
+    // C12 has no plan here (the test server does not answer it): nothing from the mock plan stands in
+    // (S15P31E105-635), and the course still shows (S15P31E105-733).
     segmentPacesSecPerKm: [],
     strategy: null,
     targetPaceSecPerKm: null,
@@ -924,4 +925,81 @@ test('a late C10 for an older card keeps its own mapping and the new card stays 
     courseId: '9',
     route: oneWay,
   });
+});
+
+// S15P31E105-733: 2.0 fills its km paces from C12, the same pre-run plan S01 would store.
+const pacePlan = (personalized: boolean) => ({
+  courseId: 7,
+  recommendedPaceSecPerKm: 400,
+  segments: [0, 1, 2, 3, 4].map(index => ({
+    sequence: index + 1,
+    startDistanceM: index * 1000,
+    endDistanceM: (index + 1) * 1000,
+    recommendedPaceSecPerKm: [410, 405, 400, 395, 390][index],
+  })),
+  personalized,
+});
+
+test('2.0 shows the km paces and the source of C12 pre-run plan', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7/pace-plan' && init.method === 'GET') {
+      return respond(200, pacePlan(true));
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+  await courses.getSaved();
+  await courses.choose('7');
+
+  expect(await courses.getTodayPlan({ pacePlan: true })).toMatchObject({
+    segmentPacesSecPerKm: [410, 405, 400, 395, 390],
+    // The plan pace does not become the run's goal (S01 keeps storing the same AI plan without a goal).
+    targetPaceSecPerKm: null,
+    expectedDurationSec: 2000,
+    strategy: '초반 안정 → 후반 가속',
+    planSource: 'PERSONAL',
+  });
+});
+
+test('2.0 keeps the course without km paces when C12 fails, so the run can still start', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7/pace-plan') {
+      return respond(503, { code: 'SERVICE_UNAVAILABLE', message: '', details: {} });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+  await courses.getSaved();
+  await courses.choose('7');
+
+  expect(await courses.getTodayPlan({ pacePlan: true })).toMatchObject({
+    courseId: '7',
+    distanceM: 5000,
+    segmentPacesSecPerKm: [],
+    planSource: null,
+    strategy: null,
+    targetPaceSecPerKm: null,
+  });
+});
+
+test('C12 maps an average plan and an even plan', () => {
+  const { planFromServer } = require('../courses');
+  expect(planFromServer(pacePlan(false))?.planSource).toBe('AVERAGE');
+  const even = { ...pacePlan(false), segments: pacePlan(false).segments.map(
+    (segment: { recommendedPaceSecPerKm: number }) => ({ ...segment, recommendedPaceSecPerKm: 400 }),
+  ) };
+  expect(planFromServer(even)?.strategy).toBe('고른 페이스');
+  expect(planFromServer({ ...even, segments: [] })).toBeNull();
+});
+
+test('callers that do not ask for the pace plan (group create) make no C12 call', async () => {
+  serve(common);
+  const { courses } = api(400);
+  await courses.getSaved();
+  await courses.choose('7');
+  await courses.getTodayPlan();
+  const paths = fetchMock.mock.calls.map(([address]) => new URL(address).pathname);
+  expect(paths.some(path => path.endsWith('/pace-plan'))).toBe(false);
 });
