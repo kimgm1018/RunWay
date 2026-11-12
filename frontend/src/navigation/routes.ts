@@ -397,7 +397,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '7.3',
     title: '글쓰기',
     task: COMMUNITY,
-    links: ['Community'],
+    links: ['Community', 'PostDetail'],
   },
   PostEdit: {
     code: '7.3e',

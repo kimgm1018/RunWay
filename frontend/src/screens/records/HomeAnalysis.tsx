@@ -42,10 +42,12 @@ function RunRow({
   record,
   onOpen,
   openLabel,
+  action,
 }: {
   record: RunRecordDetail;
   onOpen?: () => void;
   openLabel?: string;
+  action?: React.ReactNode;
 }) {
   const body = (
     <>
@@ -73,17 +75,25 @@ function RunRow({
       ) : null}
     </>
   );
-  return onOpen ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={openLabel}
-      onPress={onOpen}
-      style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}
-    >
-      {body}
-    </Pressable>
-  ) : (
-    <View style={styles.runRow}>{body}</View>
+  return (
+    <View style={styles.runRow}>
+      {onOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={openLabel}
+          onPress={onOpen}
+          style={({ pressed }) => [
+            styles.runRowBody,
+            pressed && styles.pressed,
+          ]}
+        >
+          {body}
+        </Pressable>
+      ) : (
+        <View style={styles.runRowBody}>{body}</View>
+      )}
+      {action}
+    </View>
   );
 }
 
@@ -510,6 +520,7 @@ export function HomeRecord({
   record,
   onOpen,
   openLabel,
+  headerAction,
   action,
   route,
   facts,
@@ -517,6 +528,7 @@ export function HomeRecord({
   record: RunRecordDetail;
   onOpen?: () => void;
   openLabel?: string;
+  headerAction?: React.ReactNode;
   action?: React.ReactNode;
   // The run's GPS route with 경로 재생 above the card (S15P31E105-690); without facts no map is shown.
   route?: RunRoute | null;
@@ -657,7 +669,12 @@ export function HomeRecord({
 
   return (
     <View style={styles.root}>
-      <RunRow record={record} onOpen={onOpen} openLabel={openLabel} />
+      <RunRow
+        record={record}
+        onOpen={onOpen}
+        openLabel={openLabel}
+        action={headerAction}
+      />
       {action}
       {/* The run's route right under its row (S15P31E105-690): the card below keeps its taller face's height, so a
           map under it would sit after a gap. */}
@@ -693,6 +710,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: recordsLook.onCardLine,
   },
+  runRowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   runIcon: {
     width: 42,
     height: 42,

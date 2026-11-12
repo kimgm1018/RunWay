@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -13,7 +19,11 @@ import {
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   AppText,
   EmptyState,
@@ -31,16 +41,24 @@ import {
   type Repositories,
   type RunnerProfile,
 } from '../../data';
-import { RunMap } from '../../components/RunMap';
+import { runRouteOf, type RunRoute } from '../../components/mapRoute';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider, typography } from '../../theme';
-import { feedLook, MapBackdrop, RouteLine, Shade, Stat } from './FeedPage';
+import {
+  feedLook,
+  MapBackdrop,
+  RouteLine,
+  Shade,
+  Stat,
+  useMapCover,
+} from './FeedPage';
 import { CourseToggle } from './look';
 import { Avatar, recordLabel, stamp } from './parts';
 import { KeyboardLift } from '../../components/KeyboardLift';
+import { InlineRunReplay, type ReplayRun } from './RouteReplay';
 
 const bodyLimit = 500;
 
@@ -69,8 +87,7 @@ export function postFailure(error: unknown, action: '게시' | '저장') {
 }
 
 // 7.3 and 7.3e: what I write, laid over the run as it will show in the 7.1 feed (S15P31E105-563, 담당자 요청: 지금
-// 커뮤니티 화면처럼): the dark map with the route in neon when the course goes along, the run's numbers and title at
-// the foot, and whether the course goes with it under them.
+// 커뮤니티 화면처럼): the same bright map and profile replay, with the run's numbers and title at the foot.
 function Composer({
   title,
   action,
@@ -79,6 +96,8 @@ function Composer({
   initial,
   onSubmit,
   regionAt,
+  courseSharingEditable = true,
+  measuredRoute,
 }: {
   title: string;
   action: string;
@@ -88,19 +107,61 @@ function Composer({
   onSubmit: (draft: PostDraft) => Promise<void>;
   // 7.3 only (a new post): the region of the run's start, shown and sent with it. 7.3e cannot change it.
   regionAt?: (position: [number, number]) => Promise<PostRegion | null>;
+  courseSharingEditable?: boolean;
+  measuredRoute?: RunRoute | null;
 }) {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [body, setBody] = useState(initial.body ?? '');
   const free = !record.courseRun;
   const [courseShared, setCourseShared] = useState(initial.courseShared);
   const [busy, setBusy] = useState(false);
-  // The course that would be shared, on the real map (S15P31E105-632): record.route is the course (C03), never my
-  // GPS track. Without its points, the drawn shape marked 예시 경로, or nothing when there is no shape either.
-  const realMap =
+  const submitting = useRef(false);
+  const scroll = useRef<ScrollView>(null);
+  const bodyInput = useRef<TextInput>(null);
+  // KeyboardLift resizes the viewport; keep the focused field in that viewport after layout or text growth.
+  const revealBody = () => {
+    if (bodyInput.current?.isFocused()) {
+      scroll.current?.scrollToEnd({ animated: false });
+    }
+  };
+  // An existing course uses C03. A free run previews its measured parts until CMT01 creates its course.
+  const courseMap =
     courseShared && record.route !== null && record.route.length >= 2
       ? record.route
       : null;
+  // A free run becomes a course on CMT01. Preview its own measured parts until that course exists.
+  const preview = courseShared && !courseMap ? measuredRoute : null;
+  const realMap = courseMap ?? preview?.route ?? null;
+  const replayRun = useMemo<ReplayRun>(
+    () => ({
+      key: `draft-${record.id}`,
+      kind: record.courseRun ? '코스' : '경로',
+      title: record.title,
+      byline: me.handle,
+      startedAt: record.startedAt,
+      shareMessage: '',
+      link: null,
+      runner: {
+        nickname: me.nickname,
+        userId: me.userId,
+        photo: me.profileImageUrl ?? null,
+        mine: true,
+      },
+      distanceM: record.distanceM,
+      durationSec: record.durationSec,
+      averagePaceSecPerKm: record.averagePaceSecPerKm,
+      cadence: record.cadence,
+      shape: record.shape,
+      parts: courseMap ? [courseMap] : preview?.parts ?? null,
+    }),
+    [record, me, courseMap, preview],
+  );
+  const { uncover, coverView } = useMapCover(
+    realMap !== null,
+    'composer-map-cover',
+  );
   const drawnShape = courseShared && !realMap && record.shape.length >= 2;
   // 지역: prefer the shared/planned course start and otherwise use the first measured point retained for region
   // classification. Course sharing controls route disclosure, not whether the post belongs to a region.
@@ -126,6 +187,9 @@ function Composer({
     };
   }, [regionAt, startLongitude, startLatitude]);
   const submit = async () => {
+    // State disables the button on the next render; the ref also guards taps in this render.
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     try {
       await onSubmit({
@@ -134,6 +198,7 @@ function Composer({
         regionCode: region?.code ?? null,
       });
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -146,13 +211,8 @@ function Composer({
     <>
       {realMap ? (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <RunMap
-            route={realMap}
-            view="lean"
-            interactive={false}
-            area={{ top: 0.18, bottom: 0.55 }}
-            style={[StyleSheet.absoluteFill, styles.mapGround]}
-          />
+          <InlineRunReplay run={replayRun} onShown={uncover} />
+          {coverView}
         </View>
       ) : (
         <>
@@ -198,8 +258,14 @@ function Composer({
       </SafeAreaView>
       <KeyboardLift style={styles.flex}>
         <ScrollView
+          ref={scroll}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.content}
+          onLayout={revealBody}
+          onContentSizeChange={revealBody}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: 28 + insets.bottom },
+          ]}
         >
           <View>
             <View style={styles.writer}>
@@ -211,25 +277,12 @@ function Composer({
               />
               <AppText style={styles.handle}>{me.handle}</AppText>
             </View>
-            <View style={styles.bodyField}>
-              <TextInput
-                accessibilityLabel="글 내용"
-                placeholder="오늘 러닝은 어땠나요?"
-                placeholderTextColor={feedLook.faint}
-                selectionColor={feedLook.route}
-                value={body}
-                onChangeText={setBody}
-                maxLength={bodyLimit}
-                multiline
-                style={styles.bodyInput}
-              />
-            </View>
             {drawnShape ? (
               // The drawn shape is not the real map, so the page says so (as on 7.1).
               <AppText style={styles.example}>예시 경로</AppText>
             ) : null}
           </View>
-          {/* The run's words as the feed shows them, then the course switch. */}
+          {/* The run's words as in the feed; only edits retain a course sharing choice. */}
           <View>
             <View style={styles.stats}>
               <Stat value={formatKm(record.distanceM)} unit="km" label="거리" />
@@ -249,22 +302,39 @@ function Composer({
                 {recordLabel(record, courseShared)}
               </AppText>
             </View>
-            <View style={styles.share}>
-              <View style={styles.flex}>
-                <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
-                <AppText style={styles.shareNote}>
-                  {free
-                    ? '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.'
-                    : '이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이 내 코스에 저장할 수 있어요'}
-                </AppText>
-              </View>
-              <CourseToggle
-                label="코스도 함께 공유"
-                value={courseShared}
-                onChange={setCourseShared}
-                dark
+            <View style={styles.bodyField}>
+              <TextInput
+                ref={bodyInput}
+                accessibilityLabel="글 내용"
+                placeholder="오늘 러닝은 어땠나요?"
+                placeholderTextColor={feedLook.faint}
+                selectionColor={feedLook.route}
+                value={body}
+                onChangeText={setBody}
+                onFocus={revealBody}
+                maxLength={bodyLimit}
+                multiline
+                style={styles.bodyInput}
               />
             </View>
+            {courseSharingEditable ? (
+              <View style={styles.share}>
+                <View style={styles.flex}>
+                  <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
+                  <AppText style={styles.shareNote}>
+                    {free
+                      ? '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.'
+                      : '이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이 내 코스에 저장할 수 있어요'}
+                  </AppText>
+                </View>
+                <CourseToggle
+                  label="코스도 함께 공유"
+                  value={courseShared}
+                  onChange={setCourseShared}
+                  dark
+                />
+              </View>
+            ) : null}
             {region ? (
               <View style={styles.region}>
                 <Icon name="mapPin" color={feedLook.white} size={14} />
@@ -297,7 +367,8 @@ const loadMe = (repositories: Repositories) =>
 
 // 7.3 글쓰기 · 기록 공유: opened from 4.5, 5.2 or 6.7 with the run to share.
 export function PostWriteScreen() {
-  const navigation = useNavigation();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'PostWrite'>>();
   const recordId = route.params?.recordId ?? null;
   const toast = useToast();
@@ -305,8 +376,18 @@ export function PostWriteScreen() {
   const me = useResource(loadMe);
   const record = useResource(
     useCallback(
-      (repositories: Repositories) =>
-        repositories.community.getShareable(recordId),
+      async (repositories: Repositories) => {
+        const shareable = await repositories.community.getShareable(recordId);
+        const measuredRoute =
+          !shareable.courseRun && !shareable.route
+            ? runRouteOf(
+                await repositories.records
+                  .getRoute(shareable.id)
+                  .catch(() => null),
+              )
+            : null;
+        return { shareable, measuredRoute };
+      },
       [recordId],
     ),
   );
@@ -338,12 +419,17 @@ export function PostWriteScreen() {
         title="기록 공유"
         action="게시"
         me={me.data}
-        record={record.data}
-        initial={{ body: null, courseShared: record.data.courseRun }}
+        record={record.data.shareable}
+        measuredRoute={record.data.measuredRoute}
+        initial={{ body: null, courseShared: true }}
+        courseSharingEditable={false}
         regionAt={community.regionAt}
         onSubmit={async draft => {
           try {
-            const created = await community.create(record.data.id, draft);
+            const created = await community.create(
+              record.data.shareable.id,
+              draft,
+            );
             postsChanged();
             toast(
               draft.courseShared && !created.courseShared
@@ -352,7 +438,12 @@ export function PostWriteScreen() {
                   : '코스를 만들지 못해 기록만 공유했어요. 코스 공유는 꺼졌어요.'
                 : '러닝 기록을 공유했어요',
             );
-            navigateTo(navigation, 'Community');
+            if (route.params?.fromRecords) {
+              // Back from the new post returns to the saved record, never to an already submitted draft.
+              navigation.replace('PostDetail', { postId: created.id });
+            } else {
+              navigateTo(navigation, 'Community');
+            }
           } catch (error) {
             toast(postFailure(error, '게시'));
           }
@@ -431,7 +522,6 @@ export function PostEditScreen() {
 // 7.3 · 7.3e over the feed's dark map: white words, a see-through dark field, no cards or dividers.
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: feedLook.ground },
-  mapGround: { backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   loading: { marginTop: 48 },
   // 상단 56: 취소 and 게시 as words, the title in the middle.
@@ -496,11 +586,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 15,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(12,20,27,0.82)',
   },
   // No lineHeight: on Android it clips the top of the placeholder (as in group/look's search field).
   bodyInput: {
     minHeight: 26,
+    // Longer drafts scroll inside the native input, keeping the caret above the keyboard.
+    maxHeight: 120,
     padding: 0,
     fontFamily: typography.input.fontFamily,
     fontSize: 16,

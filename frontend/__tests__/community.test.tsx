@@ -1570,39 +1570,26 @@ const courseSwitch = (screen: Screen) =>
       typeof node.props.onPress === 'function',
   )[0];
 
-test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () => {
+test('7.3 always requests course sharing on a course run without a toggle', async () => {
   const { repositories, created } = withRun(true);
   const screen = await openShare(repositories);
-  expect(courseSwitch(screen).props.accessibilityState).toEqual({
-    checked: true,
-    disabled: false,
-  });
-
-  await act(async () => courseSwitch(screen).props.onPress());
+  expect(courseSwitch(screen)).toBeUndefined();
   await press(screen, '게시');
   await settle(100);
 
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: null,
   });
 });
 
-test('7.3 lets a free run request course sharing', async () => {
+test('7.3 also requests course sharing on a free run without a toggle', async () => {
   const { repositories, created } = withRun(false);
   const screen = await openShare(repositories);
 
-  expect(courseSwitch(screen).props.accessibilityState).toEqual({
-    checked: false,
-    disabled: false,
-  });
-  expect(courseSwitch(screen).props.disabled).toBe(false);
-  expect(texts(screen)).toContain(
-    '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.',
-  );
-
-  await act(async () => courseSwitch(screen).props.onPress());
+  expect(courseSwitch(screen)).toBeUndefined();
+  expect(texts(screen)).not.toContain('코스도 함께 공유');
 
   await press(screen, '게시');
   await settle(100);
@@ -1647,21 +1634,20 @@ test('7.3 shows 지역 for a shared course and sends it with the post', async ()
   });
 });
 
-test('7.3 keeps 지역 and sends it once the course is not shared', async () => {
+test('7.3 keeps 지역 when sharing is fixed on without a toggle', async () => {
   const { repositories, created } = withCourseStart();
   const screen = await openShare(repositories);
   await settle(50);
   expect(texts(screen)).toContain('지역: 부산 수영구');
 
-  await act(async () => courseSwitch(screen).props.onPress());
-  await settle(50);
+  expect(courseSwitch(screen)).toBeUndefined();
   expect(texts(screen)).toContain('지역: 부산 수영구');
 
   await press(screen, '게시');
   await settle(100);
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: '26500',
   });
 });
@@ -1678,7 +1664,7 @@ test('7.3 asks the measured start region for a free run and shows none when none
   await settle(100);
   expect(free.created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: '26500',
   });
   await act(async () => screen.unmount());
