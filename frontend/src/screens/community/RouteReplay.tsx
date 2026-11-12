@@ -32,7 +32,7 @@ import {
 } from '@mj-studio/react-native-naver-map';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
-import { darkMapLook } from '../../components/mapRoute';
+import { darkMapLook, routeStrokeLayers } from '../../components/mapRoute';
 import type { Post } from '../../data';
 import {
   bearingOf,
@@ -364,13 +364,22 @@ function ShapeReplay({
               stroke={darkMapLook.ribbon}
               strokeWidth={3}
             />
-            {/* The run glows as it is drawn: a soft wide halo, a pale edge, then the mint core. */}
+            {/* The same opaque outer and inner outlines as the native community route. */}
             <AnimatedPolyline
               points={line}
               fill="none"
-              stroke={darkMapLook.ink}
-              strokeOpacity={0.18}
-              strokeWidth={19}
+              stroke={routeStrokeLayers[0].color}
+              strokeWidth={routeStrokeLayers[0].width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={[route.total, route.total]}
+              strokeDashoffset={dashOffset}
+            />
+            <AnimatedPolyline
+              points={line}
+              fill="none"
+              stroke={routeStrokeLayers[1].color}
+              strokeWidth={routeStrokeLayers[1].width}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -380,7 +389,7 @@ function ShapeReplay({
               points={line}
               fill="none"
               stroke={darkMapLook.ribbon}
-              strokeWidth={11.4}
+              strokeWidth={routeStrokeLayers[2].width}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -390,7 +399,7 @@ function ShapeReplay({
               points={line}
               fill="none"
               stroke={darkMapLook.ink}
-              strokeWidth={7.9}
+              strokeWidth={routeStrokeLayers[3].width}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -1042,18 +1051,31 @@ function MapReplay({
                     )
                   : 0;
               return (
-                <NaverMapPathOverlay
-                  key={`measured-${index}`}
-                  coords={part.part}
-                  width={darkMapLook.coreWidth}
-                  color={darkMapLook.unpassed}
-                  progress={progress}
-                  passedColor={darkMapLook.ink}
-                  outlineColor={darkMapLook.unpassed}
-                  passedOutlineColor={darkMapLook.ribbon}
-                  outlineWidth={darkMapLook.coreEdge}
-                  zIndex={3}
-                />
+                <React.Fragment key={`measured-${index}`}>
+                  {[0, 1].map(layer => (
+                    <NaverMapPathOverlay
+                      key={layer}
+                      coords={part.part}
+                      width={routeStrokeLayers[layer].width}
+                      color={darkMapLook.unpassed}
+                      passedColor={routeStrokeLayers[layer].color}
+                      progress={progress}
+                      outlineWidth={0}
+                      zIndex={layer + 1}
+                    />
+                  ))}
+                  <NaverMapPathOverlay
+                    coords={part.part}
+                    width={darkMapLook.coreWidth}
+                    color={darkMapLook.unpassed}
+                    progress={progress}
+                    passedColor={darkMapLook.ink}
+                    outlineColor={darkMapLook.unpassed}
+                    passedOutlineColor={darkMapLook.ribbon}
+                    outlineWidth={darkMapLook.coreEdge}
+                    zIndex={3}
+                  />
+                </React.Fragment>
               );
             })}
             {runnerOnMap ? (

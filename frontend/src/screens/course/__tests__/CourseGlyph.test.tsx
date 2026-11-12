@@ -124,7 +124,7 @@ test('S·F labels stay inside the box', async () => {
   expect([finish.props.x, finish.props.y]).toEqual([93, 9]);
 });
 
-test('ink on a light card, white on a dark one, each over a faint halo of the other', async () => {
+test('both card tones draw the same community route; labels can keep their tone', async () => {
   const shape: [number, number][] = [
     [0.1, 0.5],
     [0.9, 0.5],
@@ -134,12 +134,16 @@ test('ink on a light card, white on a dark one, each over a faint halo of the ot
       .findAllByType(Polyline)
       .map(line => line.props.stroke);
   expect(await strokes(<CourseGlyph shape={shape} tone="ink" />)).toEqual([
-    '#FFFFFF',
-    '#060606',
+    '#003A2C',
+    '#00785A',
+    '#B3FFEC',
+    '#4DFFD2',
   ]);
   expect(await strokes(<CourseGlyph shape={shape} />)).toEqual([
-    '#060606',
-    '#FFFFFF',
+    '#003A2C',
+    '#00785A',
+    '#B3FFEC',
+    '#4DFFD2',
   ]);
 });
 

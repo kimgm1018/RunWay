@@ -6,8 +6,9 @@ import {
   type StyleProp,
   type TextStyle,
 } from 'react-native';
-import Svg, { Polyline, Rect } from 'react-native-svg';
+import Svg, { Rect } from 'react-native-svg';
 import { AppText } from '../../components';
+import { RouteStroke } from '../../components/RouteStroke';
 import { distanceM, type LngLat } from '../../geo';
 import { fontFamily } from '../../theme';
 
@@ -278,8 +279,8 @@ function kmMarks(route: LngLat[]) {
 const traceInset = 12;
 const markSize = 12;
 
-// The run's path without the map (시안 G3): a thick deep-mint line fitted into the box with the latitude squeezed so
-// the shape keeps its real proportions, and white squares every kilometre.
+// The run's path without a map: the shared layered community stroke, fitted with real shape proportions,
+// and the result screen's white squares every kilometre.
 export function RouteTrace({
   route,
   width,
@@ -319,14 +320,7 @@ export function RouteTrace({
       height={height}
       accessibilityLabel="달린 경로, 출발에서 도착까지 1km마다 표시"
     >
-      <Polyline
-        points={points}
-        stroke={resultLook.route}
-        strokeWidth={5}
-        fill="none"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+      <RouteStroke points={points} />
       {kmMarks(route).map((mark, index) => {
         const { x, y } = project(mark);
         return (

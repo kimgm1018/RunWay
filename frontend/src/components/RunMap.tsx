@@ -130,10 +130,8 @@ type RunMapProps = {
   // false takes the markers (poles, dots, pills, names) off a map that something else covers, such as 7.2's
   // map under the course replay, so the native map stops redrawing their views; the lines stay. Default true.
   markers?: boolean;
-  // My run's route in RunWay's mint ribbon (S15P31E105-683's line) on an otherwise unchanged map: 4.5 러닝 결과 and
-  // the record card (S15P31E105-690).
-  // 'thin' keeps the mint colours at the plain course line's widths, for a small map such as 6.4 그룹런 상세
-  // (S15P31E105-720).
+  // All routes use the approved community line (743). 'thin' scales its layers together for a small map.
+  // Boolean values remain accepted for existing callers; map brightness still follows `look` and `view`.
   mintLine?: boolean | 'thin';
   style?: StyleProp<ViewStyle>;
 };
@@ -636,22 +634,18 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
   // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
   const darkMap = tilted && !mint;
-  // The group screens use the same mint as every run (S15P31E105-720; 673's near-black and purple line is gone).
-  const pathLook = mintLine
-    ? {
-        ...baseLook,
-        ink: mintMapLook.ink,
-        ribbon: mintMapLook.ribbon,
-        shadow: mintMapLook.shadow,
-        ...(mintLine === 'thin'
-          ? {}
-          : {
-              centre: mintMapLook.centre,
-              edge: mintMapLook.edge,
-              shadowWidth: mintMapLook.shadowWidth,
-            }),
-      }
-    : baseLook;
+  const lineScale = mintLine === 'thin' ? 0.55 : 1;
+  const pathLook = {
+    ...baseLook,
+    ink: darkMapLook.ink,
+    ribbon: darkMapLook.ribbon,
+    centre: darkMapLook.coreWidth * lineScale,
+    edge: darkMapLook.coreEdge * lineScale,
+    shadow: darkMapLook.glowOuter,
+    shadowWidth: darkMapLook.glowOuterWidth * lineScale,
+    inner: darkMapLook.glowInner,
+    innerWidth: darkMapLook.glowInnerWidth * lineScale,
+  };
   const me = running ? trail[trail.length - 1] : null;
   const heading = useRef(0);
   if (view === 'heading' && running) {
@@ -885,16 +879,23 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         <>
           {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
           {shadowLines.map((line, index) => (
-            <NaverMapPathOverlay
-              key={`shadow-${index}`}
-              coords={coordsOf(line)}
-              width={pathLook.shadowWidth}
-              color={pathLook.shadow}
-              zIndex={0}
-            />
+            <React.Fragment key={`shadow-${index}`}>
+              <NaverMapPathOverlay
+                coords={coordsOf(line)}
+                width={pathLook.shadowWidth}
+                color={pathLook.shadow}
+                zIndex={-1}
+              />
+              <NaverMapPathOverlay
+                coords={coordsOf(line)}
+                width={pathLook.innerWidth}
+                color={pathLook.inner}
+                zIndex={0}
+              />
+            </React.Fragment>
           ))}
-          {/* The course: a white ribbon round a thin centre line in the km colours, the part run in grey. While
-          running it is a guide under the run. */}
+          {/* The course uses the shared mint core and pale outline (km pace colours still override the core).
+          The part run stays grey; while running the course is a guide under the measured trail. */}
           {pieces.length > 0 ? (
             <NaverMapMultiPathOverlay
               pathParts={pieces.map((piece, index) => ({
@@ -928,7 +929,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               />
             )),
           )}
-          {/* The run so far: the same ribbon in ink, from a white start. */}
+          {/* The run so far: the shared mint core over both green outline layers, from a white start. */}
           {trailLines.map((line, index) => (
             <NaverMapPathOverlay
               key={`trail-${index}`}

@@ -6,7 +6,7 @@ import {
   RunMap,
   zoomFor,
 } from '../src/components/RunMap';
-import { darkMapLook, mintMapLook } from '../src/components/mapRoute';
+import { darkMapLook } from '../src/components/mapRoute';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -18,11 +18,19 @@ const route: LngLat[] = [
   [129.145, 35.153],
 ];
 
+const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  await ReactTestRenderer.act(async () => {
+    for (const renderer of mounted.splice(0)) renderer.unmount();
+  });
+});
+
 function render(element: React.ReactElement) {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   ReactTestRenderer.act(() => {
     renderer = ReactTestRenderer.create(element);
   });
+  mounted.push(renderer);
   return renderer.root;
 }
 
@@ -69,24 +77,24 @@ test('a course that ends where it starts has one SF pole', () => {
   expect(texts(root)).not.toContain('F');
 });
 
-test('the course is a white ribbon round a thin centre over a soft shadow, the part run in grey (S15P31E105-562)', () => {
+test('the course uses the approved community outline, the part run stays grey', () => {
   const root = render(<RunMap route={route} progress={0.4} />);
   const [ribbon] = overlays(root, 'naver-map-multipath');
-  expect(ribbon.width).toBe(2.2);
-  expect(ribbon.outlineWidth).toBe(2.4);
+  expect(ribbon.width).toBe(6.9);
+  expect(ribbon.outlineWidth).toBe(1.2);
   expect(ribbon.progress).toBe(0.4);
   expect(ribbon.pathParts[0]).toEqual(
     expect.objectContaining({
-      color: '#060606',
-      outlineColor: '#FFFFFF',
+      color: '#4DFFD2',
+      outlineColor: '#B3FFEC',
       passedColor: '#B4BDC4',
-      passedOutlineColor: '#FFFFFF',
+      passedOutlineColor: '#B3FFEC',
     }),
   );
-  // The shadow is one wide faint line under the ribbon.
-  expect(count(root, 'naver-map-path')).toBe(1);
+  // Both opaque outline layers sit under the mint core.
+  expect(count(root, 'naver-map-path')).toBe(2);
   const [shadow] = overlays(root, 'naver-map-path');
-  expect(shadow.width).toBe(10);
+  expect(shadow.width).toBe(18);
   expect(shadow.zIndex).toBeLessThan(ribbon.zIndex);
 });
 
@@ -126,32 +134,33 @@ test('while running on a tilted map the course is a dim, thin guide under the mi
   expect(guide.pathParts[0].outlineColor).not.toBe(run?.outlineColor);
   expect(guide.pathParts[0].color).toBe(darkMapLook.guide);
   expect(guide.width).toBeLessThan(run?.width);
-  expect(guide.outlineWidth).toBeLessThan(run?.outlineWidth);
+  // The guide's total stroke stays thinner even though the approved route has a narrower pale edge.
+  expect(guide.width + 2 * guide.outlineWidth).toBeLessThan(
+    run?.width + 2 * run?.outlineWidth,
+  );
 });
 
 // S15P31E105-720: the group run screens draw the course in the run start map's mint, not 673's black and purple.
-test('a mint line course is the neon mint ribbon round a pale centre; a cancelled one stays grey', () => {
+test('mint callers use the same community line; thin scales it and cancelled stays grey', () => {
   const root = render(<RunMap route={route} mintLine />);
   const [course] = overlays(root, 'naver-map-multipath');
   expect(course.pathParts[0]).toEqual(
     expect.objectContaining({
-      color: mintMapLook.ink,
-      outlineColor: mintMapLook.ribbon,
+      color: '#4DFFD2',
+      outlineColor: '#B3FFEC',
     }),
   );
-  expect(mintMapLook.ribbon).toBe('#4DFFD2');
-  expect(mintMapLook.ink).toBe('#B8FFEC');
-  expect(course.outlineWidth).toBe(mintMapLook.edge);
-  // The thin mint keeps the colours at the plain course line's widths.
+  expect(course.outlineWidth).toBe(1.2);
+  // The small card keeps the same layer proportions.
   const thin = render(<RunMap route={route} mintLine="thin" />);
   const [thinCourse] = overlays(thin, 'naver-map-multipath');
-  expect(thinCourse.pathParts[0].outlineColor).toBe(mintMapLook.ribbon);
-  expect(thinCourse.width).toBe(2.2);
-  expect(thinCourse.outlineWidth).toBe(2.4);
-  expect(thinCourse.outlineWidth).toBeLessThan(mintMapLook.edge);
+  expect(thinCourse.pathParts[0].outlineColor).toBe('#B3FFEC');
+  expect(thinCourse.width).toBeCloseTo(3.795);
+  expect(thinCourse.outlineWidth).toBeCloseTo(0.66);
+  expect(thinCourse.outlineWidth).toBeLessThan(course.outlineWidth);
   const muted = render(<RunMap route={route} mintLine muted />);
   const [grey] = overlays(muted, 'naver-map-multipath');
-  expect(grey.pathParts[0].color).not.toBe(mintMapLook.ink);
+  expect(grey.pathParts[0].color).not.toBe('#4DFFD2');
 });
 
 // S15P31E105-691: the dark map's course line is the designated neon mint, as on the feed, not the 672 lime.
@@ -203,7 +212,7 @@ test('while running the course is a guide: no start, no labels, the run on top',
   // The course stays a guide ribbon under the run; the run is the ink ribbon over its shadow.
   expect(count(root, 'naver-map-multipath')).toBe(1);
   expect(count(root, 'naver-map-polyline')).toBe(0);
-  expect(count(root, 'naver-map-path')).toBe(2);
+  expect(count(root, 'naver-map-path')).toBe(3);
 });
 
 test('the map is the plain Naver day map, with no night map after sunset (S15P31E105-527, -521)', () => {
@@ -362,19 +371,19 @@ test('a trail in parts draws each part on its own, with its shadow', () => {
     <RunMap trail={route} trailParts={[first, second, [route[3]]]} />,
   );
   const paths = overlays(root, 'naver-map-path');
-  // Two shadows and two ink lines; the single point part draws nothing.
-  expect(paths).toHaveLength(4);
-  expect(paths.map(props => props.coords.length)).toEqual([2, 2, 2, 2]);
+  // Two outline layers and one ink line per measured part, none across the single-point part.
+  expect(paths).toHaveLength(6);
+  expect(paths.map(props => props.coords.length)).toEqual([2, 2, 2, 2, 2, 2]);
 });
 
-test('a record route in parts goes to the multipath as separate parts with one shadow each', () => {
+test('a record route in parts goes to the multipath with both outline layers per part', () => {
   const first: LngLat[] = [route[0], route[1]];
   const second: LngLat[] = [route[2], route[3]];
   const root = render(
     <RunMap route={route} routeParts={[first, second]} interactive={false} />,
   );
   expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
-  expect(overlays(root, 'naver-map-path')).toHaveLength(2);
+  expect(overlays(root, 'naver-map-path')).toHaveLength(4);
   expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
 });
 

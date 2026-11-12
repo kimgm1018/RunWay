@@ -193,25 +193,37 @@ class CourseThumbnailRendererTest {
     }
 
     @Test
-    void 코스는_러닝_지도와_같은_민트_리본으로_그린다() throws Exception {
-        // 동서 직선 코스: 코스 선을 가로지르는 세로줄에 테두리 → 리본 → 가운데 줄 → 리본 → 테두리 순서로 보인다.
-        List<double[]> course = straight(1_000);
+    void 코스는_커뮤니티와_같은_네_겹_경로선으로_그린다() throws Exception {
+        // 조금 기울인 합성 직선: 얇은 테두리의 서브픽셀 위치가 달라져도 양쪽에서 네 색이 모두 보인다.
+        List<double[]> course = List.of(at(-500, -300), at(500, -285));
         ThumbnailCamera camera = ThumbnailCamera.fit(course);
         BufferedImage image = decode(renderer.render(List.of(), course, camera));
         int x = (int) Math.round(camera.screenX(LON));
-        int y = (int) Math.round(camera.screenY(course.get(0)[1]));
+        int y = (int) Math.round((camera.screenY(course.get(0)[1]) + camera.screenY(course.get(1)[1])) / 2);
 
         assertThat(CourseThumbnailRenderer.COURSE.getRGB() & 0xFFFFFF).isEqualTo(0x4DFFD2);
-        assertThat(CourseThumbnailRenderer.COURSE_CENTRE.getRGB() & 0xFFFFFF).isEqualTo(0xB8FFEC);
-        assertThat(CourseThumbnailRenderer.COURSE_SHADOW.getRGB() & 0xFFFFFF).isEqualTo(0x06231E);
-        assertThat(image.getRGB(x, y) & 0xFFFFFF).isEqualTo(0xB8FFEC);
+        assertThat(CourseThumbnailRenderer.COURSE_CENTRE.getRGB() & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(CourseThumbnailRenderer.COURSE_SHADOW.getRGB() & 0xFFFFFF).isEqualTo(0x003A2C);
+        assertThat(image.getRGB(x, y) & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(CourseThumbnailRenderer.COURSE_SHADOW_WIDTH).isEqualTo(5.0);
+        assertThat(CourseThumbnailRenderer.COURSE_INNER_WIDTH).isEqualTo(5.0 * 12.2 / 18);
+        assertThat(CourseThumbnailRenderer.COURSE_RIBBON_WIDTH).isEqualTo(5.0 * 9.3 / 18);
+        assertThat(CourseThumbnailRenderer.COURSE_CENTRE_WIDTH).isEqualTo(5.0 * 6.9 / 18);
         double scale = CourseThumbnailRenderer.SCALE;
-        int ribbon = (int) Math.round((CourseThumbnailRenderer.COURSE_CENTRE_WIDTH + CourseThumbnailRenderer.COURSE_RIBBON_WIDTH) / 4 * scale);
-        int shadow = (int) Math.round((CourseThumbnailRenderer.COURSE_RIBBON_WIDTH + CourseThumbnailRenderer.COURSE_SHADOW_WIDTH) / 4 * scale);
-        assertThat(image.getRGB(x, y - ribbon) & 0xFFFFFF).isEqualTo(0x4DFFD2);
-        assertThat(image.getRGB(x, y + ribbon) & 0xFFFFFF).isEqualTo(0x4DFFD2);
-        assertThat(image.getRGB(x, y - shadow) & 0xFFFFFF).isEqualTo(0x06231E);
-        assertThat(image.getRGB(x, y + shadow) & 0xFFFFFF).isEqualTo(0x06231E);
+        Set<Integer> above = new HashSet<>();
+        Set<Integer> below = new HashSet<>();
+        double startX = camera.screenX(course.get(0)[0]);
+        double endX = camera.screenX(course.get(1)[0]);
+        double startY = camera.screenY(course.get(0)[1]);
+        double endY = camera.screenY(course.get(1)[1]);
+        for (int px = 200; px < 400; px++) {
+            double lineY = startY + (px - startX) * (endY - startY) / (endX - startX);
+            for (int py = y - 20; py <= y + 20; py++) {
+                (py < lineY ? above : below).add(image.getRGB(px, py) & 0xFFFFFF);
+            }
+        }
+        assertThat(above).contains(0x4DFFD2, 0xB3FFEC, 0x00785A, 0x003A2C);
+        assertThat(below).contains(0x4DFFD2, 0xB3FFEC, 0x00785A, 0x003A2C);
         int outside = (int) Math.ceil(CourseThumbnailRenderer.COURSE_SHADOW_WIDTH / 2 * scale) + 2;
         assertThat(image.getRGB(x, y - outside) & 0xFFFFFF)
                 .isEqualTo(CourseThumbnailRenderer.GROUND.getRGB() & 0xFFFFFF);
@@ -230,7 +242,7 @@ class CourseThumbnailRendererTest {
         double ring = (CourseThumbnailRenderer.START_RADIUS + CourseThumbnailRenderer.START_FILL_RADIUS) / 2 * scale / Math.sqrt(2);
 
         assertThat(image.getRGB((int) Math.round(sx), (int) Math.round(sy)) & 0xFFFFFF).isEqualTo(0x4DFFD2);
-        assertThat(image.getRGB((int) Math.round(sx - ring), (int) Math.round(sy + ring)) & 0xFFFFFF).isEqualTo(0x06231E);
+        assertThat(image.getRGB((int) Math.round(sx - ring), (int) Math.round(sy + ring)) & 0xFFFFFF).isEqualTo(0x003A2C);
     }
 
     // --- 축척(B-2) ---
