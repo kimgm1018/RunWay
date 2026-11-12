@@ -22,7 +22,8 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
     font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiased; }
-  #map { position: fixed; inset: 0; }
+  /* NAVER MapView sets inline position:relative. Keep a viewport-sized map even after that change. */
+  #map { position: fixed; inset: 0; width: 100%; height: 100%; }
   .shade { position: fixed; left: 0; right: 0; pointer-events: none; }
   .shade.top { top: 0; height: 160px; background: linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0)); }
   .shade.foot { bottom: 0; height: 55%; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.92)); }
