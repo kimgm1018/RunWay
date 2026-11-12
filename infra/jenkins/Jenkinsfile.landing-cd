@@ -1,0 +1,68 @@
+// GitLab Push Events는 master만 허용한다. 수동 실행은 기본적으로 HTML만 검증한다.
+pipeline {
+    agent { label 'backend' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 10, unit: 'MINUTES')
+    }
+    parameters {
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'master의 랜딩 HTML을 운영에 반영한다.')
+    }
+    stages {
+        stage('Checkout and Detect Landing Change') {
+            steps {
+                deleteDir()
+                script {
+                    if (env.gitlabMergeRequestIid ||
+                        (env.gitlabActionType && (env.gitlabActionType != 'PUSH' || env.gitlabBranch != 'master'))) {
+                        error('랜딩 자동 배포는 master Push만 허용합니다.')
+                    }
+                    def automatic = env.gitlabActionType == 'PUSH'
+                    def deploy = automatic || params.DEPLOY
+                    env.LANDING_DEPLOY = deploy.toString()
+                    env.LANDING_CHECK = 'true'
+                    if (deploy) {
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: 'refs/remotes/origin/master']],
+                            userRemoteConfigs: [[
+                                url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                                credentialsId: 'runway-gitlab-repo',
+                                refspec: '+refs/heads/master:refs/remotes/origin/master'
+                            ]]
+                        ])
+                    } else {
+                        checkout scm
+                    }
+                    if (automatic) {
+                        if (!(env.gitlabBefore ==~ /[0-9a-f]{40}/) || env.gitlabBefore == '0000000000000000000000000000000000000000') {
+                            error('Push 이전 커밋을 확인할 수 없습니다. 필요하면 master 수동 배포를 사용하세요.')
+                        }
+                        def changed = sh(script: 'git diff --name-only "$gitlabBefore" HEAD -- frontend/landing/index.html', returnStdout: true).trim()
+                        if (!changed) {
+                            env.LANDING_CHECK = 'false'
+                            echo '랜딩 HTML 변경이 없어 배포를 건너뜁니다.'
+                        }
+                    }
+                }
+            }
+        }
+        stage('Validate Landing HTML') {
+            when { expression { env.LANDING_CHECK == 'true' } }
+            steps {
+                sh '''
+                    docker run --rm -i --network none python:3.12-alpine                         python -c "$(cat infra/jenkins/deploy-landing.py)" --check                         < frontend/landing/index.html
+                '''
+            }
+        }
+        stage('Publish and Verify Landing HTML') {
+            when { expression { env.LANDING_CHECK == 'true' && env.LANDING_DEPLOY == 'true' } }
+            steps {
+                sh '''
+                    docker run --rm -i                         --mount type=bind,src=/home/ubuntu/runway/frontend/landing,dst=/landing                         python:3.12-alpine python -c "$(cat infra/jenkins/deploy-landing.py)"                         < frontend/landing/index.html
+                '''
+            }
+        }
+    }
+}

@@ -233,7 +233,12 @@ GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09 검증에는 `PERSONA
 - **서버 배치:** EC2의 `~/runway/frontend/landing/`을 Nginx `/usr/share/nginx/landing`에 읽기 전용 디렉터리로 연결한다.
   응답은 `Cache-Control: no-cache`라 브라우저가 매번 ETag로 재검증하며, 파일 교체 후 Nginx 재시작 없이 반영된다.
 - **상태 검사:** 루트가 랜딩으로 바뀌어 blackbox 검사는 `/backend-probe`를 사용한다. Nginx가 이 경로를 백엔드 루트로 전달해 기존과 같은 공개 404(`NOT_FOUND`)를 확인한다.
-- **갱신(수동):** 랜딩 변경이 master에 반영되면 master 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
+- **자동 갱신:** `runway-landing-cd`는 `master` Push에서 `frontend/landing/index.html`이 바뀐 경우에만 배포한다.
+  EC2에서 파일을 교체한 뒤 공개 응답이 새 HTML과 같은지 확인하고, 실패하면 이전 파일을 복구한다.
+- **Jenkins 연결:** Pipeline Job의 스크립트 경로는 `infra/jenkins/Jenkinsfile.landing-cd`다.
+  작업 브랜치에서 `DEPLOY`를 끈 채 수동 실행해 검증한 뒤, SCM 브랜치와 GitLab Push 필터를 `master`로 지정하고 Job의 Webhook 토큰을 GitLab에 등록한다.
+  운영 HTML이 준비된 뒤 `DEPLOY`를 켜서 수동 실행하면 `master`의 HTML을 즉시 반영할 수 있다.
+- **최초 배치·수동 복구:** Jenkins 연결 전이나 수동 복구가 필요할 때는 `master` 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
 
 ```bash
 scp -i <SSH 키> frontend/landing/index.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.index.html.new
@@ -251,7 +256,7 @@ master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼�
 
 EC2의 갱신 작업은 `runway-mobile-apk`와 `runway-watch-apk`의 마지막 성공 빌드를 확인한다. SHA-256이 일치한 APK만 각각 `/downloads/runway.apk`와 `/downloads/runway-watch.apk`에 반영한다. Jenkins 산출물 경로와 공개 다운로드 경로는 각각 인증·정적 파일 응답으로 제공한다.
 
-master 병합만으로는 랜딩 HTML·`nginx/default.conf`·게시 서비스가 EC2에 반영되지 않는다. 백엔드 CD는 API 경로 목록만 갱신하고, APK 작업은 Jenkins 보관까지만 한다.
+APK 제공에 필요한 `nginx/default.conf`와 게시 서비스는 최초에 EC2에 직접 적용한다. 백엔드 CD는 API 경로 목록만 갱신하고, APK 작업은 Jenkins 보관까지만 한다.
 EC2의 `~/runway`는 Git 체크아웃이 아닌 복사본이므로 아래 파일은 master 체크아웃에서 올려 적용한다.
 
 최초 적용 시 master 체크아웃의 `infra/jenkins/publish-apks.py`·`runway-publish-apks.service`·`runway-publish-apks.timer`를 EC2의 임시 폴더(예: `~/.runway-apk-stage`)에 올리고 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.
