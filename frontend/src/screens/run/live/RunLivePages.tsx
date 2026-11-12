@@ -587,7 +587,6 @@ export function LiveMapPanel({
   members,
   area,
   logo,
-  group = false,
 }: {
   route: LngLat[] | undefined;
   trail: LngLat[];
@@ -598,8 +597,6 @@ export function LiveMapPanel({
   members?: RunMapMember[];
   area: RunMapArea | undefined;
   logo: RunMapLogo | undefined;
-  // 그룹런 시안 (S15P31E105-673): the group line and the glass map buttons.
-  group?: boolean;
 }) {
   const me = trail.length > 0 ? trail[trail.length - 1] : null;
   const canOverview = Boolean(route && route.length >= 2) || trail.length >= 2;
@@ -627,7 +624,6 @@ export function LiveMapPanel({
         look="mint"
         area={area}
         logo={logo}
-        groupLine={group}
         style={StyleSheet.absoluteFill}
       />
       {notice ? (

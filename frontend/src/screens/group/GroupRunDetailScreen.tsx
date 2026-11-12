@@ -467,7 +467,9 @@ export function GroupRunDetailScreen() {
                   : { top: 0.5, bottom: 0.5 }
               }
               interactive={false}
-              groupLine
+              // The course in RunWay's mint, as on the run start map and the run result, at the plain line's
+              // thinner widths on this small map (S15P31E105-720).
+              mintLine="thin"
               style={StyleSheet.absoluteFill}
             />
           </View>
