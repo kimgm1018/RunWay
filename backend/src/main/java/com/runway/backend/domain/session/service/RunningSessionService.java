@@ -384,6 +384,14 @@ public class RunningSessionService {
         }
         pending.markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
         session.abortUnconfirmedStart(now());
+        // A group member's start is now settled; the group may be able to finish (S15P31E105-734).
+        referenceRepository
+                .findGroupRunId(session.getId())
+                .ifPresent(
+                        groupRunId ->
+                                events.publishEvent(
+                                        new GroupParticipantSettledEvent(
+                                                session.getId(), groupRunId)));
     }
 
     private boolean isAbortedUnconfirmedStart(RunningSession session) {

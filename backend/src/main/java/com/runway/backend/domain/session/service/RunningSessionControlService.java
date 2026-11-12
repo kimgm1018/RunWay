@@ -68,9 +68,9 @@ public class RunningSessionControlService {
      */
     @Transactional
     public CancelledSessionResponse cancel(long userId, long sessionId) {
-        RunningSession session =
-                access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.CANCEL)
-                        .session();
+        LockedSession locked =
+                access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.CANCEL);
+        RunningSession session = locked.session();
         SessionControlEvent pending = access.pendingCommand(session);
         if (pending != null && pending.getAction() == ControlAction.START) {
             throw new ApiException(ErrorCode.COMMAND_PENDING);
@@ -85,6 +85,11 @@ public class RunningSessionControlService {
             }
             session.cancel(now());
             events.publishEvent(SessionStreamChanged.state(session.getId()));
+            // A cancelled group session no longer holds the group (review A-3, S15P31E105-734).
+            if (locked.groupRunId() != null) {
+                events.publishEvent(
+                        new GroupParticipantSettledEvent(session.getId(), locked.groupRunId()));
+            }
         }
         return new CancelledSessionResponse(session.getId(), session.getStatus().name());
     }
@@ -328,6 +333,10 @@ public class RunningSessionControlService {
             case REJECTED -> {
                 event.recordResult(result, null, request.reasonCode());
                 session.confirmRejection(now);
+                if (action == ControlAction.START && locked.groupRunId() != null) {
+                    events.publishEvent(
+                            new GroupParticipantSettledEvent(session.getId(), locked.groupRunId()));
+                }
             }
             case UNKNOWN -> event.recordResult(result, null, request.reasonCode());
             default -> throw new IllegalArgumentException("unsupported result " + result);
