@@ -220,7 +220,9 @@ test('with the card the course row names the run only and the card holds the who
   const all = texts(screen);
   expect(lines(screen)).toContain('자유 러닝');
   expect(lines(screen)).not.toContain('자유 러닝 · 30분 · 페이스 6′00″');
-  expect(lines(screen)).toContain('30분 · 6′00″');
+  // Both rows lead with a pace; the time goal is the 목표 row's small line (S15P31E105-741).
+  expect(lines(screen)).toContain('6′00″');
+  expect(lines(screen)).toContain('30분 완주');
   // Labels follow the rows; who the AI is based on never shows.
   expect(all).toContain('AI 추천');
   expect(all).toContain('모두가 뛸 수 있는 페이스');
@@ -254,7 +256,7 @@ test('goal mode explains itself and a distance goal shows with its time', async 
     pace: { ...settledPace, mode: 'GOAL', basis: 'GOAL' },
   });
   const all = texts(screen);
-  expect(lines(screen)).toContain('5km · 30분 · 6′00″');
+  expect(lines(screen)).toContain('5km · 30분 완주');
   expect(all).toContain('목표 페이스로 달리고, 심박이 위험할 때만 AI가 늦춰요');
   expect(all).toContain('참가자 1명은 목표보다 느릴 수 있어요');
   await act(async () => screen.unmount());
