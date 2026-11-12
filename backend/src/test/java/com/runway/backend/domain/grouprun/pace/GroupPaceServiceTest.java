@@ -184,8 +184,9 @@ class GroupPaceServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"330,360,0", "410,410,1"})
-    void preRun_unchangedTokenKeepsSlowestPlanOrHostGoal(int plannedPace, int expected, int slower) {
+    // S15P31E105-702: TOGETHER applies the AI recommendation as it is, even when the host's goal (360) is slower.
+    @org.junit.jupiter.params.provider.CsvSource({"330,330,0", "410,410,1"})
+    void preRun_togetherAppliesSlowestPlanEvenWhenGoalIsSlower(int plannedPace, int expected, int slower) {
         var fixture = new RunningFixture();
         fixture.scheduled();
         when(fixture.states.candidates(7)).thenReturn(List.of(

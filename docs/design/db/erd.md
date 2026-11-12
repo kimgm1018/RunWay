@@ -205,7 +205,7 @@
 | last_change_at | TIMESTAMPTZ NULL | 마지막 페이스 변경 시각 |
 | struggling_count | INTEGER NOT NULL DEFAULT 0, CHECK >= 0 | 마지막 AI10 결과의 어려움을 겪는 참가자 수 |
 | updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 상태 갱신 시각 |
-| pace_mode | VARCHAR(8) NOT NULL DEFAULT 'TOGETHER', CHECK IN ('TOGETHER', 'GOAL') | 방장이 출발 전에 고른 페이스 모드(S15P31E105-680, V33). TOGETHER = max(목표, AI 추천), GOAL = 목표 유지·위험 시만 감속 |
+| pace_mode | VARCHAR(8) NOT NULL DEFAULT 'TOGETHER', CHECK IN ('TOGETHER', 'GOAL') | 방장이 출발 전에 고른 페이스 모드(S15P31E105-680, V33). TOGETHER(앱 'AI 추천') = AI 추천 그대로(S15P31E105-702), GOAL(앱 '목표 페이스') = 목표 유지·위험 시만 감속 |
 | ai_recommended_pace_sec_per_km | INTEGER NULL, CHECK > 0 | 시작 계산 대상의 AI09 계획 페이스 중 가장 느린 값(초/km). 성공 전·재계산 중 NULL |
 | pace_basis_user_id | BIGINT NULL, FK users.id ON DELETE SET NULL | AI 추천의 기준 회원(가장 느린 계획의 주인) |
 | slower_than_goal_count | INTEGER NULL, CHECK >= 0 | 시작 계산 대상 중 AI09 계획이 목표 페이스보다 느린 회원 수. 목표가 없으면 NULL |

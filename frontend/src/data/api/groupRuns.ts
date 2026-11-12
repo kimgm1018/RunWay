@@ -1,5 +1,6 @@
 import { DataError } from '../errors';
 import type {
+  GroupGoalUpdate,
   GroupPaceInfo,
   GroupPaceMode,
   GroupRunDetail,
@@ -163,7 +164,9 @@ function poll<T>(
 
 // G01 needs a title and 6.8 has none, so it reads like the prototype's: ‘토요일, 함께 5km’. A free run's
 // minutes live only here, as the server keeps no goal without a distance (S15P31E105-637: update도 동일).
-function titleOf(draft: Omit<GroupRunDraft, 'crewId'> | GroupRunDraft) {
+function titleOf(
+  draft: Pick<GroupRunDraft, 'scheduledAt' | 'targetDistanceM' | 'targetDurationSec'>,
+) {
   const weekday = ['일', '월', '화', '수', '목', '금', '토'][
     new Date(Date.parse(draft.scheduledAt) + kstOffsetMs).getUTCDay()
   ];
@@ -173,6 +176,32 @@ function titleOf(draft: Omit<GroupRunDraft, 'crewId'> | GroupRunDraft) {
     ? `${Math.round(draft.targetDurationSec / 60)}분`
     : '달려요';
   return `${weekday}요일, 함께 ${goal}`;
+}
+
+// G04 body for a goal-only edit (S15P31E105-702): the one goal the host set, so the server never gets both
+// 완주 시간 and 페이스. A free run sends its distance and the title that names it; a course run sends no distance,
+// so the server uses the course's (review F-7), and keeps its title.
+export function goalPatchBody(
+  goal: GroupGoalUpdate,
+  scheduledAt: string,
+  courseRun: boolean,
+) {
+  return {
+    goalInputType: goal.input,
+    ...(goal.input === 'TIME'
+      ? { targetDurationSec: Math.round(goal.durationSec) }
+      : { targetPaceSecPerKm: Math.round(goal.paceSecPerKm) }),
+    ...(courseRun
+      ? {}
+      : {
+          targetDistanceM: Math.round(goal.distanceM),
+          title: titleOf({
+            scheduledAt,
+            targetDistanceM: goal.distanceM,
+            targetDurationSec: null,
+          }),
+        }),
+  };
 }
 
 // The run's goal for G01/G04. The server wants a distance with every goal, so only a course run sends one:
@@ -515,6 +544,15 @@ export function createGroupRunsApi({
       if (!isServerId(groupRunId)) return mock.start(groupRunId);
       // G09는 본문을 허용하지 않는다. 응답의 PENDING을 실제 출발로 간주하지 않는다.
       await apiRequest(`/group-runs/${groupRunId}/start`, { method: 'POST' });
+    },
+    updateGoal: async (groupRunId, goal, scheduledAt, courseRun) => {
+      if (!isServerId(groupRunId)) {
+        return mock.updateGoal?.(groupRunId, goal, scheduledAt, courseRun);
+      }
+      await apiRequest(`/group-runs/${groupRunId}`, {
+        method: 'PATCH',
+        body: goalPatchBody(goal, scheduledAt, courseRun),
+      });
     },
     setPaceMode: async (groupRunId, mode) => {
       if (!isServerId(groupRunId)) {

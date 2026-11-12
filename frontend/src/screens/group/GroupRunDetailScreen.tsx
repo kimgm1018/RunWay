@@ -28,6 +28,7 @@ import {
   errorCode,
   useRepositories,
   useResource,
+  type GroupGoalUpdate,
   type GroupPaceMode,
   type GroupRunCancelReason,
   type GroupRunDetail,
@@ -68,7 +69,14 @@ import {
   StandHeader,
   StandTag,
 } from './stand';
-import { changeLabel, GroupPaceCard, type PaceChange } from './GroupPaceCard';
+import {
+  changeLabel,
+  goalSummary,
+  GroupPaceCard,
+  runKind,
+  type PaceChange,
+} from './GroupPaceCard';
+import { GroupGoalSheet } from './GroupGoalSheet';
 
 export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
   { value: 'WEATHER', label: '날씨' },
@@ -170,6 +178,7 @@ export function GroupRunDetailScreen() {
   useFocusEffect(useCallback(() => reload(), [reload]));
   const [run, setRun] = useState<GroupRunDetail | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(false);
   const loaded = detail.status === 'ready' ? detail.data : null;
   useEffect(() => {
     if (loaded) {
@@ -295,6 +304,43 @@ export function GroupRunDetailScreen() {
       setBusy(false);
     }
   };
+
+  // S15P31E105-702: the host saves a new goal with G04; the card then shows 계산 중 until the new pace.
+  const saveGoal = async (goal: GroupGoalUpdate) => {
+    if (!groupRuns.updateGoal) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await groupRuns.updateGoal(
+        run.id,
+        goal,
+        run.scheduledAt,
+        run.courseId !== null,
+      );
+    } catch (error) {
+      toast(
+        errorCode(error) === 'EDIT_NOT_ALLOWED'
+          ? '출발 전에만 목표를 바꿀 수 있어요'
+          : '목표를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      setBusy(false);
+      return;
+    }
+    // Saved: a failed look afterwards is not a failed save (review F-6); the next focus reloads.
+    setEditingGoal(false);
+    changed();
+    try {
+      setRun(await groupRuns.get(run.id));
+    } catch {
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const hostBeforeRun = run.isHost && run.status === 'SCHEDULED';
+  // The card explains the start pace, so only before the run (review A-3).
+  const showPaceCard = !!run.pace && run.status === 'SCHEDULED';
 
   const toggleJoin = async () => {
     setBusy(true);
@@ -461,9 +507,15 @@ export function GroupRunDetailScreen() {
                 {cancelled ? null : (
                   <InfoRow
                     icon="route"
-                    text={`${goalLine(run, false)} · 페이스 ${formatPace(
-                      run.goalPaceSecPerKm,
-                    )}`}
+                    // With the 공동 페이스 card the goal moves into its 목표 row (S15P31E105-702); without it the
+                    // line keeps the whole goal as before.
+                    text={
+                      showPaceCard
+                        ? runKind(run)
+                        : `${goalLine(run, false)} · 페이스 ${formatPace(
+                            run.goalPaceSecPerKm,
+                          )}`
+                    }
                   />
                 )}
                 {cancelled ? null : (
@@ -538,9 +590,10 @@ export function GroupRunDetailScreen() {
               ) : (
                 <>
                   {/* The card explains the start pace, so only before the run (review A-3). */}
-                  {run.pace && run.status === 'SCHEDULED' ? (
+                  {run.pace && showPaceCard ? (
                     <GroupPaceCard
                       pace={run.pace}
+                      goalText={goalSummary(run, run.pace.goalSecPerKm)}
                       change={change}
                       canChangeMode={
                         run.isHost &&
@@ -549,6 +602,11 @@ export function GroupRunDetailScreen() {
                       }
                       busy={busy}
                       onChangeMode={changeMode}
+                      onEditGoal={
+                        hostBeforeRun && groupRuns.updateGoal
+                          ? () => setEditingGoal(true)
+                          : undefined
+                      }
                     />
                   ) : null}
                   <FitLine run={run} />
@@ -608,6 +666,17 @@ export function GroupRunDetailScreen() {
         <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
           {actions}
         </View>
+        {hostBeforeRun ? (
+          <GroupGoalSheet
+            visible={editingGoal}
+            distanceM={run.targetDistanceM}
+            durationSec={run.targetDurationSec}
+            courseLocked={run.courseId !== null}
+            busy={busy}
+            onClose={() => setEditingGoal(false)}
+            onSave={saveGoal}
+          />
+        ) : null}
       </View>
     </ThemeProvider>
   );
