@@ -83,7 +83,23 @@ export function withSavedMusic(
     }
   }
 
-  async function view(state: MusicState): Promise<MusicState> {
+  async function view(reported: MusicState): Promise<MusicState> {
+    // 꺼져 있다 깬 멜론은 버퍼링하는 동안 곡 길이를 0으로 알린다. 같은 곡이면 알던 길이를 이어 써 2.7 진행바가
+    // 맨 앞으로 갔다 돌아오지 않게 한다(S15P31E105-717).
+    const known = memo?.track;
+    const state =
+      reported.nowPlaying &&
+      !reported.nowPlaying.durationSec &&
+      known?.id === reported.nowPlaying.id &&
+      known.durationSec
+        ? {
+            ...reported,
+            nowPlaying: {
+              ...reported.nowPlaying,
+              durationSec: known.durationSec,
+            },
+          }
+        : reported;
     const heard = state.nowPlaying;
     if (heard) {
       // Saves on a new song or play/pause, not on every read, so the position is the one at the last pause.

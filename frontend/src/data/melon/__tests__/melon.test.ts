@@ -299,6 +299,50 @@ describe('withMelon', () => {
     expect(state.nowPlaying?.playing).toBe(true);
   });
 
+  // 꺼져 있던 멜론은 연결 직후 곡을 알리지 않지만 재생하면 마지막 대기열을 이어 튼다(S15P31E105-717 실기기 확인).
+  // 기본 목록을 먼저 보내면 멜론이 "재생 가능한 곡이 없습니다"를 띄운다.
+  it('resumes the queue Melon keeps when it wakes without a song', async () => {
+    const melon = fakeMelon({
+      playback: { ...playing, playing: false, commands: ['play'], track: null },
+      onSend: () => playing,
+    });
+    const state = await withMelon(baseMusic(), melon.bridge, {
+      settleMs: 0,
+    }).play();
+    expect(melon.sent).toEqual(['play']);
+    expect(melon.bridge.playDefault).not.toHaveBeenCalled();
+    expect(state.nowPlaying?.id).toBe('m1');
+  });
+
+  it('starts the default list when Melon has no queue to resume', async () => {
+    const melon = fakeMelon({
+      playback: { ...playing, playing: false, commands: ['play'], track: null },
+    });
+    (melon.bridge.playDefault as jest.Mock).mockImplementation(async () => {
+      (melon.bridge.playback as jest.Mock).mockResolvedValue(playing);
+      return 'TOP100';
+    });
+    const state = await withMelon(baseMusic(), melon.bridge, {
+      settleMs: 0,
+    }).play();
+    expect(melon.sent).toEqual(['play']);
+    expect(melon.bridge.playDefault).toHaveBeenCalledTimes(1);
+    expect(state.nowPlaying?.playing).toBe(true);
+  });
+
+  // 멜론은 재생하려는 동안에만 버퍼링을 알린다. 꺼져 있다 깨면 약 3초 버퍼링한다(실기기 확인).
+  it('counts buffering after 재생 as playing, with the position held', async () => {
+    const melon = fakeMelon({
+      playback: { ...playing, playing: false },
+      onSend: (_command, current) => ({ ...current, buffering: true }),
+    });
+    const state = await withMelon(baseMusic(), melon.bridge, {
+      settleMs: 0,
+    }).play();
+    expect(state.nowPlaying?.playing).toBe(true);
+    expect(state.nowPlaying?.buffering).toBe(true);
+  });
+
   it('says so when Melon offers no list to start', async () => {
     const melon = fakeMelon({
       playback: { ...playing, playing: false, track: null },
@@ -572,6 +616,19 @@ describe('bridge parsing', () => {
       browsable: false,
       permitted: false,
     });
+  });
+
+  it('reads buffering only when Melon says so', () => {
+    const base = {
+      connected: true,
+      playing: false,
+      commands: ['play'],
+      track: null,
+    };
+    expect(
+      parsePlayback(JSON.stringify({ ...base, buffering: true })).buffering,
+    ).toBe(true);
+    expect(parsePlayback(JSON.stringify(base)).buffering).toBe(false);
   });
 
   it('keeps known commands and drops a track without an id or title', () => {

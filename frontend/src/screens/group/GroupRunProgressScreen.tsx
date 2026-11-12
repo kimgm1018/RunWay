@@ -6,14 +6,7 @@ import {
   useNavigation,
 } from '@react-navigation/native';
 import { AppText, BottomSheet, Icon, useToast } from '../../components';
-import {
-  DataError,
-  spotifyFailureMessage,
-  SpotifyStateError,
-  useRepositories,
-  type GroupRunLive,
-  type MusicState,
-} from '../../data';
+import { DataError, useRepositories, type GroupRunLive } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { controlModeOf, statusOf } from '../run/RunProgressScreen';
@@ -30,9 +23,9 @@ import {
   averagePace,
   metricPages,
   useRunHistory,
-  type MusicCommand,
 } from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
+import { useLiveMusic } from '../run/useLiveMusic';
 import { groupTone, NumText } from './look';
 import { ColorBar, stand, StandButton, standingBarColor } from './stand';
 import { MissingTarget } from './MissingTarget';
@@ -295,8 +288,11 @@ function GroupRunProgressContent({
   const [page, setPage] = useState(initialTab === 'group' ? 4 : 0);
   const [live, setLive] = useState<GroupRunLive | null>(null);
   const [liveError, setLiveError] = useState(false);
-  const [player, setPlayer] = useState<MusicState | null>(null);
-  const [musicBusy, setMusicBusy] = useState(false);
+  const {
+    player,
+    busy: musicBusy,
+    command: runMusic,
+  } = useLiveMusic(music, toast);
   const [isHost, setIsHost] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const finishing = useRef(false);
@@ -330,41 +326,6 @@ function GroupRunProgressContent({
       active = false;
     };
   }, [groupRunId, groupRuns]);
-  useEffect(() => {
-    let active = true;
-    music.getState().then(
-      state => active && setPlayer(state),
-      error => {
-        if (active && error instanceof SpotifyStateError) {
-          setPlayer(error.state);
-        }
-      },
-    );
-    const stop = music.subscribe?.(state => {
-      if (active) {
-        setPlayer(state);
-      }
-    });
-    return () => {
-      active = false;
-      stop?.();
-    };
-  }, [music]);
-  const runMusic = async (command: MusicCommand) => {
-    setMusicBusy(true);
-    try {
-      setPlayer(await music[command]());
-    } catch (error) {
-      if (error instanceof SpotifyStateError) {
-        setPlayer(error.state);
-      }
-      const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
-      if (message) {
-        toast(message);
-      }
-    }
-    setMusicBusy(false);
-  };
 
   const history = useRunHistory(
     run?.sample ?? noSample,
@@ -432,8 +393,6 @@ function GroupRunProgressContent({
   const mode = controlModeOf(run.status, null);
   const paused = run.status === 'paused';
   const ended = live?.status === 'COMPLETED' || live?.status === 'CANCELLED';
-  const showPlayer =
-    player?.source && player.source !== 'NONE' && player.linked;
 
   const pages: LivePage[] = [
     ...metricPages({
@@ -531,7 +490,7 @@ function GroupRunProgressContent({
           </>
         }
         music={
-          showPlayer && player ? (
+          player ? (
             <LiveMusicRow
               music={player}
               busy={musicBusy}

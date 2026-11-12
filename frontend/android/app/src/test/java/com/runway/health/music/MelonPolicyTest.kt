@@ -53,6 +53,10 @@ class MelonPolicyTest {
     assertTrue(json.getJSONObject("track").isNull("artworkUri"))
     assertEquals("pause", json.getJSONArray("commands").getString(0))
 
+    assertFalse(json.getBoolean("buffering"))
+    val buffering = JSONObject(MelonPolicy.playbackJson(MelonSnapshot(true, false, false, listOf("pause"), track, buffering = true)))
+    assertTrue(buffering.getBoolean("buffering"))
+
     val empty = JSONObject(MelonPolicy.playbackJson(MelonSnapshot(false)))
     assertFalse(empty.getBoolean("connected"))
     assertTrue(empty.isNull("track"))

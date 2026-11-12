@@ -6,12 +6,7 @@ import {
   useNavigation,
 } from '@react-navigation/native';
 import { useToast } from '../../components';
-import {
-  spotifyFailureMessage,
-  SpotifyStateError,
-  useRepositories,
-  type MusicState,
-} from '../../data';
+import { useRepositories } from '../../data';
 import {
   formatDuration,
   formatKm,
@@ -34,10 +29,10 @@ import {
   LiveNotice,
   metricPages,
   useRunHistory,
-  type MusicCommand,
 } from './live/RunLivePages';
 import { liveDelayNotice } from './liveDelay';
 import { comparisonLine } from './recordComparison';
+import { useLiveMusic } from './useLiveMusic';
 import type { RunControlState } from './runControl';
 import { goalPaceOf, useRunControlState, useRunSession } from './RunSession';
 
@@ -123,23 +118,11 @@ export function RunProgressScreen() {
   const control = useRunControlState();
   const [view, setView] = useState<LiveView>('numbers');
   const [page, setPage] = useState(0);
-  const [player, setPlayer] = useState<MusicState | null>(null);
-  const [musicBusy, setMusicBusy] = useState(false);
-  const runMusic = async (command: MusicCommand) => {
-    setMusicBusy(true);
-    try {
-      setPlayer(await music[command]());
-    } catch (error) {
-      if (error instanceof SpotifyStateError) {
-        setPlayer(error.state);
-      }
-      const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
-      if (message) {
-        toast(message);
-      }
-    }
-    setMusicBusy(false);
-  };
+  const {
+    player,
+    busy: musicBusy,
+    command: runMusic,
+  } = useLiveMusic(music, toast);
 
   const history = useRunHistory(
     run?.sample ?? noSample,
@@ -189,29 +172,6 @@ export function RunProgressScreen() {
     }
   }, [run, start]);
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      music.getState().then(
-        state => active && setPlayer(state),
-        error => {
-          if (active && error instanceof SpotifyStateError) {
-            setPlayer(error.state);
-          }
-        },
-      );
-      const stop = music.subscribe?.(state => {
-        if (active) {
-          setPlayer(state);
-        }
-      });
-      return () => {
-        active = false;
-        stop?.();
-      };
-    }, [music]),
-  );
-
   if (!run) {
     return <View style={styles.empty} />;
   }
@@ -239,8 +199,6 @@ export function RunProgressScreen() {
     takeover && (takeover.offer || control?.pending?.action === 'TAKE_OVER')
       ? takeover
       : null;
-  const showPlayer =
-    player?.source && player.source !== 'NONE' && player.linked;
   // 마지막으로 받은 실측값이 오래되면 알린다(S15P31E105-528). 화면은 시계 틱마다 다시 그려져 초가 갱신된다.
   const delay = liveDelayNotice(
     control?.live ?? null,
@@ -339,7 +297,7 @@ export function RunProgressScreen() {
         </>
       }
       music={
-        showPlayer && player ? (
+        player ? (
           <LiveMusicRow music={player} busy={musicBusy} onCommand={runMusic} />
         ) : null
       }

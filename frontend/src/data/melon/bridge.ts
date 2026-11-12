@@ -30,6 +30,8 @@ export type MelonPlayback = {
   // 제어할 멜론 세션이 있는지.
   connected: boolean;
   playing: boolean;
+  // 재생하려고 곡을 받는 중(멜론은 재생 요청 뒤에만 알린다). 꺼져 있다 깨면 약 3초 걸린다(S15P31E105-717).
+  buffering?: boolean;
   loginRequired: boolean;
   // 멜론이 지원한다고 알린 제어.
   commands: MelonCommand[];
@@ -136,6 +138,7 @@ export function parsePlayback(json: string): MelonPlayback {
     return {
       connected: true,
       playing: raw.playing === true,
+      buffering: raw.buffering === true,
       loginRequired: raw.loginRequired === true,
       commands: Array.isArray(raw.commands)
         ? commands.filter(command =>

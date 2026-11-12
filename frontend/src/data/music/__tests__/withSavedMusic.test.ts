@@ -64,6 +64,25 @@ describe('withSavedMusic', () => {
     expect(state.nowPlaying).toEqual({ ...heard, playing: false });
   });
 
+  // 꺼져 있다 깬 멜론은 버퍼링하는 동안 곡 길이를 0으로 알린다. 그동안 2.7 진행바가 맨 앞으로 가지 않게
+  // 같은 곡의 길이를 이어 쓴다(S15P31E105-717 실기기 확인).
+  it('keeps the length it knew while the same song reports none', async () => {
+    const heard = await heardOnMelon();
+    const buffering = reshaped(mockMusic(), state => ({
+      ...state,
+      nowPlaying: { ...heard, durationSec: 0, positionSec: 68, playing: true },
+    }));
+    const state = await launch(buffering).getState();
+    expect(state.nowPlaying?.durationSec).toBe(heard.durationSec);
+    expect(state.nowPlaying?.positionSec).toBe(68);
+
+    const other = reshaped(mockMusic(), current => ({
+      ...current,
+      nowPlaying: { ...heard, id: 'another', durationSec: 0 },
+    }));
+    expect((await launch(other).getState()).nowPlaying?.durationSec).toBe(0);
+  });
+
   it("lets the service's own song win", async () => {
     await heardOnMelon();
     // The mock plays its first liked song again, and that is what the card shows.
