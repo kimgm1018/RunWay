@@ -5,6 +5,7 @@ import type {
   GroupPaceInfo,
   GroupPaceMode,
   GroupRunParticipant,
+  GroupRunSummary,
 } from '../../data';
 import { formatPace } from '../../format';
 import { fontFamily } from '../../theme';
@@ -13,10 +14,44 @@ import { groupTone, NumText } from './look';
 // S15P31E105-680 공동 페이스 카드 on 6.4: the AI recommendation and whose plan it comes from, the host's goal, the
 // pace applied in the chosen mode (highlighted), 계산 중 while the server recalculates, and a short 방금 바뀜 line.
 
+// The buttons carry the names of the rows they apply: AI 추천 (TOGETHER) and 목표 페이스 (GOAL). S15P31E105-702.
 export const paceModeLabel: Record<GroupPaceMode, string> = {
-  TOGETHER: '함께 완주',
+  TOGETHER: 'AI 추천',
   GOAL: '목표 페이스',
 };
+
+const modeDescription: Record<GroupPaceMode, string> = {
+  TOGETHER: '모두가 끝까지 함께 달릴 수 있는 페이스로 달려요',
+  GOAL: '목표 페이스로 달리고, 심박이 위험할 때만 AI가 늦춰요',
+};
+
+// The detail's course row while the card shows: only what kind of run it is; the goal is in the card.
+export function runKind(run: Pick<GroupRunSummary, 'courseName'>) {
+  return run.courseName ?? '자유 러닝';
+}
+
+// The card's 목표 row: the whole goal, e.g. 30분 · 6′00″ or 5km · 30분 · 6′00″. A course run's distance is the
+// course's, named on the course row above, so it is not repeated here.
+export function goalSummary(
+  run: Pick<
+    GroupRunSummary,
+    'courseName' | 'targetDistanceM' | 'targetDurationSec'
+  >,
+  goalSecPerKm: number | null,
+) {
+  const parts: string[] = [];
+  if (!run.courseName && run.targetDistanceM) {
+    const km = run.targetDistanceM / 1000;
+    parts.push(`${Number.isInteger(km) ? km : km.toFixed(1)}km`);
+  }
+  if (run.targetDurationSec) {
+    parts.push(`${Math.round(run.targetDurationSec / 60)}분`);
+  }
+  if (goalSecPerKm != null) {
+    parts.push(formatPace(goalSecPerKm));
+  }
+  return parts.length ? parts.join(' · ') : '목표 없음';
+}
 
 export type PaceChange = { from: number; to: number; label: string };
 
@@ -49,21 +84,37 @@ function Row({
   value,
   sub,
   applied,
+  onEdit,
 }: {
   label: string;
   value: string;
   sub?: string | null;
   applied: boolean;
+  // S15P31E105-702: the host's 목표 row opens the goal sheet.
+  onEdit?: () => void;
 }) {
-  return (
-    <View style={[styles.row, applied && styles.rowApplied]}>
+  const body = (
+    <>
       <AppText style={styles.rowLabel}>{label}</AppText>
       <View style={styles.rowBody}>
         <NumText style={styles.rowValue} text={value} />
         {sub ? <AppText style={styles.sub}>{sub}</AppText> : null}
       </View>
       {applied ? <AppText style={styles.badge}>적용</AppText> : null}
-    </View>
+      {onEdit ? <AppText style={styles.edit}>변경</AppText> : null}
+    </>
+  );
+  return onEdit ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} 변경`}
+      onPress={onEdit}
+      style={[styles.row, applied && styles.rowApplied]}
+    >
+      {body}
+    </Pressable>
+  ) : (
+    <View style={[styles.row, applied && styles.rowApplied]}>{body}</View>
   );
 }
 
@@ -73,12 +124,18 @@ export function GroupPaceCard({
   canChangeMode,
   busy,
   onChangeMode,
+  onEditGoal,
+  goalText,
 }: {
   pace: GroupPaceInfo;
+  // The whole goal for the 목표 row (goalSummary).
+  goalText?: string;
   change: PaceChange | null;
   canChangeMode: boolean;
   busy: boolean;
   onChangeMode: (mode: GroupPaceMode) => void;
+  // Only for the host before the run (S15P31E105-702); members just read the goal.
+  onEditGoal?: () => void;
 }) {
   const calculating = pace.calculating;
   // The applied pace comes from the AI line when it is a member's plan, otherwise from the goal.
@@ -89,10 +146,9 @@ export function GroupPaceCard({
     : pace.aiSecPerKm != null
     ? formatPace(pace.aiSecPerKm)
     : '기록 부족 · 중앙값';
+  // Who the recommendation is based on stays off the screen (it would say who is slowest).
   const aiSub =
-    !calculating && pace.aiSecPerKm != null && pace.basisNickname
-      ? `${pace.basisNickname}님 기준`
-      : null;
+    !calculating && pace.aiSecPerKm != null ? '모두가 뛸 수 있는 페이스' : null;
   const slower = pace.slowerThanGoalCount ?? 0;
   return (
     <View style={styles.card}>
@@ -122,9 +178,11 @@ export function GroupPaceCard({
       <Row
         label="목표"
         value={
-          pace.goalSecPerKm != null ? formatPace(pace.goalSecPerKm) : '목표 없음'
+          goalText ??
+          (pace.goalSecPerKm != null ? formatPace(pace.goalSecPerKm) : '목표 없음')
         }
         applied={goalApplied}
+        onEdit={onEditGoal}
       />
       {pace.mode === 'GOAL' && !calculating && slower > 0 ? (
         <AppText style={styles.warning}>
@@ -160,13 +218,7 @@ export function GroupPaceCard({
           })}
         </View>
       ) : null}
-      {canChangeMode ? (
-        <AppText style={styles.sub}>
-          {pace.mode === 'GOAL'
-            ? '목표 페이스를 지키고 심박이 위험할 때만 늦춰요'
-            : '가장 느린 참가자에 맞춰 모두 함께 완주해요'}
-        </AppText>
-      ) : null}
+      <AppText style={styles.sub}>{modeDescription[pace.mode]}</AppText>
     </View>
   );
 }
@@ -231,6 +283,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
     color: groupTone.text,
+  },
+  edit: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupTone.sub,
+    textDecorationLine: 'underline',
   },
   badge: {
     fontFamily: fontFamily.medium,

@@ -672,7 +672,7 @@ export type GroupRunDetail = GroupRunSummary & {
   pace?: GroupPaceInfo | null;
 };
 
-// S15P31E105-680 공동 페이스 모드: 함께 완주(max(목표, AI 추천)) / 목표 페이스(목표 유지, 위험할 때만 감속).
+// S15P31E105-680 공동 페이스 모드: TOGETHER(화면 'AI 추천', AI 추천 그대로) / GOAL(목표 페이스, 위험할 때만 감속).
 export type GroupPaceMode = 'TOGETHER' | 'GOAL';
 
 // S15P31E105-680 공동 페이스 카드 (G03). The server leaves these out while group pace is off.
@@ -685,12 +685,17 @@ export type GroupPaceInfo = {
   // 방장 목표 (from distance and duration). null without a goal.
   goalSecPerKm: number | null;
   basis: 'MEMBER' | 'GOAL' | 'MEDIAN';
-  // Whose plan the AI recommendation comes from.
+  // Whose plan the AI recommendation comes from. Never shown: it would tell who is slowest (S15P31E105-702).
   basisNickname: string | null;
   calculating: boolean;
   // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
   slowerThanGoalCount: number | null;
 };
+
+// S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.
+export type GroupGoalUpdate =
+  | { distanceM: number; input: 'TIME'; durationSec: number }
+  | { distanceM: number; input: 'PACE'; paceSecPerKm: number };
 
 // 6.5 출발 준비.
 export type WaitingRoom = {
@@ -1419,6 +1424,14 @@ export type Repositories = {
     // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
     // G17 방장 페이스 모드 (S15P31E105-680): before the run only; the server recalculates.
     setPaceMode?: (groupRunId: string, mode: GroupPaceMode) => Promise<void>;
+    // G04 목표만 수정 (S15P31E105-702): the host, before the run; the server recalculates the shared pace.
+    updateGoal?: (
+      groupRunId: string,
+      goal: GroupGoalUpdate,
+      scheduledAt: string,
+      // A course run keeps the course's distance and its title; only the time or pace goes.
+      courseRun: boolean,
+    ) => Promise<void>;
     cancel: (
       groupRunId: string,
       reason: GroupRunCancelReason,
