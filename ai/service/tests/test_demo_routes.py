@@ -196,3 +196,23 @@ def test_db_source_reads_only_granted_columns_with_parameters():
     assert "ORDER BY measured_at" in points_sql and "measured_at > %(after)s" in points_sql
     assert db.calls[0][1] == {"user_id": 7} and db.calls[1][1]["session_id"] == 9
     assert all(timeout == 800 for *_, timeout in db.calls)
+
+
+def test_total_route_points_cap_clears_oldest_session_first():
+    import app.demo.routes as routes_mod
+    clock = {"t": 0.0}
+    source = FakeRouteSource(routes={1: _line(6), 2: _line(6)})
+    routes = DemoRoutes(source, allowed_users=frozenset({1}), monotonic=lambda: clock["t"], poll_sec=0.0)
+    old = routes_mod.MAX_TOTAL_POINTS
+    routes_mod.MAX_TOTAL_POINTS = 8
+    try:
+        routes.refresh(1)
+        clock["t"] += 10
+        routes.refresh(2)
+        assert routes.state(1)[1] == [] and len(routes.state(2)[1][0]["points"]) == 6
+        source.routes[2] = _line(12)
+        clock["t"] += 10
+        routes.refresh(2)
+        assert len(routes.state(2)[1][0]["points"]) == 8                              # 혼자 남으면 앞부분만 덜어냄
+    finally:
+        routes_mod.MAX_TOTAL_POINTS = old
