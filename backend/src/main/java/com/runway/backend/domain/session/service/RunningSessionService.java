@@ -94,7 +94,9 @@ public class RunningSessionService {
         SessionAccess.requireOwnedDevice(
                 userId,
                 referenceRepository.findDevice(request.controlDeviceId()),
-                DeviceType.WATCH);
+                request.controlDeviceId() == request.relayDeviceId()
+                        ? DeviceType.PHONE
+                        : DeviceType.WATCH);
         SessionAccess.requireOwnedDevice(
                 userId, referenceRepository.findDevice(request.relayDeviceId()), DeviceType.PHONE);
         sessionRepository
@@ -144,7 +146,9 @@ public class RunningSessionService {
             SessionGoal goal,
             SessionPlanPreparation.Prepared prepared) {
         access.requireActiveUser(userId);
-        access.requireOwnedDevice(userId, controlDeviceId, DeviceType.WATCH);
+        access.requireOwnedDevice(
+                userId, controlDeviceId,
+                controlDeviceId == relayDeviceId ? DeviceType.PHONE : DeviceType.WATCH);
         access.requireOwnedDevice(userId, relayDeviceId, DeviceType.PHONE);
         validateTargets(goal);
         CourseInfo course = access.requireUsableCourse(userId, goal.courseId());
@@ -340,6 +344,9 @@ public class RunningSessionService {
     private void takeOverPhone(
             long userId, RunningSession session, UpdateRunningSessionRequest request) {
         requireRelayPhone(userId, session, request.deviceId());
+        if (session.isPhoneOnly()) {
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
         if (session.isPhoneFallback()) {
             return;
         }

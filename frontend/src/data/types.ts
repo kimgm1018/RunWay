@@ -1091,7 +1091,7 @@ export type RunningSessionView = {
   stateVersion: number;
   startedAt: string | null;
   endedAt: string | null;
-  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | 'PHONE_ONLY' | null;
   pendingCommand: SessionCommand | null;
   lastCommand: SessionCommand | null;
   analysisStatus: string;
@@ -1717,6 +1717,7 @@ export type Repositories = {
   // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
   watchSession: {
     getLinkedDevices: () => Promise<LinkedDevices | null>;
+    getPhoneDeviceId?: () => Promise<string>;
     // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
     prepare: (
       sessionId: string,

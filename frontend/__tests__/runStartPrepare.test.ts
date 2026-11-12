@@ -221,7 +221,7 @@ test('prepare failures stay off the screen; start reports them', async () => {
   expect(control.getState()).toMatchObject({ sessionId: null, problem: null });
 
   await control.start(fiveK);
-  expect(control.getState().problem).toEqual({ kind: 'watchRequired' });
+  expect(control.getState().problem).toEqual({ kind: 'locationRequired' });
   expect(calls.create).toBe(0);
   control.dispose();
 });

@@ -24,6 +24,20 @@ class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
 
     @Autowired private SessionCoachingService service;
 
+    @Test
+    void phoneOnlyNeverCallsAiOrIssuesCoaching() {
+        long sessionId = insertSession(userId, "RUNNING", 2, phoneId, phoneId, "PENDING", null);
+        jdbc.update("UPDATE running_sessions SET phone_only=true WHERE id=?", sessionId);
+        startedSecondsAgo(sessionId, 180);
+
+        assertThat(service.issueIfDue(sessionId)).isEmpty();
+        assertThat(paceDecider.requests()).isEmpty();
+        assertThat(coachingCount(sessionId)).isZero();
+        assertThat(coachingCommandCount(sessionId)).isZero();
+    }
+
+
+
     /** 시작 3분 지난 워치 기록 RUNNING 세션(버전 2)과 최근 표본. */
     private long dueSession() {
         long sessionId = insertSession(userId, "RUNNING", 2, watchId, phoneId, "PENDING", null);
