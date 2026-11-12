@@ -19,8 +19,6 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import {
-  symbolPath,
-  symbolViewBox,
   wordmarkPath,
   wordmarkRatio,
   wordmarkViewBox,
@@ -29,7 +27,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
 
 // 1.1 시작 (S15P31E105-425, runway-splash-mockup): a dark runner on its own soft blue-grey background, the white
-// loop and RUNWAY letters over the runner, and one full-width 시작하기 button that opens 1.2 로그인 (1.3 회원가입
+// RUN'WAY" letters over the runner (the loop above them was dropped in S15P31E105-744), and one full-width 시작하기 button that opens 1.2 로그인 (1.3 회원가입
 // is reached from there). The mockup is drawn on a 412×915 phone; sizes follow the width and the letters sit at
 // 50.7% of the height.
 
@@ -117,13 +115,11 @@ export function StartBackdrop({ blur = 0 }: { blur?: number }) {
 export function StartArt() {
   const { width, height } = useWindowDimensions();
 
-  // RUNWAY: 16 in from both edges, its top at 50.7% of the height; the loop 30 above it, 16% of the width.
+  // RUN'WAY": 16 in from both edges, its top at 50.7% of the height. The loop that sat 30 above it is gone
+  // (S15P31E105-744: the app shows the letters only).
   const wordmarkWidth = width - 32;
   const wordmarkHeight = wordmarkWidth * wordmarkRatio;
   const wordmarkTop = height * 0.507;
-  const symbolWidth = width * 0.16;
-  const symbolHeight =
-    (symbolWidth * symbolViewBox.height) / symbolViewBox.width;
 
   return (
     <View style={StyleSheet.absoluteFill}>
@@ -136,20 +132,6 @@ export function StartArt() {
         accessibilityLabel="RUNWAY"
         style={StyleSheet.absoluteFill}
       >
-        <Svg
-          width={symbolWidth}
-          height={symbolHeight}
-          viewBox={`0 0 ${symbolViewBox.width} ${symbolViewBox.height}`}
-          style={[
-            styles.absolute,
-            {
-              top: wordmarkTop - 30 - symbolHeight,
-              left: (width - symbolWidth) / 2,
-            },
-          ]}
-        >
-          <Path d={symbolPath} fill="#FFFFFF" fillRule="evenodd" />
-        </Svg>
         <Svg
           width={wordmarkWidth}
           height={wordmarkHeight}

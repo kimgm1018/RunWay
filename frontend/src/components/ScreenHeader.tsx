@@ -16,7 +16,8 @@ export function ScreenHeader({
   onBack?: () => void;
   backLabel?: string;
   right?: React.ReactNode;
-  // 2.x screens (DESIGN.md 2-6): the black loop symbol in the middle and a large light title below.
+  // 2.x screens (DESIGN.md 2-6): the logo in the middle and a large light title below. The logo is the
+  // RUN'WAY" letters since S15P31E105-744 (it was the loop symbol).
   symbol?: boolean;
 }) {
   const back = (
@@ -32,7 +33,7 @@ export function ScreenHeader({
       <View>
         <View style={styles.header}>
           <View style={styles.symbol} pointerEvents="none">
-            <Logo width={34} symbol />
+            <Logo width={120} />
           </View>
           {back}
           <View style={styles.fill} />

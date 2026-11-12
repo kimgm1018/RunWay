@@ -80,18 +80,18 @@
 | `Screen` | 안전 영역, 배경색, 탭 화면의 하단 여백 |
 | `Icon` | 프로토타입이 쓰는 Lucide 선 아이콘 |
 
-### 로고·앱 아이콘 (S15P31E105-189, 최종 S15P31E105-276)
+### 로고·앱 아이콘 (S15P31E105-189, 최종 S15P31E105-276, 새 로고 S15P31E105-729·S15P31E105-744)
 
-- 원본은 벡터다. 워드마크(코스 루프 + RUNWAY)는 `assets/images/runway-logo.svg`, 머리 심볼(코스 루프)은
-  `assets/images/runway-loop-symbol.svg`, R 심볼(앱 아이콘)은 `assets/images/runway-symbol.svg`.
-  최종본 전체(PNG·파비콘 포함)는 저장소 밖 `FE/디자인/로고시안/최종/`에 있다.
-  앱 안에서는 `Logo`가 같은 모양을 `logoPath.ts`의 경로로 `react-native-svg`로 그리므로 PNG를 따로 두지 않는다.
-  원본 SVG를 바꾸면 `logoPath.ts`도 다시 만든다(도형을 0,0에서 시작하게 옮긴 경로).
-- 앱 안에서는 색을 하나만 쓴다. 최종본의 남색 그라데이션·광택은 앱 아이콘에만 쓰고, 화면 안 로고는 배경에 따라
-  밝은 배경에는 글자색(ink), 어두운 배경에는 흰색이다. `Logo`는 `colors.text`를 따르고, `symbol`을 주면 코스 루프 심볼만 그린다(1.x·2.x 머리).
-  외곽선·그림자를 넣지 않고 비율을 바꾸지 않는다.
-- 최소 너비는 워드마크 80px이다. 이보다 작으면 코스 루프 심볼을 쓴다.
-- 여백은 로고 높이(루프 높이)만큼 사방에 비운다.
+- 새 로고(민트 글로우 트랙 심볼 + `RUN'WAY"`)의 원본·SVG·PNG·아이콘은 `assets/brand/`에 있다. 색상과 파일 설명은
+  `assets/brand/README.md`를 따른다. 랜딩 페이지가 이 로고를 쓴다.
+- 앱 화면에서는 심볼 없이 `RUN'WAY"` 글자만 쓴다. `Logo`가 `logoPath.ts`의 `wordmarkPath`를 `react-native-svg`로 그리고,
+  1.1 시작·스플래시 화면도 같은 경로를 쓴다. 경로는 디자이너 원본(`assets/brand/source/runway-logo-designer.png`)에서
+  글자만 딴 것이며(0,0에서 시작하게 옮김), 원본이 바뀌면 다시 만든다. 앱 안에는 PNG를 따로 두지 않는다.
+- 앱 안에서는 색을 하나만 쓴다. 밝은 배경에는 글자색(ink), 어두운 배경에는 흰색이다(`Logo`는 `colors.text`를 따른다).
+  외곽선·그림자를 넣지 않고 비율을 바꾸지 않는다. 가장 작게 쓰는 곳은 커뮤니티 기록 카드의 너비 64px이다.
+- 여백은 로고 높이만큼 사방에 비운다.
+- 이전 로고 원본(워드마크 `assets/images/runway-logo.svg`, 코스 루프 `assets/images/runway-loop-symbol.svg`,
+  R 심볼 `assets/images/runway-symbol.svg`)은 앱 아이콘과 Android 12 스플래시 아이콘이 아직 쓰므로 남겨 둔다.
 - Android 앱 아이콘은 밝은 타일(흰색 → `#E9ECF1` 세로 그라데이션, `drawable/ic_launcher_background.xml`) 위 남색(`#060C1F`) R이다.
   적응형 아이콘(`mipmap-anydpi-v26`)은 108dp 캔버스 중앙 72dp를 최종 1024px 아이콘에 맞춰 R을 41.5dp 너비로 두고,
   Android 13 테마 아이콘용 단색(`monochrome`)도 같은 모양을 쓴다. Android 7 이하는 최종 512px 아이콘을 줄인 `mipmap-*` PNG를 쓴다.
