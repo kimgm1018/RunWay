@@ -80,7 +80,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
 | `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 완료 자유러닝에 코스가 없고 true이면 코스 생성을 시도한다. GPS·경사 자료 부족으로 실패하면 게시물은 생성하고 false로 저장 |
-| `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). `posts.region_code`는 `regions.region_code` 외래키라 없는 코드는 저장되지 않는다(현재 별도 오류 매핑 없음 — 앱은 CMT12에서 받은 코드만 보낸다). 앱은 **코스를 함께 공유하는 글에만**(사용자 결정, S15P31E105-687) 공유 코스의 출발점을 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다. 경로를 숨긴 글·자유 러닝 글은 지역을 판정하지 않고 보내지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
+| `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). `posts.region_code`는 `regions.region_code` 외래키라 없는 코드는 저장되지 않는다(현재 별도 오류 매핑 없음 — 앱은 CMT12에서 받은 코드만 보낸다). 앱은 코스 러닝이면 코스 출발점을, 자유 러닝이면 본인 측정 경로의 첫 유효 좌표를 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다(S15P31E105-725). 코스 공유 여부는 지역 저장 여부에 영향을 주지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
 
 ```json
 {

@@ -1573,7 +1573,7 @@ test('7.3 lets a free run request course sharing', async () => {
   });
 });
 
-// S15P31E105-687 사용자 결정 1번: only a shared course gets a region, from its start, shown on 7.3 before 게시.
+// A run gets a region from its start independently of whether its course is shared (S15P31E105-725).
 function withCourseStart() {
   const { repositories, created } = withRun(true);
   const { getShareable } = repositories.community;
@@ -1607,7 +1607,7 @@ test('7.3 shows 지역 for a shared course and sends it with the post', async ()
   });
 });
 
-test('7.3 hides 지역 and sends none once the course is not shared', async () => {
+test('7.3 keeps 지역 and sends it once the course is not shared', async () => {
   const { repositories, created } = withCourseStart();
   const screen = await openShare(repositories);
   await settle(50);
@@ -1615,25 +1615,32 @@ test('7.3 hides 지역 and sends none once the course is not shared', async () =
 
   await act(async () => courseSwitch(screen).props.onPress());
   await settle(50);
-  expect(texts(screen)).not.toContain('지역:');
+  expect(texts(screen)).toContain('지역: 부산 수영구');
 
   await press(screen, '게시');
   await settle(100);
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
     courseShared: false,
-    regionCode: null,
+    regionCode: '26500',
   });
 });
 
-test('7.3 asks no region for a free run and shows none when none is found', async () => {
+test('7.3 asks the measured start region for a free run and shows none when none is found', async () => {
   const free = withRun(false);
   const freeRegionAt = jest.fn(free.repositories.community.regionAt);
   free.repositories.community.regionAt = freeRegionAt;
   let screen = await openShare(free.repositories);
   await settle(50);
-  expect(freeRegionAt).not.toHaveBeenCalled();
-  expect(texts(screen)).not.toContain('지역:');
+  expect(freeRegionAt).toHaveBeenCalledWith([129.1318, 35.1543]);
+  expect(texts(screen)).toContain('지역: 부산 수영구');
+  await press(screen, '게시');
+  await settle(100);
+  expect(free.created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: false,
+    regionCode: '26500',
+  });
   await act(async () => screen.unmount());
   mounted = null;
 

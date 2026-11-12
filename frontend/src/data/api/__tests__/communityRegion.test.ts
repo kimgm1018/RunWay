@@ -4,8 +4,7 @@ import { createCommunityApi } from '../community';
 import { createRegions } from '../regions';
 import { tokenStore } from '../tokenStore';
 
-// 7.1 지역 고르기 (S15P31E105-687): CMT02 by regionCode, CMT12 grouped by 시·도, and the region of a shared course
-// start, shown on 7.3 and sent with CMT01 only when the course is shared.
+// 7.1 지역 고르기: CMT02 by regionCode, CMT12 grouped by 시·도, and the region of a run start shown on 7.3.
 
 const fetchMock = jest.fn();
 const base = appConfig.apiBaseUrl;
@@ -153,7 +152,7 @@ test('the region an address names: 시·군·구 by its words, else the 시·도
   }
 });
 
-test('CMT01 sends the region 7.3 showed only with a shared course, and never asks the geocoder', async () => {
+test('CMT01 sends the region 7.3 showed independently of course sharing, and never asks the geocoder', async () => {
   server();
   const addressOf = jest.fn(async () => '부산광역시 수영구 광안해변로');
   const api = createCommunityApi({
@@ -174,7 +173,7 @@ test('CMT01 sends the region 7.3 showed only with a shared course, and never ask
     regionCode: '26500',
   });
 
-  // 사용자 결정 1번: a post that keeps its course (or a free run) goes without a region, whatever the draft holds.
+  // Region classification and route disclosure are independent (S15P31E105-725).
   fetchMock.mockClear();
   await api.create('56', {
     body: '경로 숨김',
@@ -185,6 +184,7 @@ test('CMT01 sends the region 7.3 showed only with a shared course, and never ask
     sessionId: 56,
     body: '경로 숨김',
     courseShared: false,
+    regionCode: '26500',
   });
 
   // No region found on 7.3: none is sent.
@@ -196,6 +196,26 @@ test('CMT01 sends the region 7.3 showed only with a shared course, and never ask
     courseShared: true,
   });
   expect(addressOf).not.toHaveBeenCalled();
+});
+
+test('a free run keeps its first measured point only as the post region start', async () => {
+  server();
+  const api = createCommunityApi({
+    records: records(async () =>
+      detail({
+        courseId: null,
+        courseFromFreeRun: false,
+        routeParts: [[], [[128.75, 35.49], [128.76, 35.5]]],
+      }),
+    ),
+    regions: createRegions(),
+  });
+
+  await expect(api.getShareable('55')).resolves.toMatchObject({
+    route: null,
+    regionStart: [128.75, 35.49],
+    courseRun: false,
+  });
 });
 
 test('7.3 지역 is the course start through the geocoder, with its short label', async () => {
