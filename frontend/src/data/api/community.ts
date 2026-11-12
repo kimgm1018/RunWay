@@ -191,10 +191,8 @@ export function createCommunityApi({
   // The phone's full address of a [longitude, latitude] point, with its 시·도.
   addressOf?: (position: [number, number]) => Promise<string | null>;
 }): Repositories['community'] {
-  // The region of a shared course's start (S15P31E105-687, 사용자 결정 1번): only a post that shares its course
-  // gets one, and the point is the course's own start, already public with it, never my GPS track. A phone that
-  // finds nothing or one too slow gives none and the post goes without a region. Only codes from CMT12 come out
-  // (posts.region_code references regions). Coordinates are never logged.
+  // The region of a run's start. A phone that finds nothing or one too slow gives none and the post goes without
+  // a region. Only codes from CMT12 come out (posts.region_code references regions). Coordinates are never logged.
   const regionAt = async (
     position: [number, number],
   ): Promise<PostRegion | null> => {
@@ -396,14 +394,16 @@ export function createCommunityApi({
         place: '',
         courseRun: detail.courseId !== null && !detail.courseFromFreeRun,
         route,
+        // Prefer the course start when one exists. A free run has no course before CMT01 converts it, so retain
+        // only the first measured point needed for coarse region classification (S15P31E105-725).
+        regionStart: route?.[0] ?? detail.routeParts?.find(part => part.length > 0)?.[0] ?? null,
         averageHeartRate: null,
         cadence: null,
       };
     },
     // CMT01 can create the private course from a free run when sharing is requested.
-    // The region 7.3 showed goes along only with a shared course (S15P31E105-687).
+    // The region 7.3 showed belongs to the run, independently of whether its course is shared.
     create: async (recordId, draft) => {
-      const regionCode = draft.courseShared ? draft.regionCode : null;
       const response = await apiRequest<{
         id: number;
         courseShared: boolean;
@@ -414,7 +414,7 @@ export function createCommunityApi({
           sessionId: Number(recordId),
           body: draft.body,
           courseShared: draft.courseShared,
-          ...(regionCode ? { regionCode } : {}),
+          ...(draft.regionCode ? { regionCode: draft.regionCode } : {}),
         },
       });
       return {

@@ -292,6 +292,9 @@ export type PostRecord = RunRecordSummary & {
   // The shared course as GeoJSON [longitude, latitude] points (C03 route), for 7.2's map and 코스 재생; null
   // when the post has no course or the list (CMT02) does not carry it.
   route: [number, number][] | null;
+  // The start used only to classify a new post by region. It may come from my measured route when there is no
+  // course; it is never added to a post response or drawn as a shared route.
+  regionStart?: [number, number] | null;
   courseRun: boolean;
   averageHeartRate: number | null;
   cadence: number | null;
@@ -357,8 +360,7 @@ export type FeedRegionArea = { code: string; name: string };
 export type FeedRegionProvince = FeedRegionArea & { areas: FeedRegionArea[] };
 
 // 7.3 기록 공유 and 7.3e 게시물 수정.
-// regionCode (CMT01, S15P31E105-687): the region 7.3 showed for the shared course's start; it goes only with a
-// shared course and is ignored by an edit (CMT04 has no region).
+// regionCode (CMT01): the region 7.3 showed for the run's start. It is ignored by an edit (CMT04 has no region).
 export type PostDraft = {
   body: string | null;
   courseShared: boolean;
