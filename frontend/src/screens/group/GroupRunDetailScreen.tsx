@@ -71,7 +71,7 @@ import {
 } from './stand';
 import {
   changeLabel,
-  goalSummary,
+  cardGoal,
   GroupPaceCard,
   runKind,
   type PaceChange,
@@ -671,7 +671,7 @@ export function GroupRunDetailScreen() {
                   {run.pace && showPaceCard ? (
                     <GroupPaceCard
                       pace={run.pace}
-                      goalText={goalSummary(run, run.pace.goalSecPerKm)}
+                      goal={cardGoal(run)}
                       change={change}
                       canChangeMode={
                         run.isHost &&

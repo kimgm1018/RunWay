@@ -97,8 +97,12 @@ function Row({
     <>
       <AppText style={styles.rowLabel}>{label}</AppText>
       <View style={styles.rowBody}>
-        <NumText style={styles.rowValue} text={value} />
-        {sub ? <AppText style={styles.sub}>{sub}</AppText> : null}
+        <NumText
+          style={styles.rowValue}
+          numberStyle={styles.rowValueNumber}
+          text={value}
+        />
+        {sub ? <NumText style={styles.sub} text={sub} /> : null}
       </View>
       {applied ? <AppText style={styles.badge}>적용</AppText> : null}
       {onEdit ? <AppText style={styles.edit}>변경</AppText> : null}
@@ -118,6 +122,54 @@ function Row({
   );
 }
 
+// The goal the card compares against (S15P31E105-741): the run's distance when it has one, and its time when the goal
+// was set by time. A course run's distance is the course's, named on the course row above, so it is not repeated.
+export type CardGoal = {
+  distanceM: number | null;
+  durationSec: number | null;
+  showDistance: boolean;
+};
+
+export function cardGoal(
+  run: Pick<
+    GroupRunSummary,
+    'courseName' | 'targetDistanceM' | 'targetDurationSec'
+  >,
+): CardGoal {
+  return {
+    distanceM: run.targetDistanceM,
+    durationSec: run.targetDurationSec,
+    showDistance: !run.courseName && !!run.targetDistanceM,
+  };
+}
+
+const minutes = (seconds: number) => Math.max(1, Math.round(seconds / 60));
+const kmText = (distanceM: number) => {
+  const km = distanceM / 1000;
+  return `${Number.isInteger(km) ? km : km.toFixed(1)}km`;
+};
+
+// The AI row's small line: what the pace is for, and about how long the distance takes at it.
+export function aiSubLine(goal: CardGoal, aiSecPerKm: number) {
+  return goal.distanceM
+    ? `모두가 뛸 수 있는 페이스 · 약 ${minutes(
+        (goal.distanceM / 1000) * aiSecPerKm,
+      )}분`
+    : '모두가 뛸 수 있는 페이스';
+}
+
+// The 목표 row's small line: the time the goal was set by (N분 완주), or the time its pace makes of the distance
+// (예상 N분); nothing when there is neither.
+export function goalSubLine(goal: CardGoal, goalSecPerKm: number | null) {
+  const distance = goal.showDistance && goal.distanceM ? kmText(goal.distanceM) : null;
+  const time = goal.durationSec
+    ? `${minutes(goal.durationSec)}분 완주`
+    : goal.distanceM && goalSecPerKm != null
+    ? `예상 ${minutes((goal.distanceM / 1000) * goalSecPerKm)}분`
+    : null;
+  return [distance, time].filter(Boolean).join(' · ') || null;
+}
+
 export function GroupPaceCard({
   pace,
   change,
@@ -125,11 +177,11 @@ export function GroupPaceCard({
   busy,
   onChangeMode,
   onEditGoal,
-  goalText,
+  goal = { distanceM: null, durationSec: null, showDistance: false },
 }: {
   pace: GroupPaceInfo;
-  // The whole goal for the 목표 row (goalSummary).
-  goalText?: string;
+  // The run's distance and time goal, for the rows' small lines (cardGoal).
+  goal?: CardGoal;
   change: PaceChange | null;
   canChangeMode: boolean;
   busy: boolean;
@@ -141,31 +193,37 @@ export function GroupPaceCard({
   // The applied pace comes from the AI line when it is a member's plan, otherwise from the goal.
   const aiApplied = !calculating && pace.basis === 'MEMBER';
   const goalApplied = !calculating && pace.basis === 'GOAL';
+  // Both rows lead with a pace, large, so the two read side by side; the time is the small line under each
+  // (S15P31E105-741). The applied row is lit and marked 적용, so the pace is not repeated under the title — only
+  // when neither row holds it (계산 중, or the median when no one has records) does it stand there.
   const aiValue = calculating
     ? '계산 중…'
     : pace.aiSecPerKm != null
     ? formatPace(pace.aiSecPerKm)
-    : '기록 부족 · 중앙값';
+    : '기록 부족';
   // Who the recommendation is based on stays off the screen (it would say who is slowest).
   const aiSub =
-    !calculating && pace.aiSecPerKm != null ? '모두가 뛸 수 있는 페이스' : null;
+    !calculating && pace.aiSecPerKm != null
+      ? aiSubLine(goal, pace.aiSecPerKm)
+      : null;
+  const headValue = calculating
+    ? '계산 중…'
+    : !aiApplied && !goalApplied && pace.appliedSecPerKm != null
+    ? `${formatPace(pace.appliedSecPerKm)} · 중앙값`
+    : null;
   const slower = pace.slowerThanGoalCount ?? 0;
   return (
     <View style={styles.card}>
       <View style={styles.head}>
         <AppText style={styles.title}>공동 페이스</AppText>
-        <AppText style={styles.mode}>{paceModeLabel[pace.mode]}</AppText>
+        {headValue ? (
+          <NumText
+            style={styles.applied}
+            numberStyle={styles.appliedNumber}
+            text={headValue}
+          />
+        ) : null}
       </View>
-      <NumText
-        style={styles.applied}
-        text={
-          calculating
-            ? '계산 중…'
-            : pace.appliedSecPerKm != null
-            ? formatPace(pace.appliedSecPerKm)
-            : '—'
-        }
-      />
       {change && !calculating ? (
         <NumText
           style={styles.change}
@@ -178,9 +236,9 @@ export function GroupPaceCard({
       <Row
         label="목표"
         value={
-          goalText ??
-          (pace.goalSecPerKm != null ? formatPace(pace.goalSecPerKm) : '목표 없음')
+          pace.goalSecPerKm != null ? formatPace(pace.goalSecPerKm) : '목표 없음'
         }
+        sub={goalSubLine(goal, pace.goalSecPerKm)}
         applied={goalApplied}
         onEdit={onEditGoal}
       />
@@ -238,23 +296,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: groupTone.text,
   },
-  mode: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupTone.onAccent,
-    backgroundColor: groupTone.accent,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
   applied: {
     fontFamily: fontFamily.bold,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 20,
+    lineHeight: 26,
     color: groupTone.text,
   },
+  // The digits in the weight of the line they sit in (NumText draws them SemiBold on its own).
+  appliedNumber: { fontFamily: fontFamily.numberBold },
   change: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
@@ -272,16 +321,17 @@ const styles = StyleSheet.create({
   rowApplied: { backgroundColor: groupTone.accentSoft },
   rowLabel: {
     width: 60,
-    fontFamily: fontFamily.regular,
+    fontFamily: fontFamily.medium,
     fontSize: 14,
     lineHeight: 19,
     color: groupTone.sub,
   },
-  rowBody: { flex: 1 },
+  rowBody: { flex: 1, gap: 2 },
+  rowValueNumber: { fontFamily: fontFamily.numberBold },
   rowValue: {
-    fontFamily: fontFamily.medium,
-    fontSize: 16,
-    lineHeight: 22,
+    fontFamily: fontFamily.bold,
+    fontSize: 22,
+    lineHeight: 28,
     color: groupTone.text,
   },
   edit: {
