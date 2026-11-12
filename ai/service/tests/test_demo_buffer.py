@@ -76,3 +76,22 @@ def test_subscribe_limit_and_release():
     b, _ = make()
     assert b.subscribe(1) and b.subscribe(1) and not b.subscribe(1)
     b.unsubscribe(1); assert b.subscribe(1)
+
+
+def test_inlet_route_points_total_cap_drops_oldest_session_points():
+    import app.demo.buffer as buf
+    from app.demo.w07 import GpsPoint
+    b, clock = make()
+    old = buf.MAX_TOTAL_ROUTE_POINTS
+    buf.MAX_TOTAL_ROUTE_POINTS = 5
+    try:
+        def pts(n, start=0):
+            return [GpsPoint(type="GPS_POINT", measuredAt=T + timedelta(seconds=start + i), coordinates=(127.0, 37.5),
+                             accuracyM=None, altitudeM=None) for i in range(n)]
+        b.append(1, tr(0)); b.append_route_points(1, pts(4))
+        clock["t"] += timedelta(seconds=5)
+        b.append(2, tr(0)); b.append_route_points(2, pts(4))
+        assert b.course_summary(1) is None and b.course_summary(2) is not None      # 오래된 세션 점부터
+        assert b.traces(1)                                                           # 판단 기록은 남김
+    finally:
+        buf.MAX_TOTAL_ROUTE_POINTS = old
