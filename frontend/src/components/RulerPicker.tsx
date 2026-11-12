@@ -14,6 +14,28 @@ import { AppText } from './AppText';
 
 const tickGap = 12;
 
+// One tick. Memoized, so moving a step redraws only the tick it leaves and the one it reaches, not all of them
+// (S15P31E105-696: the drag stuttered with every tick redrawn).
+const Tick = React.memo(function RulerTick({
+  major,
+  color,
+}: {
+  major: boolean;
+  color: string;
+}) {
+  return (
+    <View style={styles.slot}>
+      <View
+        style={[
+          styles.tick,
+          major ? styles.major : styles.minor,
+          { backgroundColor: color },
+        ]}
+      />
+    </View>
+  );
+});
+
 // A ruler the user drags sideways (러닝 목표 설정, S15P31E105-517): the tick under the middle line is the value,
 // shown big above it. It moves one step per tick and stops on a tick. Screen readers get one adjustable control.
 export function RulerPicker({
@@ -27,6 +49,7 @@ export function RulerPicker({
   color,
   mutedColor,
   style,
+  compact = false,
 }: {
   label: string;
   value: number;
@@ -38,6 +61,8 @@ export function RulerPicker({
   color: string;
   mutedColor: string;
   style?: StyleProp<ViewStyle>;
+  // A smaller value over the ruler, for a form with other fields around it (6.8 그룹런 만들기, S15P31E105-696).
+  compact?: boolean;
 }) {
   // A max that is not a whole number of steps from min (21.1km, a half marathon) gets its own last tick.
   const whole = Math.floor((max - min) / step + 1e-9);
@@ -96,7 +121,10 @@ export function RulerPicker({
       onAccessibilityAction={step1}
       style={style}
     >
-      <AppText style={[styles.value, { color }]} numberOfLines={1}>
+      <AppText
+        style={[styles.value, compact && styles.valueCompact, { color }]}
+        numberOfLines={1}
+      >
         {format(value)}
       </AppText>
       <View
@@ -127,15 +155,11 @@ export function RulerPicker({
             onScroll={onScroll}
           >
             {Array.from({ length: count }, (_, tick) => (
-              <View key={tick} style={styles.slot}>
-                <View
-                  style={[
-                    styles.tick,
-                    tick % 5 === 0 ? styles.major : styles.minor,
-                    { backgroundColor: tick === index ? color : mutedColor },
-                  ]}
-                />
-              </View>
+              <Tick
+                key={tick}
+                major={tick % 5 === 0}
+                color={tick === index ? color : mutedColor}
+              />
             ))}
           </ScrollView>
         ) : null}
@@ -155,6 +179,7 @@ const styles = StyleSheet.create({
     fontSize: 36,
     lineHeight: 44,
   },
+  valueCompact: { fontSize: 22, lineHeight: 28 },
   ruler: { height: 44, justifyContent: 'center' },
   slot: { width: tickGap, alignItems: 'center', justifyContent: 'center' },
   tick: { width: 2, borderRadius: 1 },

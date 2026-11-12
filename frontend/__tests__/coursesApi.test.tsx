@@ -148,6 +148,8 @@ function serve() {
             mergedIntoCourseId: null,
             myAlias: id === 7 ? '내 아침 코스' : null,
             distanceM: 5000,
+            // Course 9 is a private one made from a free run (S15P31E105-696).
+            isPrivate: id === 9,
           })),
         });
       }
@@ -361,6 +363,13 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   await press(screen, '되돌리기');
   expect(hasButton(screen, '5.0km 코스 저장 해제')).toBe(true);
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
+});
+
+// S15P31E105-696: C09 isPrivate reaches the saved course, so 6.8 can leave a free run's private course out.
+test('C09 isPrivate marks a saved private course', async () => {
+  const saved = await createApiRepositories({ latencyMs: 0 }).courses.getSaved();
+  expect(saved.find(course => course.id === '7')?.isPrivate).toBe(false);
+  expect(saved.find(course => course.id === '9')?.isPrivate).toBe(true);
 });
 
 // S15P31E105-612: the card gets the C03 points and draws them as its outline. This C03 has no basemap (an older server

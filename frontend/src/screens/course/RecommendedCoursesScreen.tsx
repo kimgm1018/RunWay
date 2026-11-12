@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { StackActions, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
   Circle,
@@ -37,6 +37,12 @@ import { recommendFailureNotice } from './recommendFailure';
 import { useRequestTicket } from './requestTicket';
 import { RouteLine } from './RouteLine';
 import { RunMap } from '../../components/RunMap';
+import { useOptionalGroupRunDraft } from '../group/parts';
+import { placeAddressOf, placeNameOf } from '../../data/placeName';
+import { CURRENT_PLACE_NAME } from './currentLocation';
+
+// Start names that mean something only to the one who searched; the meeting place gets a real name instead.
+const unnamedStarts = [CURRENT_PLACE_NAME, '지도에서 고른 위치'];
 
 // A fixed place, not my location (S15P31E105-494: no fixed point stands in for 현재 위치).
 const defaultSearch = {
@@ -125,6 +131,7 @@ function ElevationLine({
 
 // 이 코스로 달리기: the white button across the card's foot (runway-course-handoff 3.1b).
 // On the front it floats over the card's foot; on the back it sits under the details.
+// Asked from 6.8 그룹런 만들기, it is 이 코스로 정하기 and hands the course back (S15P31E105-696).
 function ChooseButton({
   onPress,
   inline = false,
@@ -132,10 +139,14 @@ function ChooseButton({
   onPress: () => void;
   inline?: boolean;
 }) {
+  const group = useOptionalGroupRunDraft();
+  const label = group?.draft.pickingCourse
+    ? '이 코스로 정하기'
+    : '이 코스로 달리기';
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="이 코스로 달리기"
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.choose,
@@ -143,7 +154,7 @@ function ChooseButton({
         pressed && styles.pressed,
       ]}
     >
-      <AppText style={styles.chooseText}>이 코스로 달리기</AppText>
+      <AppText style={styles.chooseText}>{label}</AppText>
     </Pressable>
   );
 }
@@ -449,6 +460,7 @@ export function RecommendedCoursesScreen() {
   const navigation = useNavigation();
   const { courses } = useRepositories();
   const toast = useToast();
+  const group = useOptionalGroupRunDraft();
   const {
     search,
     results,
@@ -599,8 +611,61 @@ export function RecommendedCoursesScreen() {
   };
   // Storing a new route takes a moment; a second tap meanwhile does not open 2.0 twice.
   const picking = useRef(false);
+  // 6.8 asked for this course (S15P31E105-696): it is stored and saved (C10 · C07), and goes back with the finish
+  // time and start of the search, which become the group run's goal and meeting place.
+  const pickForGroupRun = async (course: RecommendedCourse) => {
+    if (!group) {
+      return;
+    }
+    picking.current = true;
+    let id: string;
+    try {
+      id = await courses.save(course.id);
+    } catch (error) {
+      toast(
+        generatedFailure(error) ??
+          '코스를 정하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      return;
+    } finally {
+      picking.current = false;
+    }
+    const origin = search?.origin ?? defaultSearch.origin;
+    // The start's address from the phone's geocoder; none found leaves it blank rather than showing coordinates.
+    const [address, found] = await Promise.all([
+      placeAddressOf(origin.position),
+      unnamedStarts.includes(origin.name)
+        ? placeNameOf(origin.position)
+        : Promise.resolve(null),
+    ]);
+    group.setPicked({
+      course: {
+        id,
+        name: withoutDistance(course.name),
+        distanceM: course.distanceM,
+        route: course.route,
+      },
+      minutes: Math.round(
+        (search?.targetDurationSec ?? course.estimatedDurationSec) / 60,
+      ),
+      place: {
+        name: found ?? origin.name,
+        // None found leaves it blank rather than showing coordinates.
+        address: address ?? '',
+        position: origin.position,
+        distanceM: 0,
+        note: null,
+      },
+    });
+    group.setPickingCourse(false);
+    navigation.dispatch(StackActions.popTo('GroupRunCreate'));
+  };
   const choose = async (course: RecommendedCourse) => {
     if (picking.current) {
+      return;
+    }
+    if (group?.draft.pickingCourse) {
+      await pickForGroupRun(course);
       return;
     }
     picking.current = true;

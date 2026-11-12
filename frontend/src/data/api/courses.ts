@@ -46,6 +46,8 @@ type BookmarkItem = {
   mergedIntoCourseId?: number | null;
   myAlias: string | null;
   distanceM: number;
+  // A private course made from a free run (S15P31E105-696); missing on an older server.
+  isPrivate?: boolean;
 };
 
 const courseStatuses: readonly CourseStatus[] = ['ACTIVE', 'MERGED', 'BLOCKED'];
@@ -278,6 +280,7 @@ export function createCoursesApi({
           status,
           mergedIntoCourseId,
           basemap: basemapOf(course.basemap),
+          isPrivate: item.isPrivate === true,
         };
       }),
     );
@@ -435,6 +438,7 @@ export function createCoursesApi({
         return mock.save(id);
       }
       await apiRequest(`/courses/${id}/bookmark`, { method: 'PUT' });
+      return id;
     },
     // C08 succeeds even when the course was not saved.
     unsave: async courseId => {

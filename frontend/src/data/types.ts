@@ -180,6 +180,9 @@ export type SavedCourse = {
   mergedIntoCourseId?: string | null;
   // The course's map thumbnail (C03 basemap, S15P31E105-612); null or left out draws the outline only.
   basemap?: CourseBasemap | null;
+  // C09 isPrivate: a private course made from a free run, which a group run cannot use (S15P31E105-696).
+  // Missing on an older server reads as public.
+  isPrivate?: boolean;
 };
 
 // C03 basemap (S15P31E105-612): a server-rendered 600×900 (2:3) PNG of the flat OpenStreetMap map round a course with
@@ -1373,7 +1376,8 @@ export type Repositories = {
       value: RecommendationPreferences,
     ) => Promise<RecommendationPreferences>;
     recommend: (search: CourseSearch) => Promise<CourseRecommendations>;
-    save: (courseId: string) => Promise<void>;
+    // Answers the stored course's id: a C01 route is stored (C10) first, so 6.8 can use it (S15P31E105-696).
+    save: (courseId: string) => Promise<string>;
     unsave: (courseId: string) => Promise<void>;
     choose: (courseId: string) => Promise<void>;
     // 4.5F 내 코스에 저장: turns a free run's path into a saved course.

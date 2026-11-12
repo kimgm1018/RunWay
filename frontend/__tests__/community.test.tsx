@@ -1842,7 +1842,8 @@ test('7.1 저장 shows at once through CMT16 and goes back when the server refus
 async function openSharedPost(
   mine: boolean,
   shared: boolean,
-  save: () => Promise<void>,
+  // courses.save answers the stored course's id (S15P31E105-696).
+  save: () => Promise<string>,
   freeRun = false,
 ) {
   const repositories = createMockRepositories({ latencyMs: 0 });
@@ -1872,7 +1873,7 @@ const saveButtons = (screen: Screen) =>
   );
 
 test('7.2 saves another runner’s shared course as mine, once', async () => {
-  const save = jest.fn(() => Promise.resolve());
+  const save = jest.fn(() => Promise.resolve('77'));
   const screen = await openSharedPost(false, true, save);
   expect(saveButtons(screen)).toHaveLength(1);
   await press(screen, '내 코스에 저장');

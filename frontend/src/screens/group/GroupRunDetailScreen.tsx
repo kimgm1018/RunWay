@@ -460,7 +460,14 @@ export function GroupRunDetailScreen() {
             <RunMap
               muted={cancelled}
               route={run.route ?? undefined}
-              position={run.route ? undefined : run.meetingPosition}
+              // The meeting place need not be the course's start, so it stands over the course too, with its
+              // name in a bubble (S15P31E105-696).
+              position={run.meetingPosition}
+              placeLabel={
+                run.route && !cancelled
+                  ? { title: run.meetingPlaceName, sub: '만나는 곳' }
+                  : undefined
+              }
               area={
                 run.route
                   ? { top: 0.12, bottom: 0.88 }

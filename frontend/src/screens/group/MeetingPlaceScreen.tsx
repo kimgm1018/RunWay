@@ -21,6 +21,7 @@ import {
 } from '../../components';
 import { RunMap, type RunMapRef } from '../../components/RunMap';
 import { useRepositories, type MeetingPlace } from '../../data';
+import { placeAddressOf, placeNameOf } from '../../data/placeName';
 import { distanceM, type LngLat } from '../../geo';
 import {
   fontFamily,
@@ -41,8 +42,9 @@ const formatDistance = (meters: number | null) =>
     ? `${(meters / 1000).toFixed(1)}km`
     : `${Math.round(meters)}m`;
 
-// Map taps have no reverse geocoding (group-runs.md). Keep a fixed address placeholder instead of
-// lat/lng text so the saved meetingAddress is not mistaken for a road address (S15P31E105-637).
+// A point picked on the map or at my location gets its name and address from the phone's geocoder
+// (S15P31E105-696). Until it answers, or when it finds nothing, a fixed placeholder stands in rather than
+// lat/lng text, so the saved meetingAddress is not mistaken for a road address (S15P31E105-637).
 const mapPickedAddress = '지도에서 선택한 위치';
 
 function mapPlace(
@@ -158,6 +160,29 @@ export function MeetingPlaceScreen() {
     setQuery('');
   };
 
+  // A point on the map shows at once under its placeholder, then takes the name and address the phone finds.
+  // A later pick in the meantime keeps its own: the answer only lands on the point it was asked for.
+  const pickPoint = (point: LngLat, fallbackName: string, from: LngLat | null) => {
+    const place = mapPlace(point, fallbackName, from);
+    setPicked(place);
+    Promise.all([placeNameOf(point), placeAddressOf(point)]).then(
+      ([name, address]) => {
+        if (!name && !address) {
+          return;
+        }
+        setPicked(current =>
+          current?.position === point
+            ? {
+                ...current,
+                name: name ?? current.name,
+                address: address ?? current.address,
+              }
+            : current,
+        );
+      },
+    );
+  };
+
   // 내 위치로: with the location permission the map follows me once; without it the nearest place.
   const goToMe = async () => {
     if (!(await locationAllowed())) {
@@ -186,7 +211,7 @@ export function MeetingPlaceScreen() {
           logo={{ above: 0.255 }}
           onTapMap={point => {
             setConfirming(false);
-            setPicked(mapPlace(point, '지도에서 고른 위치', me));
+            pickPoint(point, '지도에서 고른 위치', me);
           }}
           onCameraIdle={center => {
             if (!locating.current) {
@@ -196,7 +221,7 @@ export function MeetingPlaceScreen() {
             map.current?.setLocationTrackingMode('NoFollow');
             setMe(center);
             setConfirming(false);
-            setPicked(mapPlace(center, '내 위치', center));
+            pickPoint(center, '내 위치', center);
           }}
           style={StyleSheet.absoluteFill}
         />

@@ -204,13 +204,13 @@ export function goalPatchBody(
   };
 }
 
-// The run's goal for G01/G04. The server wants a distance with every goal, so only a course run sends one:
-// TIME with the course distance sent explicitly, as G04 would otherwise keep the old goal's distance.
-// A free run sends none; G04 rejects null goal fields, so a run made free keeps its saved goal.
+// The run's goal for G01/G04. The server wants a distance with every goal: TIME with the distance sent
+// explicitly, as G04 would otherwise keep the old goal's distance. A course run sends the course's distance and a
+// free run the distance it picked (S15P31E105-696); a run with no distance sends none.
 function goalOf(draft: Omit<GroupRunDraft, 'crewId'>) {
   const distanceM = Math.round(draft.targetDistanceM ?? 0);
   const durationSec = Math.round(draft.targetDurationSec ?? 0);
-  return draft.courseId !== null && distanceM > 0 && durationSec > 0
+  return distanceM > 0 && durationSec > 0
     ? {
         goalInputType: 'TIME' as const,
         targetDistanceM: distanceM,
