@@ -15,6 +15,58 @@ import type { Regions } from './regions';
 import { shapeOfRoute } from '../../geo';
 import { basemapOf } from './basemap';
 
+// C12 출발 전 코스 페이스 계획 (S15P31E105-733): S01 plan과 같은 모양, 저장하지 않는다.
+export type PacePlanResponse = {
+  courseId: number;
+  recommendedPaceSecPerKm: number;
+  segments: {
+    sequence: number;
+    startDistanceM: number;
+    endDistanceM: number;
+    recommendedPaceSecPerKm: number;
+  }[];
+  personalized: boolean;
+};
+
+// The AI plan takes about 3s (40s at worst on the server); the screen waits at most this long, then shows the course
+// without km paces.
+const planTimeoutMs = 8_000;
+
+// A short read of the plan's shape for 오늘의 전략, from the km paces against their mean.
+function strategyOf(paces: number[]) {
+  const mean = paces.reduce((sum, value) => sum + value, 0) / paces.length;
+  const first = paces[0];
+  const last = paces[paces.length - 1];
+  const parts = [
+    first > mean + 3 ? '초반 안정' : first < mean - 3 ? '초반 빠르게' : null,
+    last < mean - 3 ? '후반 가속' : last > mean + 3 ? '후반 여유' : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length ? parts.join(' → ') : '고른 페이스';
+}
+
+// C12 → the plan fields of 2.0. null when the server sent no km segments.
+export function planFromServer(plan: PacePlanResponse) {
+  if (!plan.segments.length) {
+    return null;
+  }
+  const paces = plan.segments.map(segment => segment.recommendedPaceSecPerKm);
+  return {
+    segmentPacesSecPerKm: paces,
+    targetPaceSecPerKm: plan.recommendedPaceSecPerKm,
+    expectedDurationSec: Math.round(
+      plan.segments.reduce(
+        (sum, segment) =>
+          sum +
+          ((segment.endDistanceM - segment.startDistanceM) / 1000) *
+            segment.recommendedPaceSecPerKm,
+        0,
+      ),
+    ),
+    strategy: strategyOf(paces),
+    planSource: plan.personalized ? ('PERSONAL' as const) : ('AVERAGE' as const),
+  };
+}
+
 // C01·C03·C07·C08·C09·C10 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
 
@@ -395,28 +447,42 @@ export function createCoursesApi({
     return result;
   };
 
-  // 2.0 shows only what the server knows about the chosen course: its name, distance, route and expected time.
-  // There is no pace plan API yet, so no mock strategy, caution or km paces stand in, and without a chosen server
-  // course (nothing picked yet, or after a restart) there is no plan (S15P31E105-635).
-  const getTodayPlan: Repositories['courses']['getTodayPlan'] = async () => {
+  // 2.0 shows what the server knows about the chosen course: its name, distance, route and expected time, and since
+  // S15P31E105-733 the km paces of C12's pre-run plan (the same plan S01 would store). Without that plan (slow AI,
+  // 503) the course still shows as before, so the run can start. Without a chosen server course there is no plan
+  // (S15P31E105-635).
+  const getTodayPlan: Repositories['courses']['getTodayPlan'] = async options => {
     if (!chosen || !isServerId(chosen)) {
       return null;
     }
+    const courseId = chosen;
     const paceSecPerKm = await pace();
-    const course = await detail(chosen, paceSecPerKm);
+    const [course, server] = await Promise.all([
+      detail(courseId, paceSecPerKm),
+      options?.pacePlan
+        ? apiRequest<PacePlanResponse>(`/courses/${courseId}/pace-plan`, {
+            timeoutMs: planTimeoutMs,
+          }).catch(() => null)
+        : null,
+    ]);
+    const planned = server ? planFromServer(server) : null;
     const result: CoursePlan = {
-      courseId: chosen,
+      courseId,
       name:
         course.myAlias ??
-        named.get(chosen) ??
+        named.get(courseId) ??
         `${kmLabel(course.distanceM)} 코스`,
       distanceM: course.distanceM,
       route: course.route.coordinates,
       unmeasuredEdges: course.unmeasuredEdges ?? [],
-      segmentPacesSecPerKm: [],
-      strategy: null,
+      segmentPacesSecPerKm: planned?.segmentPacesSecPerKm ?? [],
+      planSource: planned?.planSource ?? null,
+      strategy: planned?.strategy ?? null,
+      // Kept null on purpose: a plan pace here would turn the run's goal from none into this pace (goal kind PLAN)
+      // and change what S01 stores. Without a goal S01 stores the same AI plan this preview shows (review A-3/B-2).
       targetPaceSecPerKm: null,
       expectedDurationSec:
+        planned?.expectedDurationSec ??
         course.estimatedDurationSec ??
         Math.round((course.distanceM / 1000) * paceSecPerKm),
       caution: null,
