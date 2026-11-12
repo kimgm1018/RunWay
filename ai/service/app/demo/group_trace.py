@@ -64,7 +64,7 @@ def build_group_trace(body, response, detail: dict, *, boot_id: str, seq: int, s
     members = []
     for item in detail.get("members", []):
         history = item["history"]
-        hr_now, _, pace_now = recent_inputs(history)
+        hr_now, speed_now, pace_now = recent_inputs(history)
         allow = item["allow"]
         upper = item["upper"] or [None] * len(paces)
         pred = item["pred"] or [[None] * 3] * len(paces)
@@ -72,6 +72,7 @@ def build_group_trace(body, response, detail: dict, *, boot_id: str, seq: int, s
         members.append({
             "_order": index, "label": f"러너 {index + 1}",
             "hrNowBpm": _r(hr_now), "paceNowSecPerKm": _r(pace_now),
+            "speedNowMps": _r(speed_now),                                    # 724 표시용(최근 약 60초 평균 속도)
             "allowBpm": _r(allow), "dangerBpm": _r(item.get("danger")),
             "predHrBpm": [[_r(v) for v in row] for row in pred],          # 후보별 30·60·120초
             "predHr120Bpm": [_r(row[2]) if row and row[2] is not None else None for row in pred],
