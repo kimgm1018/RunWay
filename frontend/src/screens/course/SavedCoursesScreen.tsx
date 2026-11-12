@@ -507,11 +507,15 @@ export function splitTitle(title: string) {
 function SavedCard({
   course,
   height,
+  width,
   onOpen,
   onUnsave,
 }: {
   course: SavedCourse;
   height: number;
+  // The grid's measured per-card width (S15P31E105-749): null until known, so the first paint falls
+  // back to styles.card's percentage width rather than collapsing to 0.
+  width: number | null;
   onOpen: () => void;
   onUnsave: () => void;
 }) {
@@ -526,6 +530,7 @@ function SavedCard({
       style={({ pressed }) => [
         styles.card,
         { height },
+        width != null && { width },
         pressed && styles.pressed,
       ]}
     >
@@ -598,6 +603,11 @@ export function SavedCoursesScreen() {
   const [area, setArea] = useState(0);
   // Three rows fit the screen: 15 under the tabs and at the bottom, 10 between.
   const cardHeight = area ? Math.max(200, (area - 15 * 2 - 10 * 2) / 3) : 245;
+  // The grid's own measured width (S15P31E105-749): styles.card's fixed '48.6%' plus the grid's fixed
+  // 10dp gap only adds up to two per row on wide-enough screens, so narrower phones wrapped to one
+  // column. Two cards' width is computed from the real container width instead, same as cardHeight.
+  const [gridWidth, setGridWidth] = useState(0);
+  const cardWidth = gridWidth ? (gridWidth - 10) / 2 : null;
   const [items, setItems] = useState<SavedCourse[] | null>(null);
   useEffect(() => {
     if (resource.status === 'ready') {
@@ -658,12 +668,16 @@ export function SavedCoursesScreen() {
             onAction={() => navigateTo(navigation, 'TodayRun')}
           />
         ) : (
-          <View style={styles.grid}>
+          <View
+            style={styles.grid}
+            onLayout={event => setGridWidth(event.nativeEvent.layout.width)}
+          >
             {items?.map(course => (
               <SavedCard
                 key={course.id}
                 course={course}
                 height={cardHeight}
+                width={cardWidth}
                 onOpen={() => open(course)}
                 onUnsave={() => unsave(course)}
               />
@@ -680,7 +694,9 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 15, paddingVertical: 15, gap: spacing.xl },
   pressed: { opacity: 0.85 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  // Two per row (175 wide on a 390 screen), corners of 22.
+  // Two per row, corners of 22. '48.6%' is only the fallback before the grid's width is measured
+  // (SavedCoursesScreen computes the real per-card width from it, S15P31E105-749); the gap's 10dp was
+  // not accounted for here, so it alone broke to one column on narrower screens.
   card: {
     width: '48.6%',
     borderRadius: 22,
