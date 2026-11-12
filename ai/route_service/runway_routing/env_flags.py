@@ -6,7 +6,7 @@ kept the normal path; RUNWAY_ARRAY_LOOP / RUNWAY_ARRAY_SHAPES already used this 
 Normal values ("0", "1", unset) behave exactly as before.
 
 RUNWAY_SP_ASTAR (shortest_path.py), RUNWAY_FAST_ROUTING, RUNWAY_FAST_EDGE_ARRAYS and RUNWAY_TRAFFIC_DIST_FAST (graph.py), RUNWAY_GATE_FAST_CONTEXT
-(gate.py), RUNWAY_ARRAY_PAIR_KERNELS and RUNWAY_ADAPTER_REUSE (array_graph.py), RUNWAY_P2P_MASK_FAST (substrate.py), all
+(gate.py), RUNWAY_ARRAY_PAIR_KERNELS and RUNWAY_ADAPTER_REUSE (array_graph.py), RUNWAY_P2P_MASK_FAST (substrate.py), RUNWAY_OAB_LAZY_PATHS (candidates.py), all
 default 1, use this rule.
 Not covered here on purpose: RUNWAY_SP_ENGINE / RUNWAY_SP_KERNEL (enums, shortest_path.py), RUNWAY_NETWORK_STORE /
 RUNWAY_SOURCE_SNAPSHOT ("0" = off, otherwise a directory path), RUNWAY_GRAPH_CACHE_SIZE / RUNWAY_MASK_CACHE_SIZE
