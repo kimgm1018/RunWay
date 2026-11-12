@@ -123,7 +123,7 @@ export function RunModeScreen() {
     <Screen withTabBar scroll={false} contentStyle={styles.content}>
       <View style={styles.center}>
         <View style={styles.header}>
-          <Logo width={34} symbol />
+          <Logo width={120} />
         </View>
         <AppText
           accessibilityRole="header"
