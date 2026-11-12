@@ -213,6 +213,39 @@ test('5.1 draws the record route on the map in its parts and plays it back from 
   await act(async () => screen.unmount());
 });
 
+// My run's replay waits for its map's first tiles under the same loading cover as 7.2's (S15P31E105-719).
+test('경로 재생 shows a loading cover until its map has drawn', async () => {
+  const naverMap = jest.requireMock('@mj-studio/react-native-naver-map') as {
+    __holdMapsLoaded: (held: boolean) => void;
+    __loadHeldMaps: () => void;
+  };
+  naverMap.__holdMapsLoaded(true);
+  try {
+    const screen = await card({ routeParts: [first, second] });
+    await act(async () => {
+      screen.root
+        .find(
+          node =>
+            node.props.accessibilityLabel === '경로 재생' &&
+            typeof node.props.onPress === 'function',
+        )
+        .props.onPress();
+    });
+    const loading = () =>
+      screen.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'replay-map-loading',
+      ).length;
+    expect(loading()).toBe(1);
+    await act(async () => naverMap.__loadHeldMaps());
+    expect(loading()).toBe(0);
+    await act(async () => screen.unmount());
+  } finally {
+    naverMap.__holdMapsLoaded(false);
+  }
+});
+
 test('5.1 says a run without a route has none, with no map and no replay', async () => {
   for (const routeParts of [null, [north(0, 10)]]) {
     const screen = await card({ routeParts });

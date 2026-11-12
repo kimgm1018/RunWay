@@ -449,6 +449,83 @@ test('7.2 keeps the end of the sheet clear of a comment bar that grew', async ()
   ).toBeGreaterThanOrEqual(115 + 16);
 });
 
+// The replay waits for its map's first tiles (onMapLoaded) under a loading cover, so the intro is never played
+// over a blank map; a map that never says so starts after a limit (S15P31E105-719).
+const naverMap = jest.requireMock('@mj-studio/react-native-naver-map') as {
+  __holdMapsLoaded: (held: boolean) => void;
+  __loadHeldMaps: () => void;
+};
+const replayKm = (screen: Screen) =>
+  parseFloat(
+    (
+      screen.root.find(
+        node =>
+          typeof node.props.accessibilityLabel === 'string' &&
+          node.props.accessibilityLabel.startsWith('거리 ') &&
+          node.props.accessibilityLabel.endsWith('km'),
+      ).props.accessibilityLabel as string
+    ).slice(3),
+  );
+const replayLoading = (screen: Screen) =>
+  screen.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.testID === 'replay-map-loading',
+  ).length;
+
+test('the replay holds under a loading cover until its map has drawn, then plays', async () => {
+  naverMap.__holdMapsLoaded(true);
+  try {
+    const screen = await openCommunity();
+    await press(screen, 'minjun.run의 게시물 열기');
+    await settle(50);
+    await press(screen, '코스 재생');
+    expect(replayLoading(screen)).toBe(1);
+    expect(texts(screen)).toContain('지도를 불러오는 중이에요');
+    // Five seconds in, the map still has not drawn: nothing has started.
+    for (let step = 0; step < 10; step++) {
+      await settle(500);
+    }
+    expect(replayLoading(screen)).toBe(1);
+    expect(replayKm(screen)).toBe(0);
+    // The tiles are in: the cover goes, and after the hold and the swoop the run plays.
+    await act(async () => naverMap.__loadHeldMaps());
+    await settle();
+    expect(replayLoading(screen)).toBe(0);
+    for (let step = 0; step < 10; step++) {
+      await settle(500);
+    }
+    expect(replayKm(screen)).toBeGreaterThan(0);
+    await press(screen, '코스 재생 닫기');
+  } finally {
+    naverMap.__holdMapsLoaded(false);
+  }
+});
+
+test('a replay whose map never says it has drawn starts after the limit', async () => {
+  naverMap.__holdMapsLoaded(true);
+  try {
+    const screen = await openCommunity();
+    await press(screen, 'minjun.run의 게시물 열기');
+    await settle(50);
+    await press(screen, '코스 재생');
+    for (let step = 0; step < 15; step++) {
+      await settle(500);
+    }
+    expect(replayLoading(screen)).toBe(1);
+    // Past eight seconds the cover goes anyway, and the run plays after the hold and the swoop.
+    for (let step = 0; step < 12; step++) {
+      await settle(500);
+    }
+    expect(replayLoading(screen)).toBe(0);
+    expect(replayKm(screen)).toBeGreaterThan(0);
+    await press(screen, '코스 재생 닫기');
+  } finally {
+    naverMap.__holdMapsLoaded(false);
+    await act(async () => naverMap.__loadHeldMaps());
+  }
+});
+
 // A feed page opens 7.2, and 7.2's map plays the course back: the distance counts up, a tap pauses and resumes,
 // and it ends on the run's full distance (S15P31E105-561, 담당자 레퍼런스).
 test('a feed page opens 7.2, whose map plays the course from the start with pause and replay', async () => {
