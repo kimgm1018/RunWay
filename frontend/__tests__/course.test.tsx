@@ -1,7 +1,9 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Animated, StyleSheet, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
+import { RunMap } from '../src/components/RunMap';
+import { RouteLine } from '../src/screens/course/RouteLine';
 import {
   createMockRepositories,
   DataError,
@@ -401,6 +403,113 @@ test('recommended courses turn over to their detail and lead to the course run',
   expect(texts(screen)).toContain('민락수변공원 출발 5.0km');
   expect(texts(screen)).not.toContain('민락수변공원 출발 5.0km · 5.0km');
   await act(async () => screen.unmount());
+});
+
+test('course cards hide the away-facing content through repeated turns', async () => {
+  const screen = await openTodayRun();
+  let animation: jest.SpyInstance | undefined;
+  try {
+    await press(screen, '코스 추천 받기');
+    // Native-driver animations do not advance in Jest. Drive their value directly,
+    // keeping the real card's opacity interpolation and touch/accessibility state.
+    animation = jest
+      .spyOn(Animated, 'timing')
+      .mockImplementation((value, config) => ({
+        start: () => {
+          if (
+            value instanceof Animated.Value &&
+            typeof config.toValue === 'number'
+          ) {
+            value.setValue(config.toValue);
+          }
+        },
+        stop: () => undefined,
+        reset: () => undefined,
+      }));
+    const face = (side: 'front' | 'back', card = 0) =>
+      screen.root
+        .findAllByType(Animated.View)
+        .filter(
+          node =>
+            StyleSheet.flatten(node.props.style)?.backfaceVisibility ===
+            'hidden',
+        )[card * 2 + (side === 'front' ? 0 : 1)];
+    const opacity = (side: 'front' | 'back') => {
+      const value = StyleSheet.flatten(face(side).props.style).opacity;
+      return typeof value === 'object' ? value.__getValue() : value ?? 1;
+    };
+    const expectFace = (back: boolean) => {
+      expect(opacity('front')).toBe(back ? 0 : 1);
+      expect(opacity('back')).toBe(back ? 1 : 0);
+      expect(face('front').props.pointerEvents).toBe(back ? 'none' : 'auto');
+      expect(face('back').props.pointerEvents).toBe(back ? 'auto' : 'none');
+      expect(face('front').props.accessibilityElementsHidden).toBe(back);
+      expect(face('back').props.accessibilityElementsHidden).toBe(!back);
+    };
+    const frontMap = face('front').findByType(RunMap);
+    const loadingMap = (card = 0) =>
+      face('front', card).findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === '코스 지도 불러오는 중',
+      );
+    // Before the native camera is ready, a neutral loading cover replaces the
+    // old mist/route illustration on every recommendation, including previews.
+    expect(loadingMap()).toHaveLength(1);
+    expect(screen.root.findAllByType(RouteLine)).toHaveLength(0);
+    await act(async () => frontMap.props.onShown());
+    expect(loadingMap()).toHaveLength(0);
+    expectFace(false);
+    for (let turn = 0; turn < 3; turn++) {
+      await press(screen, '민락수변공원 출발 5.0km, 코스 정보 보기');
+      // Keep the same map behind the turning front, rather than flashing a
+      // different mist/route card and recreating the native map on return.
+      expect(face('front').findByType(RunMap)).toBe(frontMap);
+      expect(loadingMap()).toHaveLength(0);
+      expectFace(true);
+      await act(async () => {
+        face('back')
+          .findAll(
+            node =>
+              node.props.accessibilityLabel === '앞면으로 돌아가기' &&
+              typeof node.props.onPress === 'function',
+          )[0]
+          .props.onPress();
+      });
+      expect(face('front').findByType(RunMap)).toBe(frontMap);
+      expectFace(false);
+    }
+    const carousel = screen.root
+      .findAll(
+        node =>
+          node.props.horizontal &&
+          typeof node.props.onMomentumScrollEnd === 'function',
+      )
+      .at(-1)!;
+    const width = StyleSheet.flatten(
+      labelled(screen, '민락수변공원 출발 5.0km, 코스 정보 보기').props.style,
+    ).width as number;
+    await act(async () => {
+      carousel.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: width + 8 } },
+      });
+    });
+    expect(face('front').findAllByType(RunMap)).toHaveLength(0);
+    expect(loadingMap(1)).toHaveLength(1);
+    const nextMap = face('front', 1).findByType(RunMap);
+    await act(async () => nextMap.props.onShown());
+    expect(loadingMap(1)).toHaveLength(0);
+    await act(async () => {
+      carousel.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: 0 } },
+      });
+    });
+    expect(loadingMap()).toHaveLength(1);
+    expect(face('front').findByType(RunMap)).not.toBe(frontMap);
+  } finally {
+    await act(async () => screen.unmount());
+    animation?.mockRestore();
+  }
 });
 
 test('a recommended course with a goal of its own asks whether to keep the goal set on the map (S15P31E105-683)', async () => {

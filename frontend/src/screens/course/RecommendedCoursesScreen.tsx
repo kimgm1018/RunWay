@@ -19,14 +19,7 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import {
-  AppText,
-  Backdrop,
-  Button,
-  Icon,
-  MistFill,
-  useToast,
-} from '../../components';
+import { AppText, Backdrop, Button, Icon, useToast } from '../../components';
 import { errorCode, useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -35,7 +28,6 @@ import { fontFamily, k1, palette } from '../../theme';
 import { MAX_REROLLS, useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
 import { useRequestTicket } from './requestTicket';
-import { RouteLine } from './RouteLine';
 import { RunMap } from '../../components/RunMap';
 import { useOptionalGroupRunDraft } from '../group/parts';
 import { placeAddressOf, placeNameOf } from '../../data/placeName';
@@ -219,8 +211,49 @@ function Pill({ label, small = false }: { label: string; small?: boolean }) {
 const routeTop = 70;
 const routeFoot = 340;
 
-// One 3.1b card: the course line on the front, the course detail on the back. Tapping turns it over.
-// Both faces are course cards (DESIGN.md 2-7), so everything on them reads the dark tone.
+function MapLoading() {
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityRole="progressbar"
+      accessibilityLabel="코스 지도 불러오는 중"
+      style={[StyleSheet.absoluteFill, styles.mapCard]}
+    >
+      <View style={styles.route}>
+        <ActivityIndicator color="#56646C" />
+      </View>
+    </View>
+  );
+}
+
+// A new map stays covered until its camera settles. Unmounting this component
+// when the card leaves view also resets readiness for its next native map.
+function CourseMap({
+  course,
+  height,
+}: {
+  course: RecommendedCourse;
+  height: number;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <RunMap
+        route={course.route}
+        area={{ top: routeTop / height, bottom: routeFoot / height }}
+        logo={{ above: (height - routeFoot) / height }}
+        interactive={false}
+        look="mint"
+        textureView
+        onShown={() => setShown(true)}
+        style={StyleSheet.absoluteFill}
+      />
+      {!shown ? <MapLoading /> : null}
+    </View>
+  );
+}
+
+// One 3.1b card: the map on the front, the course detail on the back. Tapping turns it over.
 function CourseCard({
   course,
   width,
@@ -233,8 +266,7 @@ function CourseCard({
   course: RecommendedCourse;
   width: number;
   height: number;
-  // The card in view draws the course on the map (S15P31E105-683, 담당자 요청); the others keep the mist and the bare
-  // line, so only one native map runs while the row is swiped.
+  // Only the card in view runs a native map; the others show a neutral loading cover.
   live: boolean;
   // The pace asked for on 3.1, shown as 목표 6′00″/km.
   goalPace: number | null;
@@ -244,13 +276,20 @@ function CourseCard({
   const [back, setBack] = useState(false);
   const turn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(turn, {
+    const animation = Animated.timing(turn, {
       toValue: back ? 1 : 0,
       duration: 450,
       useNativeDriver: true,
-    }).start();
+    });
+    animation.start();
+    return () => animation.stop();
   }, [back, turn]);
   const face = (from: string, to: string) => ({
+    // As on the analysis card, explicitly hide the away-facing half on Android.
+    opacity: turn.interpolate({
+      inputRange: [0, 0.5, 0.5001, 1],
+      outputRange: from === '0deg' ? [1, 1, 0, 0] : [0, 0, 1, 1],
+    }),
     transform: [
       { perspective: 1200 },
       {
@@ -274,34 +313,17 @@ function CourseCard({
       <Animated.View
         style={[styles.face, face('0deg', '180deg')]}
         pointerEvents={back ? 'none' : 'auto'}
+        accessibilityElementsHidden={back}
+        importantForAccessibility={back ? 'no-hide-descendants' : 'auto'}
       >
-        {/* runway-course-handoff 3.1b: the mist card with the bare course line, a darker foot and the details. */}
-        <View style={[styles.faceCard, styles.mistCard]}>
-          <MistFill id={`course${course.id}`} />
-          {live && !back ? (
-            // The run map's look: bright, the mint course and its start, in a TextureView so the card's round
-            // corners clip it. It takes no touches, so a tap still turns the card over; turned over, it goes.
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              <RunMap
-                route={course.route}
-                area={{ top: routeTop / height, bottom: routeFoot / height }}
-                logo={{ above: (height - routeFoot) / height }}
-                interactive={false}
-                look="mint"
-                textureView
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
+        <View style={[styles.faceCard, styles.mistCard, styles.mapCard]}>
+          {live ? (
+            // Keep the map mounted through a flip; only the face's opacity hides it.
+            <CourseMap course={course} height={height} />
           ) : (
-            <View style={styles.route}>
-              <RouteLine route={course.route} thin />
-            </View>
+            <MapLoading />
           )}
-          <CardFoot
-            id={`foot${course.id}`}
-            width={width}
-            deep={live && !back}
-          />
+          <CardFoot id={`foot${course.id}`} width={width} deep />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={course.saved ? '저장 해제' : '내 코스에 저장'}
@@ -366,10 +388,10 @@ function CourseCard({
       <Animated.View
         style={[styles.face, face('180deg', '360deg')]}
         pointerEvents={back ? 'auto' : 'none'}
+        accessibilityElementsHidden={!back}
+        importantForAccessibility={back ? 'auto' : 'no-hide-descendants'}
       >
-        <View style={[styles.faceCard, styles.mistCard]}>
-          <MistFill id={`courseBack${course.id}`} />
-          <CardFoot id={`backFoot${course.id}`} width={width} />
+        <View style={[styles.faceCard, styles.mistCard, styles.backCard]}>
           <BackFace
             course={course}
             minutes={minutes}
@@ -382,9 +404,8 @@ function CourseCard({
   );
 }
 
-// The back of a 3.1b card, on the same mist as the front (담당자 요청, no mockup of its own). The light
-// top half reads in ink: the course kind, the name and the climb chart. The dark foot reads in white: the
-// figures, why it was picked and 이 코스로 달리기. 앞면으로 sits where the front keeps its save button.
+// S15P31E105-746: the approved back is solid navy, one tone lighter than readiness,
+// with white content and a white action. The existing layout and map front stay the same.
 function BackFace({
   course,
   minutes,
@@ -403,16 +424,16 @@ function BackFace({
         accessibilityLabel="앞면으로 돌아가기"
         onPress={onTurn}
         hitSlop={6}
-        style={styles.save}
+        style={[styles.save, styles.backSave]}
       >
-        <Icon name="refresh" color={k1.night} size={22} />
+        <Icon name="refresh" color="#FFFFFF" size={20} />
       </Pressable>
       <View style={styles.back}>
         <View style={styles.backTags}>
-          <View style={styles.inkPill}>
-            <AppText style={styles.inkPillText}>{course.shapeKind}</AppText>
+          <View style={styles.backPill}>
+            <AppText style={styles.backPillText}>{course.shapeKind}</AppText>
           </View>
-          <AppText style={styles.inkNote} numberOfLines={1}>
+          <AppText style={styles.backNote} numberOfLines={1}>
             {course.environmentLabels.join(' · ')}
           </AppText>
         </View>
@@ -424,8 +445,8 @@ function BackFace({
           {withoutDistance(course.name)}
         </AppText>
         <View style={styles.chart}>
-          <AppText style={styles.inkNote}>구간 고도</AppText>
-          <ElevationLine profile={course.elevationProfile} color={backInk} />
+          <AppText style={styles.backNote}>구간 고도</AppText>
+          <ElevationLine profile={course.elevationProfile} />
         </View>
         <View style={styles.stats}>
           <Stat label="거리" value={formatKm(course.distanceM, 1)} unit="km" />
@@ -449,8 +470,6 @@ function BackFace({
     </>
   );
 }
-
-const backInk = '#0D171F';
 
 // 3.1b 추천 코스: swipe through the recommendations, turn a card over for its detail, then start.
 // runway-course-handoff: the title in the middle of the top bar, cards 20 from the left with the next one
@@ -885,6 +904,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     boxShadow: '0 14px 34px rgba(0,0,0,0.22)',
   },
+  backCard: { backgroundColor: '#0B1522' },
+  mapCard: { backgroundColor: '#F3F5F6' },
   // The course line fills the upper part of the front.
   route: {
     position: 'absolute',
@@ -892,6 +913,8 @@ const styles = StyleSheet.create({
     left: 50,
     right: 50,
     bottom: routeFoot,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   foot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   // A round 62 glass button (the mockup's 65×62 oval, README 알려진 문제).
@@ -909,6 +932,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveOn: { backgroundColor: 'rgba(255,255,255,0.8)' },
+  backSave: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+  },
   // From the foot up: the button, then 16 · pills · 16 · facts · 14 · kind · 2 · name.
   front: {
     position: 'absolute',
@@ -979,7 +1009,7 @@ const styles = StyleSheet.create({
     color: '#111111',
   },
   chooseFloating: { position: 'absolute', left: 14, right: 14, bottom: 14 },
-  chooseInline: { alignSelf: 'stretch' },
+  chooseInline: { alignSelf: 'stretch', backgroundColor: '#FFFFFF' },
   // The back fills the card, 22 from the sides and 14 above the bottom like the front's button.
   back: {
     position: 'absolute',
@@ -997,29 +1027,29 @@ const styles = StyleSheet.create({
     gap: 8,
     marginRight: 64,
   },
-  inkPill: {
+  backPill: {
     height: 28,
     paddingHorizontal: 12,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
     justifyContent: 'center',
   },
-  inkPillText: {
+  backPillText: {
     fontFamily: fontFamily.bold,
     fontSize: 13,
     lineHeight: 17,
-    color: backInk,
+    color: '#FFFFFF',
   },
-  inkNote: {
+  backNote: {
     flexShrink: 1,
     fontFamily: fontFamily.medium,
     fontSize: 13,
     lineHeight: 18,
-    color: 'rgba(13,23,31,0.6)',
+    color: 'rgba(255,255,255,0.6)',
   },
-  backName: { marginTop: 22, color: backInk },
+  backName: { marginTop: 22 },
   // The chart takes the space between the name and the figures.
   chart: { flex: 1, marginTop: 18, marginBottom: 14, gap: 6 },
   // The three figures side by side, without rules (담당자 결정).

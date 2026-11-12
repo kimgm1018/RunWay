@@ -63,7 +63,9 @@ export function planFromServer(plan: PacePlanResponse) {
       ),
     ),
     strategy: strategyOf(paces),
-    planSource: plan.personalized ? ('PERSONAL' as const) : ('AVERAGE' as const),
+    planSource: plan.personalized
+      ? ('PERSONAL' as const)
+      : ('AVERAGE' as const),
   };
 }
 
@@ -428,10 +430,12 @@ export function createCoursesApi({
             ? Math.round(climbOf(heights))
             : null,
         elevationProfile: profileOf(heights),
-        // Route's own words, shown as plain text.
+        // Details replace their summary so the same explanation is not repeated.
+        // Keep Route's wording as plain text and always retain caveats.
         reason: [
-          item.summary,
-          ...item.reasons.map(text => `· ${text}`),
+          ...(item.reasons.length
+            ? item.reasons.map(text => `· ${text}`)
+            : [item.summary]),
           ...item.caveats.map(text => `주의: ${text}`),
         ].join('\n'),
         route,
@@ -451,44 +455,45 @@ export function createCoursesApi({
   // S15P31E105-733 the km paces of C12's pre-run plan (the same plan S01 would store). Without that plan (slow AI,
   // 503) the course still shows as before, so the run can start. Without a chosen server course there is no plan
   // (S15P31E105-635).
-  const getTodayPlan: Repositories['courses']['getTodayPlan'] = async options => {
-    if (!chosen || !isServerId(chosen)) {
-      return null;
-    }
-    const courseId = chosen;
-    const paceSecPerKm = await pace();
-    const [course, server] = await Promise.all([
-      detail(courseId, paceSecPerKm),
-      options?.pacePlan
-        ? apiRequest<PacePlanResponse>(`/courses/${courseId}/pace-plan`, {
-            timeoutMs: planTimeoutMs,
-          }).catch(() => null)
-        : null,
-    ]);
-    const planned = server ? planFromServer(server) : null;
-    const result: CoursePlan = {
-      courseId,
-      name:
-        course.myAlias ??
-        named.get(courseId) ??
-        `${kmLabel(course.distanceM)} 코스`,
-      distanceM: course.distanceM,
-      route: course.route.coordinates,
-      unmeasuredEdges: course.unmeasuredEdges ?? [],
-      segmentPacesSecPerKm: planned?.segmentPacesSecPerKm ?? [],
-      planSource: planned?.planSource ?? null,
-      strategy: planned?.strategy ?? null,
-      // Kept null on purpose: a plan pace here would turn the run's goal from none into this pace (goal kind PLAN)
-      // and change what S01 stores. Without a goal S01 stores the same AI plan this preview shows (review A-3/B-2).
-      targetPaceSecPerKm: null,
-      expectedDurationSec:
-        planned?.expectedDurationSec ??
-        course.estimatedDurationSec ??
-        Math.round((course.distanceM / 1000) * paceSecPerKm),
-      caution: null,
+  const getTodayPlan: Repositories['courses']['getTodayPlan'] =
+    async options => {
+      if (!chosen || !isServerId(chosen)) {
+        return null;
+      }
+      const courseId = chosen;
+      const paceSecPerKm = await pace();
+      const [course, server] = await Promise.all([
+        detail(courseId, paceSecPerKm),
+        options?.pacePlan
+          ? apiRequest<PacePlanResponse>(`/courses/${courseId}/pace-plan`, {
+              timeoutMs: planTimeoutMs,
+            }).catch(() => null)
+          : null,
+      ]);
+      const planned = server ? planFromServer(server) : null;
+      const result: CoursePlan = {
+        courseId,
+        name:
+          course.myAlias ??
+          named.get(courseId) ??
+          `${kmLabel(course.distanceM)} 코스`,
+        distanceM: course.distanceM,
+        route: course.route.coordinates,
+        unmeasuredEdges: course.unmeasuredEdges ?? [],
+        segmentPacesSecPerKm: planned?.segmentPacesSecPerKm ?? [],
+        planSource: planned?.planSource ?? null,
+        strategy: planned?.strategy ?? null,
+        // Kept null on purpose: a plan pace here would turn the run's goal from none into this pace (goal kind PLAN)
+        // and change what S01 stores. Without a goal S01 stores the same AI plan this preview shows (review A-3/B-2).
+        targetPaceSecPerKm: null,
+        expectedDurationSec:
+          planned?.expectedDurationSec ??
+          course.estimatedDurationSec ??
+          Math.round((course.distanceM / 1000) * paceSecPerKm),
+        caution: null,
+      };
+      return result;
     };
-    return result;
-  };
 
   const courses: Repositories['courses'] = {
     ...mock,
