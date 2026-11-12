@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
+import { CrewRecruitPage } from '../src/screens/group/CrewRecruitScreen';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -339,6 +340,36 @@ test('6.2 shows my crew, the leader view (6.2m) and a full crew that cannot take
   expect(page).toContain('정원이 가득 찼어요');
   await press(screen, '다른 크루 둘러보기');
   expect(texts(screen)).toContain('원하는 크루가 없나요?');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-703: 크루 만들기 sits on top of the list, under the search when it is open, also over an empty result.
+test('6.1 shows 크루 만들기 above the crews, under the search, and over an empty result', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  // Only the 크루 모집 page, in screen order (내 크루 stays rendered beside it).
+  const recruitTexts = () =>
+    screen.root
+      .findByType(CrewRecruitPage)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string')
+      .join(' ');
+  let page = recruitTexts();
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeGreaterThanOrEqual(0);
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeLessThan(
+    page.indexOf('남천 회복 조깅'),
+  );
+  await press(screen, '크루 검색 열기');
+  await type(screen, '크루 검색', '없는 크루 이름');
+  page = recruitTexts();
+  expect(page).toContain('찾는 크루가 없어요');
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeLessThan(
+    page.indexOf('찾는 크루가 없어요'),
+  );
+  // The button still opens 6.3.
+  await press(screen, '크루 만들기');
+  expect(texts(screen)).toContain('대표 사진 추가');
   await act(async () => screen.unmount());
 });
 

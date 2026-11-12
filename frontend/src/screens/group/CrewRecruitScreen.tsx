@@ -55,7 +55,8 @@ function CrewCard({ crew }: { crew: CrewListItem }) {
   );
 }
 
-// 원하는 크루가 없나요? (6.1-CreateCrewPrompt): two lines on the mist past a line, and 크루 만들기 in white.
+// 원하는 크루가 없나요? (6.1-CreateCrewPrompt): two lines on the mist and 크루 만들기 in white. On top of the list,
+// under the search when it is open, with a line under it so it reads apart from the crews (S15P31E105-703).
 function CreateBox() {
   const navigation = useNavigation();
   return (
@@ -136,6 +137,7 @@ export function CrewRecruitPage({
             onClose={closeSearch}
           />
         ) : null}
+        <CreateBox />
         {found.status === 'error' ? (
           <EmptyState
             icon="alert"
@@ -156,7 +158,6 @@ export function CrewRecruitPage({
             ))}
           </View>
         )}
-        <CreateBox />
       </ScrollView>
     </View>
   );
@@ -236,10 +237,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     minHeight: 50,
-    marginTop: spacing.md,
-    paddingTop: spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: groupTone.line,
+    paddingBottom: spacing.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: groupTone.line,
   },
   createTitle: {
     fontFamily: fontFamily.bold,
