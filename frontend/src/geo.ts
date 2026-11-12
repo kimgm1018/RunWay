@@ -88,11 +88,28 @@ export function shapeOfRoute(route: LngLat[]): [number, number][] {
   return route.map(point => project(point));
 }
 
+// A straight connector as evenly spaced dot centres (S15P31E105-715): none on the two course points it joins, the first
+// and last half a gap in from them, so it reads start, dots, end. At least one dot.
+export function connectorDots([from, to]: LngLat[], gapM = 7): LngLat[] {
+  const total = distanceM(from, to);
+  if (!(total > 0)) {
+    return [];
+  }
+  const count = Math.max(1, Math.round(total / gapM));
+  return Array.from({ length: count }, (_, index): LngLat => {
+    const t = (index + 0.5) / count;
+    return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+  });
+}
+
 // An edge index identifies the straight, unmeasured connector from point i to i+1.
 export function routeSections(route: LngLat[], unmeasuredEdges: number[] = []) {
-  const breaks = new Set(unmeasuredEdges.filter(index =>
-    Number.isInteger(index) && index >= 0 && index < route.length - 1,
-  ));
+  const breaks = new Set(
+    unmeasuredEdges.filter(
+      index =>
+        Number.isInteger(index) && index >= 0 && index < route.length - 1,
+    ),
+  );
   const measured: LngLat[][] = [];
   const connectors: LngLat[][] = [];
   let current: LngLat[] = route.length ? [route[0]] : [];

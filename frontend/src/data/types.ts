@@ -460,6 +460,8 @@ export type CoursePlan = {
   name: string;
   distanceM: number;
   route: [number, number][];
+  // C03 unmeasuredEdges: the edges after pauses or GPS gaps; the course map draws them grey (S15P31E105-715).
+  unmeasuredEdges?: number[];
   segmentPacesSecPerKm: number[];
   strategy: string | null;
   targetPaceSecPerKm: number | null;

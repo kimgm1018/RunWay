@@ -560,6 +560,27 @@ test('2.0 plans a chosen server course with its name, route and distance', async
   });
 });
 
+// S15P31E105-715: the course map after a tap draws the pause connectors grey, so the plan carries C03's unmeasuredEdges.
+test('2.0 carries the C03 unmeasuredEdges into the plan, and an older server gives none', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7' && init.method === 'GET') {
+      return respond(200, { ...detail(7), unmeasuredEdges: [1] });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+  await courses.getSaved();
+  await courses.choose('7');
+  expect((await courses.getTodayPlan())?.unmeasuredEdges).toEqual([1]);
+
+  serve(common);
+  const older = api(400);
+  await older.courses.getSaved();
+  await older.courses.choose('7');
+  expect((await older.courses.getTodayPlan())?.unmeasuredEdges).toEqual([]);
+});
+
 test('2.0 has no plan before a course is picked, instead of the mock course (S15P31E105-635)', async () => {
   serve(common);
   const { courses } = api(400);
@@ -667,7 +688,8 @@ test('a route C10 turns down says so, and the next tap asks again', async () => 
 
 test('a completed run is saved as a private course from its server record', async () => {
   serve((url, init) =>
-    url.pathname.endsWith('/running-records/701/course') && init.method === 'PUT'
+    url.pathname.endsWith('/running-records/701/course') &&
+    init.method === 'PUT'
       ? respond(200, { courseId: 52 })
       : common(url, init),
   );

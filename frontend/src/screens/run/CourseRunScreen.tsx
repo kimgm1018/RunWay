@@ -339,6 +339,7 @@ export function CourseRunScreen() {
             <RunMap
               // One mint line, the same as 2.0F's map (S15P31E105-683); the plan's km paces stay in 오늘의 전략.
               route={plan?.route}
+              unmeasuredEdges={plan?.unmeasuredEdges}
               position={place?.position ?? undefined}
               placeLabel={
                 place
@@ -348,6 +349,9 @@ export function CourseRunScreen() {
                     }
                   : undefined
               }
+              // The camera frames the course's start, not me: far from the course the fit of both zoomed out
+              // and lost the start (S15P31E105-715).
+              fitTo={plan?.route?.length ? [plan.route[0]] : undefined}
               area={{ top: 0.19, bottom: 0.56 }}
               logo={logo}
               view="lean"
