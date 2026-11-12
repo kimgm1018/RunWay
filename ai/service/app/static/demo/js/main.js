@@ -12,7 +12,12 @@
   function show(el, visible) { if (el) el.classList.toggle('hidden', !visible); }
   function setBanner(kind, text) { root.RunwayDemoRender.setBanner(kind ? {kind: kind, text: text} : null); }
   function updateBanner() {
-    if (state.mode === 'history') { root.RunwayDemoRender.setBanner(null); return; }   // 738: 지난 기록은 경고 없음
+    if (state.mode === 'history') {                       // 738: 지난 기록은 경고·'마지막 판단' 없음
+      root.RunwayDemoRender.setBanner(null);
+      var ageEl = document.getElementById('record-age');
+      if (ageEl) ageEl.classList.add('hidden');
+      return;
+    }
     var trace = state.traces[state.traces.length - 1];
     var age = document.getElementById('record-age');
     if (age) {                                   // 736: 라이브에서만 '마지막 판단 N초 전'
