@@ -150,6 +150,8 @@ def build_trace(outcome, *, boot_id: str, seq: int, stage: str, replay_speed: in
         "input": {"tail": input_tail,
                   "hrNowBpm": _r(hr_now),
                   "paceNowSecPerKm": _r(pace_now),
+                  # 724 표시용: 실제 페이스의 바탕(최근 속도 12칸 = 약 60초 평균). 콘솔이 정지·없음을 가른다
+                  "speedNowMps": _r(speed_now),
                   "distanceM": _r(context.distance_m), "routeProgressM": _r(context.route_progress_m),
                   "remainingM": _r(remaining), "gradeNext120sPct": _r(grade_next), "gradeSource": grade_source},
         "reference": ({"hrDangerBpm": _r(policy.hr_danger_bpm), "hrSustainBpm": _r(policy.hr_sustain_bpm),

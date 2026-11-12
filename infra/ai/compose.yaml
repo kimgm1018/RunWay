@@ -50,6 +50,9 @@ services:
       GRU_GB_MAX_WINDOWS: "${GRU_GB_MAX_WINDOWS:-3000}"
       # 준비도 민감도 c(S15P31E105-676): 준비도 낮은 날 허용 심박을 조금 낮춤(daily_readiness 읽기). 기본 꺼짐, 켜기는 팀 결정.
       READINESS_ADJUST_ENABLED: "${READINESS_ADJUST_ENABLED:-false}"
+      # AI10 여유 가속(S15P31E105-728): 전원 심박 여유가 크면 출발 페이스보다 빠르게(AI 추천 모드만). 기본 꺼짐.
+      GROUP_PACE_AHEAD_ENABLED: "${GROUP_PACE_AHEAD_ENABLED:-false}"
+      GROUP_PACE_AHEAD_WAIT_SEC: "${GROUP_PACE_AHEAD_WAIT_SEC:-180}"
       # 무거운 요청 대기열 두 줄: 계획(AI05·AI09)과 개인화(AI06). 대기 한도는 공통.
       HEAVY_MAX_CONCURRENCY: "${HEAVY_MAX_CONCURRENCY:-1}"
       HEAVY_PERSONALIZE_MAX_CONCURRENCY: "${HEAVY_PERSONALIZE_MAX_CONCURRENCY:-1}"

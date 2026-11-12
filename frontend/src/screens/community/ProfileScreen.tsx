@@ -508,6 +508,7 @@ function CourseTile({
       <CourseMapThumb
         route={course.route}
         basemap={course.basemap}
+        unmeasuredEdges={course.unmeasuredEdges}
         shape={course.shape}
         km={course.distanceM / 1000}
         area={{ top: 0.08, bottom: 0.5 }}

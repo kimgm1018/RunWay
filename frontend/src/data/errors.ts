@@ -27,6 +27,8 @@ export const dataErrorCodes = [
   'SMS_UNAVAILABLE',
   // H02 러닝 기록 상세 (docs/design/api/running-records.md).
   'RECORD_NOT_FOUND',
+  // A shared run link that is unknown, or whose run or runner is gone (S15P31E105-704).
+  'SHARED_RUN_NOT_FOUND',
   // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
   'CREW_CAPACITY_EXCEEDED',
   // M12 크루 설정 변경: the new capacity is under the current member count (S15P31E105-570).

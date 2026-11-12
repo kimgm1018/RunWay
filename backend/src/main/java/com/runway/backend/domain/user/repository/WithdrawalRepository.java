@@ -138,6 +138,9 @@ public class WithdrawalRepository {
         for (String table : List.of("running_route_points","running_metric_samples","running_session_splits"))
             jdbc.update("DELETE FROM " + table + " WHERE running_session_id IN"
                     + " (SELECT id FROM running_sessions WHERE user_id=?)",userId);
+        // H08 기록 공유 링크(S15P31E105-704). 경로를 로그인 없이 여는 token이므로 원본 GPS와 함께 지운다.
+        // rw_active_owner는 INSERT/UPDATE에만 걸려 DELETE를 막지 않는다.
+        jdbc.update("DELETE FROM run_share_links WHERE user_id=?",userId);
         jdbc.update("DELETE FROM pace_plan_segments WHERE pace_plan_id IN (SELECT p.id FROM pace_plans p"
                 + " JOIN running_sessions s ON s.id=p.session_id WHERE s.user_id=?)",userId);
         jdbc.update("DELETE FROM pace_plans WHERE session_id IN (SELECT id FROM running_sessions WHERE user_id=?)",userId);

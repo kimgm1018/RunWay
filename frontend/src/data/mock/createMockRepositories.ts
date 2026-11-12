@@ -1,4 +1,5 @@
 import { shapeOfRoute, routeLengthM, walkAlong } from '../../geo';
+import { appConfig } from '../../config';
 import { DataError } from '../errors';
 import {
   copyCoursePreferences,
@@ -109,6 +110,13 @@ function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
     default:
       return 'normal';
   }
+}
+
+// A mock link token: 43 URL-safe characters like the server's, the same for one run.
+export function mockShareToken(recordId: string) {
+  return `mock_${recordId.replace(/[^A-Za-z0-9_-]/g, '_')}`
+    .padEnd(43, '0')
+    .slice(0, 43);
 }
 
 function respond<T>(
@@ -359,6 +367,8 @@ export function createMockRepositories(
   let chosen: string | null = null;
   // Finished runs (4.5) join the list that 5.1·5.2·5.3 and 2.1 read.
   let records = fixtures.runRecords;
+  // Links shared in this mock (S15P31E105-704): token → the run and the title it was shared with.
+  const sharedTitles = new Map<string, { recordId: string; title: string }>();
   // 7.3 shares and 7.4b lists the runs this mock keeps, including ones saved while the app runs.
   const social = createCommunityMock({
     respond: value => respond(value, options),
@@ -653,6 +663,37 @@ export function createMockRepositories(
         respond(conditionOn(options.scenario, day), options),
       getMonthlySummary: () => respond(fixtures.monthlySummary, options),
     },
+    sharedRuns: {
+      get: token => {
+        const shared = sharedTitles.get(token);
+        const record = shared
+          ? records.find(run => run.id === shared.recordId)
+          : undefined;
+        if (!shared || !record) {
+          return fail(
+            new DataError('SHARED_RUN_NOT_FOUND', '열 수 없는 기록', null, 404),
+            options,
+          );
+        }
+        const detail = toDetail(record, saved);
+        return respond(
+          {
+            title: shared.title,
+            startedAt: detail.startedAt,
+            distanceM: detail.distanceM,
+            durationSec: detail.durationSec,
+            averagePaceSecPerKm: detail.averagePaceSecPerKm,
+            cadence: null,
+            runner: {
+              nickname: fixtures.me.nickname,
+              profileImageUrl: null,
+            },
+            parts: detail.routeParts ?? [],
+          },
+          options,
+        );
+      },
+    },
     records: {
       getRecent: (sort, limit) =>
         respond(
@@ -687,6 +728,16 @@ export function createMockRepositories(
           record ? toDetail(record, saved).routeParts : null,
           options,
         );
+      },
+      // 목업 공유 링크(S15P31E105-704): 기록마다 같은 43자 토큰.
+      shareLink: (recordId, title) => {
+        const record = records.find(run => run.id === recordId);
+        if (!record) {
+          return fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
+        }
+        const token = mockShareToken(recordId);
+        sharedTitles.set(token, { recordId, title });
+        return respond(`${appConfig.shareBaseUrl}/r/${token}`, options);
       },
       getResultSummary: recordId => {
         const record = records.find(run => run.id === recordId);
@@ -784,7 +835,7 @@ export function createMockRepositories(
             },
           ];
         }
-        return respond(undefined, options);
+        return respond(courseId, options);
       },
       unsave: courseId => {
         saved = saved.filter(item => item.id !== courseId);
@@ -810,6 +861,8 @@ export function createMockRepositories(
             expectedMinutes: Math.round(record.durationSec / 60),
             shape: shapeOf(route),
             route,
+            // A course made from a free run is private, as on the server (S15P31E105-696).
+            isPrivate: true,
           },
         ];
         return respond({ courseId: id }, options);

@@ -13,6 +13,13 @@ import { createRunControl } from '../src/screens/run/runControl';
 // S10 스냅샷 → STATE_RESULT(scope=SERVER), 워치 STATE_QUERY → S02.
 
 const wait = (ms = 10) => new Promise<void>(resolve => setTimeout(resolve, ms));
+// Waits until `done` holds (or the limit), so a busy CI agent does not fail a fixed short wait.
+async function waitUntil(done: () => boolean, limitMs = 2000) {
+  const until = Date.now() + limitMs;
+  while (!done() && Date.now() < until) {
+    await wait();
+  }
+}
 
 function view(change: Partial<RunningSessionView> = {}): RunningSessionView {
   return {
@@ -398,7 +405,8 @@ test('a COACHING_RESULT that could not be saved is asked again from the next S10
   snapshot(view({ coaching: guide }), true);
 
   emit(coachingResult());
-  await wait(50);
+  await waitUntil(() => session.reportBpmResult.mock.calls.length >= 3);
+  await wait();
   expect(session.reportBpmResult).toHaveBeenCalledTimes(3);
   expect(watch.sendReceived).not.toHaveBeenCalled();
 

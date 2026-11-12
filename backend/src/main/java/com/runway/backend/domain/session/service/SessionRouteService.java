@@ -6,6 +6,7 @@ import com.runway.backend.domain.session.repository.RunningSessionRepository;
 import com.runway.backend.domain.session.repository.SessionRouteRepository;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,15 +37,24 @@ public class SessionRouteService {
         if (session.getUserId() != userId) {
             throw new ApiException(ErrorCode.SESSION_FORBIDDEN);
         }
-        if (session.getStartedAt() == null) {
-            return new RunningRouteResponse(sessionId, List.of());
-        }
-        var points =
-                routeRepository.findPoints(sessionId, session.getStartedAt(), session.getEndedAt());
         List<RunningRouteResponse.Segment> segments =
-                RunningRouteSelector.select(points, MAX_POINTS).stream()
+                displaySegments(sessionId, session.getStartedAt(), session.getEndedAt()).stream()
                         .map(s -> new RunningRouteResponse.Segment(s.source(), s.coordinates()))
                         .toList();
         return new RunningRouteResponse(sessionId, segments);
+    }
+
+    /**
+     * S11 경로 선택 규칙으로 고른 표시용 조각. 접근 권한 검사는 호출자가 먼저 한다(S11 본인, H09 공유 토큰). 시작 전 세션(startedAt
+     * 없음)은 빈 목록이다. 좌표는 로그에 남기지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<RunningRouteSelector.Segment> displaySegments(
+            long sessionId, Instant startedAt, Instant endedAt) {
+        if (startedAt == null) {
+            return List.of();
+        }
+        return RunningRouteSelector.select(
+                routeRepository.findPoints(sessionId, startedAt, endedAt), MAX_POINTS);
     }
 }

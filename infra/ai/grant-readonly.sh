@@ -55,6 +55,20 @@ SQL
 )
 [[ $result == t ]] || { echo 'BPM 기록 읽기 권한 확인 실패' >&2; exit 1; }
 echo 'BPM 기록 읽기 권한 확인 완료'
+# 시연 콘솔 지도(S15P31E105-722): 러닝 경로의 세션·시각·위치 세 칸만 준다. 정확도·고도와 쓰기 권한은 없다.
+# 대상 회원(demo userAllowlist)의 시연 세션만, 콘솔이 연결돼 있을 때만 읽는다. running_route_points는 V1부터 있다.
+result=$(psql_admin <<'SQL'
+GRANT SELECT (running_session_id, measured_at, position)
+  ON public.running_route_points TO runway_ai;
+SELECT has_column_privilege('runway_ai', 'public.running_route_points', 'position', 'SELECT')
+  AND has_column_privilege('runway_ai', 'public.running_route_points', 'measured_at', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_route_points', 'accuracy', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_route_points', 'altitude', 'SELECT')
+  AND NOT has_table_privilege('runway_ai', 'public.running_route_points', 'INSERT,UPDATE,DELETE,TRUNCATE');
+SQL
+)
+[[ $result == t ]] || { echo '러닝 경로 읽기 권한 확인 실패' >&2; exit 1; }
+echo '러닝 경로 읽기 권한 확인 완료'
 # 개인화 테이블 생성 업무(410)와 AI 배포를 분리한다.
 # 테이블이 아직 없어도 기존 테이블의 최소 권한 검증은 생략하지 않는다.
 result=$(psql_admin <<'SQL'

@@ -269,9 +269,9 @@ public class GroupPaceService {
             }
             if (goalPace != null && pace > goalPace) slower++;
         }
-        // TOGETHER keeps the existing max(goal, slowest AI); GOAL starts at the goal itself.
-        int applied = input.goalMode() && goalPace != null ? goalPace
-                : goalPace == null ? aiPace : Math.max(goalPace, aiPace);
+        // Each mode applies its own value (S15P31E105-702): TOGETHER ('AI 추천') the AI recommendation as it is,
+        // without max(goal, AI); GOAL the host's goal.
+        int applied = input.goalMode() && goalPace != null ? goalPace : aiPace;
         var start = new GroupPaceRepository.Start(applied, aiPace, basis,
                 goalPace == null ? null : slower);
         tx.execute(status -> {

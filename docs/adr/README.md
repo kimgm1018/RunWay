@@ -88,6 +88,7 @@ ADR에는 선택 이유를 기록하고, 구체적인 계약은 해당 기준 �
 | [ADR-0020](0020-spotify-android-app-remote.md) | Android Spotify 재생은 App Remote로 제어한다 | 제안 | — (인증은 [ADR-0021](0021-spotify-android-app-sign-in.md)로 보완) |
 | [ADR-0021](0021-spotify-android-app-sign-in.md) | Android Spotify 재생·목록 권한은 Spotify 앱 SSO(PKCE) 한 번으로 받는다 | 제안 | — (ADR-0020 보완, 대체하지 않음) |
 | [ADR-0022](0022-osm-course-thumbnail-basemap.md) | 코스 썸네일은 Route 전국 OSM 자료(건물 포함)로 서버가 PNG를 저장 시 한 번 그린다 | 제안 | — (ADR-0018 적용 범위에서 카드 썸네일만 제외, 기존 결정 유지) |
+| [ADR-0023](0023-run-share-app-links.md) | 경로 재생 공유는 https 링크(Android App Links)와 기록별 공유 토큰으로 연다 | 제안 | — (ADR-0021의 스킴과 겹치지 않음, 대체하지 않음) |
 
 새 ADR을 추가할 때 번호에는 문서 링크를 연결하고, 대체 관계에는 `대체함: ADR-NNNN` 또는 `대체됨: ADR-NNNN`을 문서 링크와 함께 적는다. 관계가 없으면 `—`로 표시한다.
 

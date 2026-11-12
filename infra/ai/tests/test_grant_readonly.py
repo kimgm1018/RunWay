@@ -24,6 +24,7 @@ if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
 elif [[ $query == *user_profiles* ]]; then echo "${USER_PROFILES_RESULT:-t}"
 elif [[ $query == *daily_readiness* ]]; then echo "${READINESS_RESULT:-t}"
 elif [[ $query == *running_metric_samples* ]]; then echo "${BPM_RESULT:-t}"
+elif [[ $query == *running_route_points* ]]; then echo "${ROUTE_RESULT:-t}"
 elif [[ $query == *has_database_privilege* ]]; then echo "${GRANT_RESULT:-t}"
 elif [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
 '''
@@ -101,6 +102,25 @@ class ReadonlyGrantTests(unittest.TestCase):
 
     def test_bpm_record_privilege_failure_stops_deployment(self):
         self.env["BPM_RESULT"] = "f"
+        result = self.run_grant()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("to_regclass", (self.root / "sql").read_text())
+
+    def test_route_point_columns_are_granted_without_accuracy_or_altitude(self):
+        # 722 시연 지도: 세션·시각·위치 세 칸만, 정확도·고도·쓰기는 주지 않는다.
+        result = self.run_grant()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sql = (self.root / "sql").read_text()
+        self.assertIn("GRANT SELECT (running_session_id, measured_at, position)\n  ON public.running_route_points TO runway_ai", sql)
+        self.assertNotIn("GRANT SELECT ON public.running_route_points", sql)
+        for column in ("accuracy", "altitude"):
+            self.assertIn(f"NOT has_column_privilege('runway_ai', 'public.running_route_points', '{column}', 'SELECT')", sql)
+        self.assertIn("NOT has_table_privilege('runway_ai', 'public.running_route_points', 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                      sql)
+        self.assertLess(sql.index("public.running_route_points TO runway_ai"), sql.index("to_regclass"))
+
+    def test_route_point_privilege_failure_stops_deployment(self):
+        self.env["ROUTE_RESULT"] = "f"
         result = self.run_grant()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("to_regclass", (self.root / "sql").read_text())

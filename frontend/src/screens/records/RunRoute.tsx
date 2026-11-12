@@ -9,7 +9,11 @@ import {
 import { AppText, Icon } from '../../components';
 import { RunMap } from '../../components/RunMap';
 import type { RunRoute } from '../../components/mapRoute';
-import { useRepositories, type UserProfile } from '../../data';
+import {
+  useOptionalRepositories,
+  useRepositories,
+  type UserProfile,
+} from '../../data';
 import { formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
 import { fontFamily } from '../../theme';
@@ -34,6 +38,7 @@ function replayOf(
   facts: RunRouteFacts,
   route: RunRoute,
   me: UserProfile | null,
+  link: ReplayRun['link'],
 ): ReplayRun {
   const pace =
     facts.averagePaceSecPerKm === null
@@ -49,6 +54,7 @@ function replayOf(
       facts.distanceM,
       1,
     )}km${pace}`,
+    link,
     runner: {
       nickname: me?.nickname ?? '나',
       userId: me?.id ?? '',
@@ -111,10 +117,19 @@ export function RunRouteMap({
 }) {
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<UserProfile | null>(null);
+  const repositories = useOptionalRepositories();
   const frame = useMemo(() => (route ? frameOf(route.route) : null), [route]);
+  // 공유 sends a link that opens this run's replay for anyone (S15P31E105-704), made when it is shared.
+  const link = useMemo(
+    () =>
+      repositories
+        ? () => repositories.records.shareLink(facts.id, facts.title)
+        : null,
+    [repositories, facts.id, facts.title],
+  );
   const run = useMemo(
-    () => (route ? replayOf(facts, route, me) : null),
-    [facts, route, me],
+    () => (route ? replayOf(facts, route, me, link) : null),
+    [facts, route, me, link],
   );
 
   if (!route || !run) {
@@ -148,15 +163,19 @@ export function RunRouteMap({
         mintLine
         style={StyleSheet.absoluteFill}
       />
+      {/* The whole map plays the replay (작업 요청자), not only the 경로 재생 label on it. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="경로 재생"
         onPress={() => setOpen(true)}
-        hitSlop={6}
-        style={({ pressed }) => [styles.play, pressed && styles.pressed]}
+        style={StyleSheet.absoluteFill}
       >
-        <Icon name="play" color="#FFFFFF" size={14} solid />
-        <AppText style={styles.playText}>경로 재생</AppText>
+        {({ pressed }) => (
+          <View style={[styles.play, pressed && styles.pressed]}>
+            <Icon name="play" color="#FFFFFF" size={14} solid />
+            <AppText style={styles.playText}>경로 재생</AppText>
+          </View>
+        )}
       </Pressable>
       {open && !me ? <ReadMe onRead={setMe} /> : null}
       <RouteReplay run={run} visible={open} onClose={() => setOpen(false)} />

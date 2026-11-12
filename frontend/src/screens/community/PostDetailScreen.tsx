@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -230,6 +230,17 @@ export function PostDetailScreen() {
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [replay, setReplay] = useState(false);
+  // Opened from a shared link (S15P31E105-704): the course replay starts once, as soon as the post is read and
+  // its course is shared.
+  const replayAsked = useRef(route.params?.replay === true);
+  useEffect(() => {
+    if (replayAsked.current && post) {
+      replayAsked.current = false;
+      if (post.courseShared) {
+        setReplay(true);
+      }
+    }
+  }, [post]);
   // The comment bar's real height: the phone's bottom bar adds to it, so the sheet's foot keeps that much room
   // (S15P31E105-619). Until it is laid out, the bar's height over the bottom inset stands in.
   const [barHeight, setBarHeight] = useState(0);

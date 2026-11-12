@@ -148,6 +148,8 @@ function serve() {
             mergedIntoCourseId: null,
             myAlias: id === 7 ? '내 아침 코스' : null,
             distanceM: 5000,
+            // Course 9 is a private one made from a free run (S15P31E105-696).
+            isPrivate: id === 9,
           })),
         });
       }
@@ -363,10 +365,17 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
 });
 
-// S15P31E105-612: the card gets the C03 points and draws them as its outline, with no Naver map (S15P31E105-562
-// drew a compact RunMap here). This C03 has no basemap (an older server), so the card is the plain outline, not a
-// map image.
-test('3.1c draws each saved course from the C03 points without a Naver map', async () => {
+// S15P31E105-696: C09 isPrivate reaches the saved course, so 6.8 can leave a free run's private course out.
+test('C09 isPrivate marks a saved private course', async () => {
+  const saved = await createApiRepositories({ latencyMs: 0 }).courses.getSaved();
+  expect(saved.find(course => course.id === '7')?.isPrivate).toBe(false);
+  expect(saved.find(course => course.id === '9')?.isPrivate).toBe(true);
+});
+
+// S15P31E105-612: the card gets the C03 points and draws them as its outline. This C03 has no basemap (an older server
+// or a private course), so S15P31E105-715 puts a real compact RunMap under the outline, a few at a time; the
+// outline stays until the map is shown.
+test('3.1c draws each saved course from the C03 points, on a compact map for the first few', async () => {
   const screen = await openTodayRun();
   await press(screen, '저장한 코스');
   const thumbs = screen.root.findAllByType(CourseMapThumb);
@@ -376,14 +385,14 @@ test('3.1c draws each saved course from the C03 points without a Naver map', asy
   expect(thumbs[0].findByType(CourseGlyph).props.shape).toEqual(
     shapeOfRoute(loop),
   );
-  expect(
-    screen.root.findAll(
-      node =>
-        typeof node.type !== 'string' &&
-        Array.isArray(node.props.route) &&
-        node.props.compact === true,
-    ),
-  ).toHaveLength(0);
+  const maps = screen.root.findAll(
+    node =>
+      typeof node.type !== 'string' &&
+      Array.isArray(node.props.route) &&
+      node.props.compact === true,
+  );
+  expect(maps.length).toBeGreaterThan(0);
+  expect(maps.length).toBeLessThanOrEqual(3);
 });
 
 test('3.1c puts the course back when the server keeps it', async () => {

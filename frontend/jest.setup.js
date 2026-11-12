@@ -34,6 +34,16 @@ jest.mock('react-native-image-picker', () => ({
   launchImageLibrary: jest.fn(async () => ({ didCancel: true })),
 }));
 
+// 경로 재생 공유 (S15P31E105-704): the picture and the share sheet are native; tests get a file name and a sheet
+// that resolves, and set failures per test.
+jest.mock('react-native-view-shot', () => ({
+  captureRef: jest.fn(async () => '/data/cache/replay.png'),
+}));
+jest.mock('react-native-share', () => ({
+  __esModule: true,
+  default: { open: jest.fn(async () => ({ success: true, message: '' })) },
+}));
+
 // react-native-get-random-values polyfills crypto.getRandomValues through a native module; Node already has it.
 jest.mock('react-native-get-random-values', () => ({}));
 
@@ -51,6 +61,10 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
   };
   let mapsHeld = false;
   const heldMaps = [];
+  // The map's load (its first tiles drawn, S15P31E105-719) follows right after; a test can hold just that back
+  // (__holdMapsLoaded) and send it later (__loadHeldMaps), as a map whose tiles are slow does.
+  let loadsHeld = false;
+  const heldLoads = [];
   const NaverMapView = React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({
       animateCameraTo: jest.fn(),
@@ -72,12 +86,23 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
     }));
     // The native map says it is ready right after it mounts; a test can hold that back
     // (__holdMapsReady) and send it later (__readyHeldMaps), as a slow map does (S15P31E105-692).
-    const { onInitialized } = props;
+    const { onInitialized, onMapLoaded } = props;
     React.useEffect(() => {
+      const load = () => {
+        if (loadsHeld) {
+          heldLoads.push(onMapLoaded);
+        } else {
+          onMapLoaded?.();
+        }
+      };
       if (mapsHeld) {
-        heldMaps.push(onInitialized);
+        heldMaps.push(() => {
+          onInitialized?.();
+          load();
+        });
       } else {
         onInitialized?.();
+        load();
       }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
     return React.createElement(
@@ -91,6 +116,10 @@ jest.mock('@mj-studio/react-native-naver-map', () => {
       mapsHeld = held;
     },
     __readyHeldMaps: () => heldMaps.splice(0).forEach(ready => ready?.()),
+    __holdMapsLoaded: held => {
+      loadsHeld = held;
+    },
+    __loadHeldMaps: () => heldLoads.splice(0).forEach(loaded => loaded?.()),
     NaverMapView,
     NaverMapMarkerOverlay: overlay('naver-map-marker'),
     NaverMapPathOverlay: overlay('naver-map-path'),

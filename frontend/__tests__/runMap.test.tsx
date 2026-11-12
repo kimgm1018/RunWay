@@ -6,7 +6,7 @@ import {
   RunMap,
   zoomFor,
 } from '../src/components/RunMap';
-import { darkMapLook } from '../src/components/mapRoute';
+import { darkMapLook, mintMapLook } from '../src/components/mapRoute';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -118,7 +118,9 @@ test('while running on a tilted map the course is a dim, thin guide under the mi
     <RunMap route={route} trail={route.slice(0, 2)} view="heading" />,
   );
   const [guide] = overlays(root, 'naver-map-multipath');
-  const run = overlays(root, 'naver-map-path').find(props => props.zIndex === 2);
+  const run = overlays(root, 'naver-map-path').find(
+    props => props.zIndex === 2,
+  );
   expect(run?.outlineColor).toBe(darkMapLook.ribbon);
   expect(guide.pathParts[0].outlineColor).toBe(darkMapLook.guideOutline);
   expect(guide.pathParts[0].outlineColor).not.toBe(run?.outlineColor);
@@ -127,15 +129,40 @@ test('while running on a tilted map the course is a dim, thin guide under the mi
   expect(guide.outlineWidth).toBeLessThan(run?.outlineWidth);
 });
 
+// S15P31E105-720: the group run screens draw the course in the run start map's mint, not 673's black and purple.
+test('a mint line course is the neon mint ribbon round a pale centre; a cancelled one stays grey', () => {
+  const root = render(<RunMap route={route} mintLine />);
+  const [course] = overlays(root, 'naver-map-multipath');
+  expect(course.pathParts[0]).toEqual(
+    expect.objectContaining({
+      color: mintMapLook.ink,
+      outlineColor: mintMapLook.ribbon,
+    }),
+  );
+  expect(mintMapLook.ribbon).toBe('#4DFFD2');
+  expect(mintMapLook.ink).toBe('#B8FFEC');
+  expect(course.outlineWidth).toBe(mintMapLook.edge);
+  // The thin mint keeps the colours at the plain course line's widths.
+  const thin = render(<RunMap route={route} mintLine="thin" />);
+  const [thinCourse] = overlays(thin, 'naver-map-multipath');
+  expect(thinCourse.pathParts[0].outlineColor).toBe(mintMapLook.ribbon);
+  expect(thinCourse.width).toBe(2.2);
+  expect(thinCourse.outlineWidth).toBe(2.4);
+  expect(thinCourse.outlineWidth).toBeLessThan(mintMapLook.edge);
+  const muted = render(<RunMap route={route} mintLine muted />);
+  const [grey] = overlays(muted, 'naver-map-multipath');
+  expect(grey.pathParts[0].color).not.toBe(mintMapLook.ink);
+});
+
 // S15P31E105-691: the dark map's course line is the designated neon mint, as on the feed, not the 672 lime.
 test('the dark map course line is the designated neon mint', () => {
   expect(darkMapLook.ink).toBe('#4DFFD2');
   expect(darkMapLook.ribbon).toBe('#B3FFEC');
-  expect([darkMapLook.shadow, darkMapLook.glowInner, darkMapLook.glowOuter]).toEqual([
-    '#00785A',
-    '#00785A',
-    '#003A2C',
-  ]);
+  expect([
+    darkMapLook.shadow,
+    darkMapLook.glowInner,
+    darkMapLook.glowOuter,
+  ]).toEqual(['#00785A', '#00785A', '#003A2C']);
 });
 
 // S15P31E105-691: the dark map's lines sit halfway between 672's and the running screen's 8.8 dp centre with a
@@ -331,7 +358,9 @@ test('the heading follows the last stretch of the run and holds while standing',
 test('a trail in parts draws each part on its own, with its shadow', () => {
   const first: LngLat[] = [route[0], route[1]];
   const second: LngLat[] = [route[2], route[3]];
-  const root = render(<RunMap trail={route} trailParts={[first, second, [route[3]]]} />);
+  const root = render(
+    <RunMap trail={route} trailParts={[first, second, [route[3]]]} />,
+  );
   const paths = overlays(root, 'naver-map-path');
   // Two shadows and two ink lines; the single point part draws nothing.
   expect(paths).toHaveLength(4);
@@ -341,24 +370,43 @@ test('a trail in parts draws each part on its own, with its shadow', () => {
 test('a record route in parts goes to the multipath as separate parts with one shadow each', () => {
   const first: LngLat[] = [route[0], route[1]];
   const second: LngLat[] = [route[2], route[3]];
-  const root = render(<RunMap route={route} routeParts={[first, second]} interactive={false} />);
+  const root = render(
+    <RunMap route={route} routeParts={[first, second]} interactive={false} />,
+  );
   expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
   expect(overlays(root, 'naver-map-path')).toHaveLength(2);
   expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
 });
 
-test('a course pause connector is grey and separate from measured route', () => {
-  const root = render(<RunMap route={route} unmeasuredEdges={[1]} interactive={false} />);
-  expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
-  expect(overlays(root, 'naver-map-path')).toEqual(
-    expect.arrayContaining([expect.objectContaining({ color: '#8A979E', coords: expect.any(Array) })]),
+test('a course pause connector is a row of round grey circles, none on the course points it joins', () => {
+  const root = render(
+    <RunMap route={route} unmeasuredEdges={[1]} interactive={false} />,
   );
+  expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
+  const dots = overlays(root, 'naver-map-circle').filter(
+    props => props.color === '#8A979E',
+  );
+  expect(dots.length).toBeGreaterThan(0);
+  // Between the two course points of edge 1, and clear of both.
+  for (const dot of dots) {
+    expect(dot.longitude).toBeGreaterThan(route[1][0]);
+    expect(dot.longitude).toBeLessThan(route[2][0]);
+    expect(dot.radius).toBeGreaterThan(0);
+  }
+  // No grey line any more: the connector is only dots.
+  expect(
+    overlays(root, 'naver-map-path').filter(props => props.color === '#8A979E'),
+  ).toHaveLength(0);
 });
 
 // A-3/B-3 (S15P31E105-549 review): parts of one point each never become one joined line.
 test('a record route of single-point parts draws no line between them', () => {
   const root = render(
-    <RunMap route={[route[0], route[2]]} routeParts={[[route[0]], [route[2]]]} interactive={false} />,
+    <RunMap
+      route={[route[0], route[2]]}
+      routeParts={[[route[0]], [route[2]]]}
+      interactive={false}
+    />,
   );
   expect(overlays(root, 'naver-map-multipath')).toHaveLength(0);
   expect(overlays(root, 'naver-map-path')).toHaveLength(0);

@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-10 · ERD ver.3 · **36개 테이블 / 329개 컬럼 / 63개 FK**
+기준: 2026-11-12 · ERD ver.3 · **37개 테이블 / 336개 컬럼 / 65개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -117,6 +117,7 @@
 | `pace_plans` | 세션의 초기 권장 페이스·BPM |
 | `pace_plan_segments` | 초기 페이스 계획의 거리 구간별 권장 페이스 |
 | `coaching_decisions` | 러닝 도중의 권장 페이스·BPM·코칭 단계·미래 심박 예측 |
+| `run_share_links` | 러닝 기록 공유 링크(V37, S15P31E105-704). 기록 하나에 링크 하나. H08로 발급하고 링크를 아는 사람이 H09로 로그인 없이 표시용 요약·경로를 본다 |
 
 #### running_session_splits — 종료 후 구간 집계
 
@@ -143,6 +144,19 @@
 | analysis_status | running_sessions_analysis_status_enum NOT NULL, PENDING | 현재 결과 준비 상태만 표시. PENDING/PROCESSING/READY/FAILED/LEGACY |
 
 목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다. 사용자별 완료 러닝을 종료 시각 최근순으로 찾는 조회(AI09 속도 보정·AI04 BPM 이력 등, `ended_at IS NOT NULL ORDER BY ended_at DESC`)는 `(user_id, ended_at DESC)` 인덱스 `idx_running_sessions_user_ended`(V11)를 사용할 수 있다. `DESC`는 NULL(진행 중 세션)을 앞에 두므로 `NULLS LAST` 정렬은 이 인덱스 순서를 그대로 쓰지 못한다.
+
+#### run_share_links — 기록 공유 링크
+
+| 컬럼 | 타입·NULL | 용도 |
+| --- | --- | --- |
+| id | BIGINT IDENTITY PK | 공유 링크 ID |
+| session_id | BIGINT NOT NULL FK, UNIQUE | `running_sessions.id`. 기록 하나에 링크 하나 |
+| user_id | BIGINT NOT NULL FK | 발급 회원 `users.id`. 세션 소유자와 같다 |
+| token | VARCHAR(64) NOT NULL, UNIQUE | 32바이트 난수의 base64url(패딩 없음, 43자). 재공유에 같은 값을 돌려주므로 평문 저장 |
+| title | VARCHAR(40) NOT NULL | 앱이 보낸 기록 제목(앞뒤 공백 제거 후 1~40자). 재공유 때 바뀌면 갱신 |
+| created_at / updated_at | TIMESTAMPTZ NOT NULL, now() | 발급·수정 시각. updated_at은 `set_updated_at` 트리거가 갱신 |
+
+H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 세션이 완료가 아니거나 삭제됐거나(`running_sessions.deleted_at`) 발급자가 ACTIVE가 아니면 404로 막는다. 기록 삭제(S09)만으로는 행을 지우지 않으며, 회원 탈퇴(U18)는 같은 트랜잭션에서 그 회원의 링크 행을 모두 삭제한다(`rw_active_owner`는 INSERT/UPDATE에만 걸려 삭제를 막지 않는다). 링크 취소 수단은 후속 업무다. 탈퇴(진행) 회원의 발급·제목 변경은 `rw_active_owner` 트리거가 거절한다. 같은 기록의 동시 첫 발급은 `session_id` UNIQUE로 한 행만 남긴다([H08](../api/running-records.md#h08-기록-공유-링크-발급)).
 
 #### session_control_events — 제어 명령과 실행 결과
 
@@ -205,7 +219,7 @@
 | last_change_at | TIMESTAMPTZ NULL | 마지막 페이스 변경 시각 |
 | struggling_count | INTEGER NOT NULL DEFAULT 0, CHECK >= 0 | 마지막 AI10 결과의 어려움을 겪는 참가자 수 |
 | updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 상태 갱신 시각 |
-| pace_mode | VARCHAR(8) NOT NULL DEFAULT 'TOGETHER', CHECK IN ('TOGETHER', 'GOAL') | 방장이 출발 전에 고른 페이스 모드(S15P31E105-680, V33). TOGETHER = max(목표, AI 추천), GOAL = 목표 유지·위험 시만 감속 |
+| pace_mode | VARCHAR(8) NOT NULL DEFAULT 'TOGETHER', CHECK IN ('TOGETHER', 'GOAL') | 방장이 출발 전에 고른 페이스 모드(S15P31E105-680, V33). TOGETHER(앱 'AI 추천') = AI 추천 그대로(S15P31E105-702), GOAL(앱 '목표 페이스') = 목표 유지·위험 시만 감속 |
 | ai_recommended_pace_sec_per_km | INTEGER NULL, CHECK > 0 | 시작 계산 대상의 AI09 계획 페이스 중 가장 느린 값(초/km). 성공 전·재계산 중 NULL |
 | pace_basis_user_id | BIGINT NULL, FK users.id ON DELETE SET NULL | AI 추천의 기준 회원(가장 느린 계획의 주인) |
 | slower_than_goal_count | INTEGER NULL, CHECK >= 0 | 시작 계산 대상 중 AI09 계획이 목표 페이스보다 느린 회원 수. 목표가 없으면 NULL |
@@ -364,6 +378,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | post_likes | post_id, user_id |
 | comment_likes | comment_id, user_id |
 | post_bookmarks | post_id, user_id |
+| run_share_links | session_id / token |
 | user_follows | follower_id, followee_id |
 | course_environment_tags | course_id, environment_type |
 | group_run_participants | group_run_id, user_id |

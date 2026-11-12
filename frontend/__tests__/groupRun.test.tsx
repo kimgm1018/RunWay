@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
+import { CrewRecruitPage } from '../src/screens/group/CrewRecruitScreen';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -342,6 +343,36 @@ test('6.2 shows my crew, the leader view (6.2m) and a full crew that cannot take
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-703: 크루 만들기 sits on top of the list, under the search when it is open, also over an empty result.
+test('6.1 shows 크루 만들기 above the crews, under the search, and over an empty result', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  // Only the 크루 모집 page, in screen order (내 크루 stays rendered beside it).
+  const recruitTexts = () =>
+    screen.root
+      .findByType(CrewRecruitPage)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string')
+      .join(' ');
+  let page = recruitTexts();
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeGreaterThanOrEqual(0);
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeLessThan(
+    page.indexOf('남천 회복 조깅'),
+  );
+  await press(screen, '크루 검색 열기');
+  await type(screen, '크루 검색', '없는 크루 이름');
+  page = recruitTexts();
+  expect(page).toContain('찾는 크루가 없어요');
+  expect(page.indexOf('원하는 크루가 없나요?')).toBeLessThan(
+    page.indexOf('찾는 크루가 없어요'),
+  );
+  // The button still opens 6.3.
+  await press(screen, '크루 만들기');
+  expect(texts(screen)).toContain('대표 사진 추가');
+  await act(async () => screen.unmount());
+});
+
 test('6.2 sends a join request (6.2b) and 6.0 shows the crew as 승인 대기', async () => {
   const screen = await openGroup('noCrews');
   await press(screen, '크루 모집 보러 가기');
@@ -533,10 +564,12 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
     '광안리해수욕장 입구',
     '10.24 토',
     '오전 07:00',
-    '자동 산출',
+    // 목표 시간 on a ruler with its pace; 공동 페이스 moved to the waiting room (S15P31E105-696).
+    '목표 페이스',
   ]) {
     expect(page).toContain(text);
   }
+  expect(page).not.toContain('자동 산출');
   await press(screen, '만나는 곳 변경');
   await type(screen, '장소·주소 검색', '수영강');
   await waitForAction(screen, '수영강 APEC나루공원 입구');
@@ -548,11 +581,23 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   expect(texts(screen)).toContain('수영강 APEC나루공원 입구');
 
   await press(screen, '자유 러닝');
-  await press(screen, '50분');
+  // 목표 시간 is a ruler now (S15P31E105-696): 40분 → 50분, one minute a step.
+  for (let i = 0; i < 10; i++) {
+    await act(async () => {
+      labelled(
+        screen,
+        '목표 완주 시간',
+        'onAccessibilityAction',
+      ).props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } });
+    });
+  }
+  // The ruler gives 6.8 its value once it rests (150ms).
+  await settle(200);
   await press(screen, '그룹런 만들기');
   await settle();
   page = texts(screen);
-  expect(page).toContain('토요일, 함께 50분');
+  // A free run sends its distance (5km by default), which names the run.
+  expect(page).toContain('토요일, 함께 5km');
   expect(page).toContain('자유 러닝 · 50분');
   expect(page).toContain('내가 만든 그룹런');
   await act(async () => screen.unmount());

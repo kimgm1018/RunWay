@@ -9,6 +9,8 @@
 | [H03](#h03-구간별-러닝-분석-결과-조회) | 구간별 러닝 분석 결과 조회 | GET | `/running-records/{sessionId}/splits` | 1차 MVP | 회원 |
 | [H06](#h06-러닝-통계-요약) | 러닝 통계 요약 | GET | `/running-records/statistics` | 1차 MVP | 회원 |
 | [H07](#h07-평균-페이스-추이) | 평균 페이스 추이 | GET | `/running-records/statistics/pace-trend` | 1차 MVP | 회원 |
+| [H08](#h08-기록-공유-링크-발급) | 기록 공유 링크 발급 | POST | `/running-records/{sessionId}/share-link` | 1차 MVP | 회원 |
+| [H09](#h09-공유-기록-조회) | 공유 기록 조회 | GET | `/shared-runs/{token}` | 1차 MVP | 공개 |
 
 ## ERD 응답 대응 기준
 
@@ -20,7 +22,7 @@
 
 ## 삭제된 운동 기록
 
-[S09](sessions.md#s09-러닝-세션-삭제)로 삭제 표시한 세션은 H01 목록·H06 통계·H07 추이에서 제외한다. H02/H03에서 직접 조회하면 기존 `404 RECORD_NOT_FOUND`를 반환하며 경로·구간·분석 원본을 우회 제공하지 않는다. 새 비교 대상·추천 입력에서도 제외한다.
+[S09](sessions.md#s09-러닝-세션-삭제)로 삭제 표시한 세션은 H01 목록·H06 통계·H07 추이에서 제외한다. H02/H03에서 직접 조회하면 기존 `404 RECORD_NOT_FOUND`를 반환하며 경로·구간·분석 원본을 우회 제공하지 않는다. 이미 발급한 공유 링크도 [H09](#h09-공유-기록-조회)에서 `404 SHARED_RUN_NOT_FOUND`가 된다. 새 비교 대상·추천 입력에서도 제외한다.
 
 다른 운동의 기존 비교 참조와 이미 확정된 결과는 소급 변경하지 않는다. 삭제 대상의 상세는 접근 불가로 표시하고 진행 중 비교의 새 안내는 중단하되 현재 운동의 목표·본인 기록은 유지한다. 그룹의 확정 집계와 공용 코스 원본은 S09의 보존 규칙을 따르며 개인 기록 조회 제외와 구분한다.
 
@@ -149,7 +151,7 @@
 
 ### 상태값
 
-- 기록별 공개 상태 없음. 본인 소유권을 검사한다.
+- 기록별 공개 상태 없음. 본인 소유권을 검사한다. 공유 링크(`run_share_links`)는 공개 상태가 아니며 H02 권한을 바꾸지 않는다(H08·H09 참고).
 
 ### 미정 사항
 
@@ -270,7 +272,8 @@
 - 이미지도 기록 접근 권한을 적용한다. 공유 게시물에는 게시물 권한에 맞는 표시용 결과만 제공하며 원본 GPS 다운로드 기능을 추가하지 않는다.
 
 - 본인의 원본 기록 조회다. 다른 사용자 기록은 이 API로 열지 않고 접근 가능한 공유 게시물의 표시용 요약으로 제공한다.
-- 기록별 공개 설정은 없다. 게시물의 노출은 작성자의 계정 공개 여부·승인된 팔로워 관계로 결정한다.
+- 예외(S15P31E105-704): 소유자가 [H08](#h08-기록-공유-링크-발급)로 링크를 발급한 기록 하나는 링크를 받은 사람이 로그인 없이 [H09](#h09-공유-기록-조회)로 표시용 요약·경로를 본다. H09는 H02 응답이 아니며 심박·목표·기기·세션 ID를 주지 않는다. H02 자체는 계속 본인만 조회한다.
+- 기록별 공개 설정은 없다. 게시물의 노출은 작성자의 계정 공개 여부·승인된 팔로워 관계로 결정한다. 공유 링크는 공개 설정이 아니라 링크를 아는 사람에게만 여는 별도 경로다.
 
 - 운동 종료·기록 반영에 따른 분석·통계 갱신은 내부에서 자동 수행한다. 이 API는 결과를 읽으며 생성·재분석 요청을 요구하지 않는다.
 - 종료 직후 데이터 동기화·분석이 진행 중일 수 있다. 잠정 결과·처리 상태·지연 업로드 재집계의 응답 표현은 계약 확정 시 정의한다.
@@ -653,6 +656,165 @@
 - [ ] H06에 포함할지 별도 API로 둘지
 - [ ] 응답 필드는 ERD 확정 후 갱신
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+
+## H08 기록 공유 링크 발급
+
+`POST` `/api/v1/running-records/{sessionId}/share-link`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 (본인 기록) |
+| 관련 업무 | S15P31E105-704 경로 재생 공유 |
+| 미정 사항 | 없음. 링크 취소는 후속 업무 |
+
+### 설명
+
+본인의 완료된 러닝 기록의 공유 링크를 만든다. 링크를 받은 사람은 로그인 없이 [H09](#h09-공유-기록-조회)로 그 기록 하나의 표시용 요약과 경로를 본다. 기록 하나에 링크는 하나이며, 다시 요청하면 같은 링크를 돌려준다.
+
+### 인증 및 권한
+
+- JWT 회원. 기록(세션) 소유자만 발급한다. 다른 회원의 기록이면 `403 NOT_OWNER`다(H02와 같은 검사).
+- 완료 기록만 발급한다. H01 목록과 같은 기준(`running_sessions.status = COMPLETED`, 미삭제)이며, 진행 중·준비·취소·중단 세션은 기록이 아니므로 `404 RECORD_NOT_FOUND`이고 링크를 만들지 않는다.
+- 요청마다 계정 상태를 조회하지 않는다([공통 인증 규약](README.md#인증-요청과-복구): 탈퇴 뒤 기존 JWT는 만료까지 유효하고 자원 권한 검사로 막는다). 탈퇴 처리(U18)가 기록을 삭제 표시하므로 탈퇴 뒤 남은 JWT로 호출하면 H02와 같이 `404 RECORD_NOT_FOUND`다. 탈퇴와 겹쳐 기록이 아직 남아 있으면 DB 쓰기 차단(`rw_active_owner`)이 거절한다. 탈퇴가 커밋된 뒤면 `401 UNAUTHORIZED`, 탈퇴 트랜잭션이 아직 진행 중이면 회원 행 잠금 대기를 하지 않고 `503 SERVICE_UNAVAILABLE`이다. 어느 쪽도 링크를 만들지 않는다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `sessionId` | integer (int64) | O | 러닝 세션 BIGINT 식별자 |
+
+### Query Parameters
+
+없음
+
+### Request Body
+
+```json
+{ "title": "자유 러닝" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `title` | string | O | 앱이 보여 주던 기록 제목. 앞뒤 공백을 제거한 뒤 1~40자(유니코드 코드 포인트, 닉네임과 같은 계산)이며 제거한 값을 저장한다. 제어 문자(NUL 포함, `Cc`)·보이지 않는 서식 문자(폭 없는 공백·양방향 재정렬 등, `Cf`)·짝 없는 서로게이트는 허용하지 않는다. 그 밖의 제목 규칙은 없어 앱이 보낸 값을 쓴다 |
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "token": "Q2hhbmdlTWVJc05vdEFSZWFsVG9rZW5KdXN0QVNhbXA",
+  "url": "https://k15e105.p.ssafy.io/r/Q2hhbmdlTWVJc05vdEFSZWFsVG9rZW5KdXN0QVNhbXA"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `token` | string | O | `run_share_links.token`. 서버가 만든 32바이트 난수의 base64url(패딩 없음) 43자 |
+| `url` | string | O | 공개 주소 + `/r/{token}`. 공개 주소는 서버 설정 `runway.share.base-url`(`BACKEND_SHARE_BASE_URL`, 기본 `https://k15e105.p.ssafy.io`) |
+
+### 오류 응답
+
+| HTTP·코드 | 발생 조건 |
+|---|---|
+| `400 VALIDATION_ERROR` | 본문이 JSON이 아니거나 `title`이 없음·공백뿐·앞뒤 공백 제거 후 40자 초과·허용하지 않는 문자(제어·서식 문자, 짝 없는 서로게이트) 포함. `sessionId`가 정수가 아님 |
+| `401 UNAUTHORIZED` | 토큰이 없거나 만료·위변조. 탈퇴와 겹쳐 DB 쓰기 차단(`rw_active_owner`)에 걸림 |
+| `403 NOT_OWNER` | 다른 회원의 기록 |
+| `404 RECORD_NOT_FOUND` | 기록이 없거나 삭제됨(탈퇴 뒤 남은 JWT 포함), 또는 완료(COMPLETED)되지 않은 세션. 링크를 만들지 않는다 |
+| `503 SERVICE_UNAVAILABLE` | 저장소 일시 장애, 또는 진행 중인 탈퇴와 겹쳐 회원 행이 잠김. 같은 요청으로 다시 시도해도 같은 링크를 받는다(탈퇴가 끝났으면 401·404) |
+
+### 처리 규칙
+
+- 한 쓰기 트랜잭션에서 소유권을 확인하고 `run_share_links`에 저장한다.
+- 같은 기록에 이미 링크가 있으면 새로 만들지 않고 기존 token을 돌려준다(멱등). `title`이 다르면 제목만 바꾼다.
+- 같은 기록의 첫 발급이 동시에 겹치면 `session_id` UNIQUE 충돌을 `INSERT … ON CONFLICT`로 받아 먼저 저장된 행을 쓴다. 두 요청 모두 같은 token을 받는다.
+- 같은 링크를 다시 돌려줘야 하므로 token은 평문으로 저장한다.
+- 링크를 끄는 수단은 없다. 기록을 삭제(S09)하면 H09가 404가 된다. 회원이 탈퇴하면 [U18](users.md#u18-회원탈퇴)이 그 회원의 링크 행을 삭제해 H09가 404가 된다. 취소 API·화면은 후속 업무다.
+- 완료 여부는 소유권 확인 뒤 `status = COMPLETED`로 검사한다(H01과 같은 기록 기준). 진행 중 위치가 링크로 열리지 않게 한다.
+- token은 로그에 남기지 않는다.
+
+## H09 공유 기록 조회
+
+`GET` `/api/v1/shared-runs/{token}`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 공개 (로그인 불필요) |
+| 관련 업무 | S15P31E105-704 경로 재생 공유 |
+| 미정 사항 | 없음 |
+
+### 설명
+
+[H08](#h08-기록-공유-링크-발급)로 발급한 링크의 기록을 로그인 없이 보여 준다. 앱의 공유 재생 화면과 웹 안내 페이지(`/r/{token}`)가 같은 응답으로 경로를 재생한다.
+
+### 인증 및 권한
+
+- 인증하지 않는다. 공개 경로는 `GET`/`HEAD` `/api/v1/shared-runs/{token}`뿐이다. Authorization 헤더가 있어도 결과는 같다.
+- token을 아는 사람만 연다. token은 추측할 수 없는 난수이며 다른 기록 목록·ID를 노출하지 않는다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `token` | string | O | H08이 준 token. `[A-Za-z0-9_-]{43}` 형식이 아니면 조회하지 않고 404 |
+
+### Query Parameters
+
+없음
+
+### Request Body
+
+없음
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "title": "자유 러닝",
+  "startedAt": "2026-11-11T22:01:02Z",
+  "distanceM": 5021.40,
+  "durationSec": 1712,
+  "averagePaceSecPerKm": 341.00,
+  "cadence": 172.00,
+  "runner": { "nickname": "러너", "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000" },
+  "segments": [
+    { "coordinates": [[127.027612, 37.497912], [127.027901, 37.498105]] }
+  ]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `title` | string | O | 발급 때 받은 제목(`run_share_links.title`) |
+| `startedAt` | string (ISO 8601 UTC) / null | O | `running_sessions.started_at` |
+| `distanceM` | number / null | O | `running_sessions.total_distance`. H02 `actualDistanceM`과 같은 값 |
+| `durationSec` | integer / null | O | `running_sessions.moving_duration`. H02 `movingDurationSec`과 같은 값(앱 5.1 기록 카드의 시간) |
+| `averagePaceSecPerKm` | number / null | O | `running_sessions.average_pace` |
+| `cadence` | number / null | O | `running_sessions.average_cadence`(spm). H02 `averageCadence`와 같은 값 |
+| `runner.nickname` | string | O | 발급자 닉네임 |
+| `runner.profileImageUrl` | string / null | O | 발급자 프로필 사진 주소. U21과 같은 방식(`users.profile_image_key` → [F02](files.md#f02-이미지-조회) 공개 주소). 없으면 null |
+| `segments` | object[] | O | 지도 표시용 경로 조각. 위치가 없거나 시작 전 기록이면 빈 배열 |
+| `segments[].coordinates` | number[][] | O | WGS84 `[경도, 위도]`. 한 조각 안에서만 선으로 잇는다 |
+
+`segments`는 [S11 경로 선택 규칙](sessions.md#경로-선택-규칙)과 같은 규칙(시작~종료 시각, 정확도 30m, 워치 우선, 60초 공백 분리, 최대 2,000개 축약)으로 고른 결과이며, 같은 기록의 S11 `segments[].coordinates`와 같다. 기기 출처(`source`)는 주지 않는다. 심박·목표·기기·세션 ID·측정 시각·정확도는 응답하지 않는다.
+
+### 오류 응답
+
+| HTTP·코드 | 발생 조건 |
+|---|---|
+| `404 SHARED_RUN_NOT_FOUND` | token 형식 오류, 없는 token, 연결된 세션이 완료(COMPLETED)가 아님, 기록 삭제(S09), 발급자가 탈퇴했거나 ACTIVE가 아님. 어떤 이유인지 구분하지 않는다 |
+| `503 SERVICE_UNAVAILABLE` | 저장소 일시 장애 |
+
+### 처리 규칙
+
+- 읽기 전용 단일 트랜잭션에서 링크·기록·발급자와 경로를 조회한다. 아무것도 잠그거나 바꾸지 않는다.
+- 연결된 세션이 `status = COMPLETED`이고 삭제되지 않았으며 발급자가 ACTIVE일 때만 응답한다.
+- 응답 필드는 위 표의 것만 준다. 기록 원본(H02·H03)·다른 기록으로 이어지는 식별자를 주지 않는다.
+- token과 좌표는 로그에 남기지 않는다.
 
 ## 173 종료 후 분석 상태
 

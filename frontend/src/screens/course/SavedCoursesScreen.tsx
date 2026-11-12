@@ -35,6 +35,7 @@ import {
   type Repositories,
   type SavedCourse,
 } from '../../data';
+import { RunMap } from '../../components/RunMap';
 import { formatKm } from '../../format';
 import { routeSections, shapeOfRoute, type LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -304,6 +305,27 @@ export function basemapImageFrame(
   };
 }
 
+// S15P31E105-715: a card with no server image (a private course made from a free run) or with grey connectors (the
+// server's single-colour image cannot draw them) is drawn on a real compact RunMap. Native maps are heavy, so only a
+// few cards on screen hold one at a time; the rest keep the outline, and a card gives its place back when it leaves.
+const maxCardMaps = 3;
+let cardMapsInUse = 0;
+export function useCardMapSlot(wanted: boolean) {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!wanted || cardMapsInUse >= maxCardMaps) {
+      setHeld(false);
+      return;
+    }
+    cardMapsInUse += 1;
+    setHeld(true);
+    return () => {
+      cardMapsInUse -= 1;
+    };
+  }, [wanted]);
+  return held;
+}
+
 // A course card's map (S15P31E105-612, replacing S15P31E105-562's Naver map). With a C03 basemap the card is the
 // server's map image, which already has the course drawn on it, placed so its course sits where the outline would
 // (basemapImageFrame), with © OpenStreetMap at the top right; no outline is drawn over it. Without a basemap, or when
@@ -366,6 +388,12 @@ export function CourseMapThumb({
   const [shown, setShown] = useState<string | null>(null);
   // The server thumbnail is a single-colour route; use the SVG until it supports grey connectors.
   const imageShown = !!image && shown === image && !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length;
+  const gaps = unmeasuredEdges ?? loaded?.unmeasuredEdges;
+  // No usable server image: a real map under the course, while a slot is free (see useCardMapSlot).
+  const mapWanted = !!points && !image;
+  const mapHeld = useCardMapSlot(mapWanted);
+  const [mapShown, setMapShown] = useState(false);
+  const mapOn = mapHeld && !!points;
   const outline = useMemo(
     () => (points ? shapeOfRoute(points) : shape),
     [points, shape],
@@ -401,7 +429,19 @@ export function CourseMapThumb({
           style={[styles.mapImage, frame]}
         />
       ) : null}
-      {imageShown ? null : (
+      {mapOn && points ? (
+        <RunMap
+          route={points}
+          unmeasuredEdges={gaps}
+          compact
+          mintLine
+          interactive={false}
+          area={area}
+          style={StyleSheet.absoluteFill}
+          onShown={() => setMapShown(true)}
+        />
+      ) : null}
+      {imageShown || (mapOn && mapShown) ? null : (
         <View
           style={[
             styles.mapThumbGlyph,

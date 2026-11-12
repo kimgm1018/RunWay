@@ -272,7 +272,19 @@ public class SecurityConfig {
                                         "/api/v1/auth/password-reset")
                                 .contains(path))
                 || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"))
-                || (List.of("GET", "HEAD").contains(method) && isPublicImagePath(path));
+                || (List.of("GET", "HEAD").contains(method) && isPublicImagePath(path))
+                || (List.of("GET", "HEAD").contains(method) && isSharedRunPath(path));
+    }
+
+    private static final String SHARED_RUN_PREFIX = "/api/v1/shared-runs/";
+
+    /** H09: GET/HEAD `/api/v1/shared-runs/{token}` only. 토큰 형식 검사는 서비스에서 404로 처리한다. */
+    private static boolean isSharedRunPath(String path) {
+        if (!path.startsWith(SHARED_RUN_PREFIX)) {
+            return false;
+        }
+        String token = path.substring(SHARED_RUN_PREFIX.length());
+        return !token.isEmpty() && token.indexOf('/') < 0;
     }
 
     /** F02: GET/HEAD `/api/v1/images/{imageId}` only. UUID 검증은 컨트롤러에서 400으로 처리한다. */

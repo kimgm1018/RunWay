@@ -56,7 +56,9 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
                         .header("Authorization", SecurityTestSupport.bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].id").value(id));
+                .andExpect(jsonPath("$.items[0].id").value(id))
+                // 자유 러닝 기록으로 만든 개인 코스는 그룹런 코스에서 빠지도록 표시된다(S15P31E105-696).
+                .andExpect(jsonPath("$.items[0].isPrivate").value(true));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM course_bookmarks WHERE user_id=? AND course_id=?",
                 Integer.class, owner, id)).isEqualTo(1);
         mvc.perform(get("/api/v1/courses/{id}", id)
@@ -91,6 +93,12 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
         mvc.perform(put("/api/v1/courses/{id}/bookmark", id)
                         .header("Authorization", SecurityTestSupport.bearer(other)))
                 .andExpect(status().isOk());
+        // 남이 공유한 자유 러닝 코스를 저장해도 개인 코스로 표시된다(S15P31E105-696 리뷰 A-3).
+        mvc.perform(get("/api/v1/users/me/bookmarked-courses")
+                        .header("Authorization", SecurityTestSupport.bearer(other)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(id))
+                .andExpect(jsonPath("$.items[0].isPrivate").value(true));
         long postId = jdbc.queryForObject("SELECT id FROM posts WHERE session_id=?", Long.class, session);
         mvc.perform(patch("/api/v1/posts/{id}", postId)
                         .header("Authorization", SecurityTestSupport.bearer(owner))

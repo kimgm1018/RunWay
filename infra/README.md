@@ -159,6 +159,8 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 - **MR 검사:** 타입·린트·전체 Jest는 매번 실행한다. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 소스만
   바뀌면 APK 대신 Android 릴리스 JS 번들을 생성한다(`Mobile JS Bundle`). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀌면
   APK·JS 번들을 모두 생략한다. 네이티브·의존성·빌드 설정·그 밖의 프론트엔드 경로 변경과 공통 설정 변경·수동 검사는 APK를 빌드한다.
+  소개 랜딩 `frontend/landing/`은 앱 빌드와 무관해 모바일 검사 대상이 아니다. 랜딩만 바뀐 MR은 검사 대상 외 파일만 바뀐 MR과 같이
+  대상 브랜치와 병합 가능한지만 확인하고, 앱 코드와 함께 바뀌면 앱 코드 기준으로 위 규칙을 따른다.
 - **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug·release APK를 생성·보관한다.
   랜딩 배포에는 팀 테스트 서명을 사용한다. 대상은 ARM64 안드로이드 폰이다.
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
@@ -231,7 +233,12 @@ GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09 검증에는 `PERSONA
 - **서버 배치:** EC2의 `~/runway/frontend/landing/`을 Nginx `/usr/share/nginx/landing`에 읽기 전용 디렉터리로 연결한다.
   응답은 `Cache-Control: no-cache`라 브라우저가 매번 ETag로 재검증하며, 파일 교체 후 Nginx 재시작 없이 반영된다.
 - **상태 검사:** 루트가 랜딩으로 바뀌어 blackbox 검사는 `/backend-probe`를 사용한다. Nginx가 이 경로를 백엔드 루트로 전달해 기존과 같은 공개 404(`NOT_FOUND`)를 확인한다.
-- **갱신(수동):** 랜딩 변경이 master에 반영되면 master 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
+- **자동 갱신:** `runway-landing-cd`는 `master` Push에서 `frontend/landing/index.html`이 바뀐 경우에만 배포한다.
+  EC2에서 파일을 교체한 뒤 공개 응답이 새 HTML과 같은지 확인하고, 실패하면 이전 파일을 복구한다.
+- **Jenkins 연결:** Pipeline Job의 스크립트 경로는 `infra/jenkins/Jenkinsfile.landing-cd`다.
+  작업 브랜치에서 `DEPLOY`를 끈 채 수동 실행해 검증한 뒤, SCM 브랜치와 GitLab Push 필터를 `master`로 지정하고 Job의 Webhook 토큰을 GitLab에 등록한다.
+  운영 HTML이 준비된 뒤 `DEPLOY`를 켜서 수동 실행하면 `master`의 HTML을 즉시 반영할 수 있다.
+- **최초 배치·수동 복구:** Jenkins 연결 전이나 수동 복구가 필요할 때는 `master` 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
 
 ```bash
 scp -i <SSH 키> frontend/landing/index.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.index.html.new
@@ -243,13 +250,45 @@ curl -s https://k15e105.p.ssafy.io/ | sha256sum
 두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
 `nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
 
+### 경로 재생 링크 (S15P31E105-704)
+
+- **경로:** 같은 Nginx 볼륨(`/usr/share/nginx/landing`)에서 아래 두 가지를 제공한다. 규약은 [ADR-0023](../docs/adr/0023-run-share-app-links.md)을 따른다.
+  - `/.well-known/assetlinks.json`: Android App Links 검증 파일이다. `frontend/landing/.well-known/assetlinks.json`을 그대로 올린다.
+  - `/r/{token}`·`/p/{postId}`: 웹 화면 `share.html`이다. 경로가 정규식 `^/(r|p)/[A-Za-z0-9_-]{1,64}/?$`에 맞을 때만 제공한다.
+- **App Links 서명:**
+  - `assetlinks.json`에는 `com.runway.health`와 팀 테스트 서명(`frontend/android/app/debug.keystore`, debug·release 공통)의 SHA-256이 들어 있다.
+  - 서명 키를 바꾸면 이 파일도 함께 바꾼다. 지문 확인: `keytool -J-Duser.language=en -list -v -keystore frontend/android/app/debug.keystore -storepass android`
+- **네이버 지도 웹 키:**
+  - `share.html`은 Web Dynamic Map을 쓴다.
+  - 저장소에는 자리표시자 `__NAVER_MAP_CLIENT_ID__`만 있다. 올릴 때 앱과 같은 Maps Application의 클라이언트 ID(`MOBILE_NAVER_MAP_CLIENT_ID`)로 바꾼다.
+  - NCP 콘솔의 그 Application에 Web 서비스 URL `https://k15e105.p.ssafy.io`를 등록해야 지도가 뜬다.
+  - 요금은 Dynamic Map 이용 횟수 기준이다. 대표 계정은 월 6,000,000건까지 무료이고, 넘으면 0.1원/건이다(2026-11-12 요금표).
+- **갱신(수동):** master 체크아웃의 저장소 루트에서 아래를 실행한다. 키 값은 로컬 `.env`에서 셸로만 읽고 출력하지 않는다.
+
+```bash
+set -a; . ./.env; set +a
+sed "s/__NAVER_MAP_CLIENT_ID__/${MOBILE_NAVER_MAP_CLIENT_ID}/" frontend/landing/share.html > /tmp/runway-share.html
+scp -i <SSH 키> /tmp/runway-share.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.share.html.new
+ssh -i <SSH 키> ubuntu@k15e105.p.ssafy.io 'mkdir -p runway/frontend/landing/.well-known && mv runway/frontend/landing/.share.html.new runway/frontend/landing/share.html'
+scp -i <SSH 키> frontend/landing/.well-known/assetlinks.json ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.well-known/assetlinks.json
+rm /tmp/runway-share.html
+```
+
+- **반영 순서:**
+  1. 처음 반영할 때는 위 파일을 올린 뒤 운영 Nginx 설정(`infra/nginx/default.conf`)을 적용한다.
+  2. `nginx -t` 통과 후 reload한다.
+- **확인:**
+  - `curl -s https://k15e105.p.ssafy.io/.well-known/assetlinks.json`이 JSON을 돌려주는지 본다.
+  - `curl -sI https://k15e105.p.ssafy.io/r/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`가 `200 text/html`인지 본다.
+  - 앱 설치 후 `adb shell pm get-app-links com.runway.health`에서 도메인이 `verified`로 나오는지 본다.
+
 ### 랜딩 폰·워치 APK 갱신
 
 master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼저 보관한다. 공개용 release APK는 폰 `artifacts/runway.apk`, 워치 `artifacts/runway-watch.apk`로 추가 보관하며 랜딩에 복사하는 대상이다. 두 빌드 유형은 같은 팀 테스트 서명을 사용하고, 버전 코드는 각 작업의 Jenkins 빌드 번호를 사용한다.
 
 EC2의 갱신 작업은 `runway-mobile-apk`와 `runway-watch-apk`의 마지막 성공 빌드를 확인한다. SHA-256이 일치한 APK만 각각 `/downloads/runway.apk`와 `/downloads/runway-watch.apk`에 반영한다. Jenkins 산출물 경로와 공개 다운로드 경로는 각각 인증·정적 파일 응답으로 제공한다.
 
-master 병합만으로는 랜딩 HTML·`nginx/default.conf`·게시 서비스가 EC2에 반영되지 않는다. 백엔드 CD는 API 경로 목록만 갱신하고, APK 작업은 Jenkins 보관까지만 한다.
+APK 제공에 필요한 `nginx/default.conf`와 게시 서비스는 최초에 EC2에 직접 적용한다. 백엔드 CD는 API 경로 목록만 갱신하고, APK 작업은 Jenkins 보관까지만 한다.
 EC2의 `~/runway`는 Git 체크아웃이 아닌 복사본이므로 아래 파일은 master 체크아웃에서 올려 적용한다.
 
 최초 적용 시 master 체크아웃의 `infra/jenkins/publish-apks.py`·`runway-publish-apks.service`·`runway-publish-apks.timer`를 EC2의 임시 폴더(예: `~/.runway-apk-stage`)에 올리고 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.

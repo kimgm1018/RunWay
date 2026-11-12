@@ -30,10 +30,12 @@ from app.decide.policy_port import PacePolicy
 from app.decide.schemas import DecideRequest, DecideResponse
 from app.decide.service import run_decide
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
+from app.group_pace.ahead import ahead_enabled, ahead_wait, load_ahead_settings
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
-from app.demo.recorder import group_allowed, new_demo_state, record_group_trace, record_trace
+from app.demo.routes import DbDemoRouteSource, DemoRoutes
+from app.demo.recorder import decide_allowed, group_allowed, new_demo_state, record_group_trace, record_trace
 from app.demo.stream import build_stream_router
 from app.demo.inlet import build_inlet_router
 from app.models.ode.runtime import DEFAULT_VALIDATED_HORIZON_SEC, load_ode_runtime
@@ -168,6 +170,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                clock: Callable[[], datetime] = utc_now,
                demo_loader: Callable[[], DemoSettings] = load_demo_settings,
                demo_rate_per_sec: int = 2,
+               demo_route_source=None,
                ode_loader: Callable[[], object | None] = default_ode_loader,
                personal_plan_course_lookup=None,
                personal_plan_user_lookup=None,
@@ -267,6 +270,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     demo_settings = demo_loader()
     demo_state = (new_demo_state(demo_settings, rate_per_sec=demo_rate_per_sec, now=clock)
                   if demo_settings.enabled else None)
+    if demo_state is not None:
+        # 722: 시연 콘솔 지도. AI 읽기 전용 DB로 대상 세션의 running_route_points만 읽는다(없으면 지도 선 없음)
+        # userAllowlist가 null(전체)이면 경로를 아예 읽지 않는다. 대상 회원이 정해졌을 때만 켠다.
+        user_allow = demo_settings.config.user_allowlist if demo_settings.config else None
+        if demo_route_source is None and ai_db is not None:
+            demo_route_source = DbDemoRouteSource(ai_db)
+        demo_state.routes = (DemoRoutes(demo_route_source, allowed_users=user_allow)
+                             if demo_route_source is not None and user_allow is not None else None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -476,13 +487,18 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 raise ApiError(503, "MODEL_NOT_READY", "정책이 로드되지 않았습니다.")
             demo = request.app.state.demo
             # 시연 기능이 꺼져 있거나 허용 목록 밖 그룹이면 detail을 만들지 않는다(추가 계산 0)
-            detail = {} if demo is not None and group_allowed(demo, body.group_run_id) else None
+            detail = {} if demo is not None and group_allowed(demo, body.group_run_id, body.participants) else None
+            # S15P31E105-728 여유 가속(기본 꺼짐). 시연 대상 회원(userAllowlist)이 낀 그룹만 짧은 대기 시간을 쓴다.
+            ahead = load_ahead_settings() if ahead_enabled() else None
+            wait_sec, demo_wait = (ahead_wait(ahead, demo.config if demo is not None else None, body.participants)
+                                   if ahead is not None else (None, False))
             began = time.perf_counter()
             response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
                 hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail,
                 gru_gb_enabled=request.app.state.gru_gb_enabled,
-                readiness_lookup=request.app.state.readiness_lookup)
+                readiness_lookup=request.app.state.readiness_lookup,
+                ahead=ahead, ahead_wait_sec=wait_sec, ahead_demo_wait=demo_wait)
             if detail is not None:
                 try:
                     record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,
@@ -514,7 +530,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                              gru_gb_enabled=request.app.state.gru_gb_enabled,
                              readiness_lookup=request.app.state.readiness_lookup)
         demo = request.app.state.demo
-        if demo is not None:
+        if demo is not None and decide_allowed(demo, body):
             stage, _ = demo.profile_for(body.context.session_id)
             trace_id = record_trace(demo, outcome, stage=stage, replay_speed=None, grade_source="SAMPLE")
             if trace_id is not None and outcome.response is not None:

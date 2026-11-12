@@ -22,6 +22,11 @@ export function DataProvider({
   );
 }
 
+// The repositories when a DataProvider is above, or null: for parts that also draw without data (S15P31E105-704).
+export function useOptionalRepositories() {
+  return useContext(DataContext);
+}
+
 export function useRepositories() {
   const value = useContext(DataContext);
   if (!value) {

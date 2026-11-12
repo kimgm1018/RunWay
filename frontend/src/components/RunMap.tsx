@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import {
+  NaverMapCircleOverlay,
   NaverMapMarkerOverlay,
   NaverMapMultiPathOverlay,
   NaverMapPathOverlay,
@@ -15,7 +16,13 @@ import {
   NaverMapViewRef,
   type Camera,
 } from '@mj-studio/react-native-naver-map';
-import { bearingOf, distanceM, routeSections, type LngLat } from '../geo';
+import {
+  bearingOf,
+  connectorDots,
+  distanceM,
+  routeSections,
+  type LngLat,
+} from '../geo';
 import { latinRuns } from './AppText';
 import { Icon } from './Icon';
 import { fontFamily, k1, palette } from '../theme';
@@ -120,15 +127,14 @@ type RunMapProps = {
   recenterSignal?: number;
   // Android draws the map in a TextureView, so a parent's opacity and round corners apply to it (S15P31E105-683).
   textureView?: boolean;
-  // 그룹런 시안 (S15P31E105-673): the course and the run as a near-black line with a purple edge on the group
-  // screens; every other screen keeps its look.
-  groupLine?: boolean;
   // false takes the markers (poles, dots, pills, names) off a map that something else covers, such as 7.2's
   // map under the course replay, so the native map stops redrawing their views; the lines stay. Default true.
   markers?: boolean;
   // My run's route in RunWay's mint ribbon (S15P31E105-683's line) on an otherwise unchanged map: 4.5 러닝 결과 and
   // the record card (S15P31E105-690).
-  mintLine?: boolean;
+  // 'thin' keeps the mint colours at the plain course line's widths, for a small map such as 6.4 그룹런 상세
+  // (S15P31E105-720).
+  mintLine?: boolean | 'thin';
   style?: StyleProp<ViewStyle>;
 };
 
@@ -148,8 +154,6 @@ function coordsOf(line: LngLat[]) {
 
 const ink = routeLook.ink;
 
-// The group screens' course line (그룹런 시안): near-black over a purple edge. Opaque, as every map colour must be.
-const groupLineLook = { ink: '#0B0E14', ribbon: '#B58CFF' } as const;
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
 const flatLayers = {
   BUILDING: false,
@@ -185,6 +189,10 @@ const locationLook = {
   circleRadius: 28,
   circleColor: 'rgba(255, 255, 255, 0.12)',
 };
+
+// A pause connector's round grey dots (S15P31E105-715): circle overlays, radius in metres, so they are always round.
+const pauseDotRadiusM = 1.4;
+const pauseDotColor = '#8A979E';
 
 // A member's dot and the height of its name tag.
 const memberDot = 12;
@@ -585,7 +593,6 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     look,
     placeLabel,
     compact = false,
-    groupLine = false,
     markers = true,
     mintLine = false,
     textureView = false,
@@ -629,22 +636,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
   // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
   const darkMap = tilted && !mint;
-  const pathLook = groupLine
-    ? {
-        ...baseLook,
-        ink: groupLineLook.ink,
-        ribbon: groupLineLook.ribbon,
-        guide: groupLineLook.ink,
-      }
-    : mintLine
+  // The group screens use the same mint as every run (S15P31E105-720; 673's near-black and purple line is gone).
+  const pathLook = mintLine
     ? {
         ...baseLook,
         ink: mintMapLook.ink,
         ribbon: mintMapLook.ribbon,
         shadow: mintMapLook.shadow,
-        centre: mintMapLook.centre,
-        edge: mintMapLook.edge,
-        shadowWidth: mintMapLook.shadowWidth,
+        ...(mintLine === 'thin'
+          ? {}
+          : {
+              centre: mintMapLook.centre,
+              edge: mintMapLook.edge,
+              shadowWidth: mintMapLook.shadowWidth,
+            }),
       }
     : baseLook;
   const me = running ? trail[trail.length - 1] : null;
@@ -895,15 +900,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               pathParts={pieces.map((piece, index) => ({
                 coords: coordsOf(piece),
                 color: pieceColor(index),
-                outlineColor:
-                  tiltedGuide && !groupLine
-                    ? darkMapLook.guideOutline
-                    : pathLook.ribbon,
+                outlineColor: tiltedGuide
+                  ? darkMapLook.guideOutline
+                  : pathLook.ribbon,
                 passedColor: pathLook.passed,
-                passedOutlineColor:
-                  tiltedGuide && !groupLine
-                    ? darkMapLook.guideOutline
-                    : pathLook.ribbon,
+                passedOutlineColor: tiltedGuide
+                  ? darkMapLook.guideOutline
+                  : pathLook.ribbon,
               }))}
               width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
               outlineWidth={tiltedGuide ? darkMapLook.guideEdge : pathLook.edge}
@@ -911,15 +914,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               zIndex={1}
             />
           ) : null}
-          {sections?.connectors.map((line, index) => (
-            <NaverMapPathOverlay
-              key={`unmeasured-${index}`}
-              coords={coordsOf(line)}
-              width={pathLook.centre}
-              color="#8A979E"
-              zIndex={2}
-            />
-          ))}
+          {/* The pause connectors: round grey dots at an even spacing, none on the course points they join. */}
+          {sections?.connectors.flatMap((line, index) =>
+            connectorDots(line).map(([longitude, latitude], dot) => (
+              <NaverMapCircleOverlay
+                key={`unmeasured-${index}-${dot}`}
+                latitude={latitude}
+                longitude={longitude}
+                radius={pauseDotRadiusM}
+                color={pauseDotColor}
+                outlineWidth={0}
+                zIndex={2}
+              />
+            )),
+          )}
           {/* The run so far: the same ribbon in ink, from a white start. */}
           {trailLines.map((line, index) => (
             <NaverMapPathOverlay

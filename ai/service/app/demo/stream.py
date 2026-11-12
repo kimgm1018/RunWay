@@ -1,4 +1,4 @@
-"""메모리 버퍼를 SNAPSHOT·MPC_TRACE·HEARTBEAT SSE로 보낸다."""
+"""메모리 버퍼를 SNAPSHOT·MPC_TRACE·COURSE_UPDATE·HEARTBEAT SSE로 보낸다. 실제 경로(722)도 COURSE_UPDATE에 싣는다."""
 import asyncio
 import json
 import time
@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.demo.auth import reject_query_token, require_bearer
 from app.demo.recorder import DemoState
@@ -24,11 +25,13 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                        monotonic=time.monotonic, server_time: Callable[[], str] = lambda: "",
                        is_disconnected: Callable[[], Awaitable[bool]] = lambda: asyncio.sleep(0, result=False),
                        max_loops: int | None = None,
-                       initial_course_version: int | None = None) -> AsyncIterator[str]:
+                       initial_course_version: int | None = None,
+                       routes=None, initial_route_version: int = 0) -> AsyncIterator[str]:
     last_seq = 0
     last_course_version = initial_course_version
     if last_course_version is None:
         last_course_version = buffer.course_state(session_id)[0] if hasattr(buffer, "course_state") else 0
+    last_route_version = initial_route_version
     last_send = monotonic()
     try:
         payload = dict(snapshot)
@@ -44,11 +47,25 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
             if await is_disconnected():
                 return
             await sleep(POLL_SEC)
+            course_changed, route_changed = False, False
+            course = None
             if hasattr(buffer, "course_state"):
                 course_version, course = buffer.course_state(session_id)
                 if course_version > last_course_version:
-                    yield sse("COURSE_UPDATE", {"course": course})
-                    last_course_version = course_version
+                    course_changed, last_course_version = True, course_version
+            route_list = None
+            if routes is not None:
+                # 722: 구독 중일 때만, 버퍼에 기록이 있는(대상 회원) 세션만 DB에서 새 좌표를 읽는다
+                if routes.due(session_id) and buffer.traces(session_id):
+                    await run_in_threadpool(routes.refresh, session_id)
+                route_version, route_list = routes.state(session_id)
+                if route_version > last_route_version:
+                    route_changed, last_route_version = True, route_version
+            if course_changed or route_changed:
+                payload = {"course": course} if course_changed else {}
+                if route_changed:
+                    payload["routes"] = route_list   # 실제 경로가 바뀌었을 때만 싣는다(기존 콘솔은 이 키를 무시)
+                yield sse("COURSE_UPDATE", payload)
             for seq, trace in buffer.since(session_id, last_seq):
                 yield sse("MPC_TRACE", trace)
                 last_seq = max(last_seq, seq)
@@ -95,15 +112,22 @@ def build_stream_router(state: DemoState) -> APIRouter:
             raise ApiError(429, "TOO_MANY_CONNECTIONS", "이 세션의 화면 연결이 이미 2개입니다.")
         course_version, route_course = state.buffer.course_state(session_id)
         course = route_course or (profile.course.summary() if profile.course else None)
+        routes = state.routes
+        route_version, route_list = 0, []
+        if routes is not None:
+            if state.buffer.traces(session_id):
+                await run_in_threadpool(routes.refresh, session_id)
+            route_version, route_list = routes.state(session_id)
         snapshot = {"bootId": state.buffer.boot_id, "serverTime": request.app.state.clock().isoformat(),
                     "stage": stage, "label": profile.label,
-                    "course": course,
+                    "course": course, "routes": route_list,
                     "traces": state.buffer.traces(session_id)}
         max_loops = getattr(request.app.state, "demo_stream_max_loops", None)
         body = event_stream(state.buffer, session_id, snapshot=snapshot,
                             server_time=lambda: request.app.state.clock().isoformat(),
                             is_disconnected=request.is_disconnected, max_loops=max_loops,
-                            initial_course_version=course_version)
+                            initial_course_version=course_version,
+                            routes=routes, initial_route_version=route_version)
         return StreamingResponse(body, media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

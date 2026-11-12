@@ -12,6 +12,20 @@ export type UserProfile = {
   profileImageUrl: string | null;
 };
 
+// A run someone shared by link (S15P31E105-704): only what its replay shows. Anyone with the link reads it, signed
+// in or not.
+export type SharedRun = {
+  title: string;
+  startedAt: string;
+  distanceM: number;
+  durationSec: number;
+  averagePaceSecPerKm: number | null;
+  cadence: number | null;
+  runner: { nickname: string; profileImageUrl: string | null };
+  // The measured route in parts that are never joined across their breaks; empty without GPS.
+  parts: [number, number][][];
+};
+
 export type TodayCondition = {
   date: string;
   syncedAt: string | null;
@@ -180,6 +194,9 @@ export type SavedCourse = {
   mergedIntoCourseId?: string | null;
   // The course's map thumbnail (C03 basemap, S15P31E105-612); null or left out draws the outline only.
   basemap?: CourseBasemap | null;
+  // C09 isPrivate: a private course made from a free run, which a group run cannot use (S15P31E105-696).
+  // Missing on an older server reads as public.
+  isPrivate?: boolean;
 };
 
 // C03 basemap (S15P31E105-612): a server-rendered 600×900 (2:3) PNG of the flat OpenStreetMap map round a course with
@@ -289,6 +306,9 @@ export type PostRecord = RunRecordSummary & {
   // The shared course as GeoJSON [longitude, latitude] points (C03 route), for 7.2's map and 코스 재생; null
   // when the post has no course or the list (CMT02) does not carry it.
   route: [number, number][] | null;
+  // The start used only to classify a new post by region. It may come from my measured route when there is no
+  // course; it is never added to a post response or drawn as a shared route.
+  regionStart?: [number, number] | null;
   courseRun: boolean;
   averageHeartRate: number | null;
   cadence: number | null;
@@ -354,8 +374,7 @@ export type FeedRegionArea = { code: string; name: string };
 export type FeedRegionProvince = FeedRegionArea & { areas: FeedRegionArea[] };
 
 // 7.3 기록 공유 and 7.3e 게시물 수정.
-// regionCode (CMT01, S15P31E105-687): the region 7.3 showed for the shared course's start; it goes only with a
-// shared course and is ignored by an edit (CMT04 has no region).
+// regionCode (CMT01): the region 7.3 showed for the run's start. It is ignored by an edit (CMT04 has no region).
 export type PostDraft = {
   body: string | null;
   courseShared: boolean;
@@ -460,6 +479,8 @@ export type CoursePlan = {
   name: string;
   distanceM: number;
   route: [number, number][];
+  // C03 unmeasuredEdges: the edges after pauses or GPS gaps; the course map draws them grey (S15P31E105-715).
+  unmeasuredEdges?: number[];
   segmentPacesSecPerKm: number[];
   strategy: string | null;
   targetPaceSecPerKm: number | null;
@@ -672,7 +693,7 @@ export type GroupRunDetail = GroupRunSummary & {
   pace?: GroupPaceInfo | null;
 };
 
-// S15P31E105-680 공동 페이스 모드: 함께 완주(max(목표, AI 추천)) / 목표 페이스(목표 유지, 위험할 때만 감속).
+// S15P31E105-680 공동 페이스 모드: TOGETHER(화면 'AI 추천', AI 추천 그대로) / GOAL(목표 페이스, 위험할 때만 감속).
 export type GroupPaceMode = 'TOGETHER' | 'GOAL';
 
 // S15P31E105-680 공동 페이스 카드 (G03). The server leaves these out while group pace is off.
@@ -685,12 +706,17 @@ export type GroupPaceInfo = {
   // 방장 목표 (from distance and duration). null without a goal.
   goalSecPerKm: number | null;
   basis: 'MEMBER' | 'GOAL' | 'MEDIAN';
-  // Whose plan the AI recommendation comes from.
+  // Whose plan the AI recommendation comes from. Never shown: it would tell who is slowest (S15P31E105-702).
   basisNickname: string | null;
   calculating: boolean;
   // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
   slowerThanGoalCount: number | null;
 };
+
+// S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.
+export type GroupGoalUpdate =
+  | { distanceM: number; input: 'TIME'; durationSec: number }
+  | { distanceM: number; input: 'PACE'; paceSecPerKm: number };
 
 // 6.5 출발 준비.
 export type WaitingRoom = {
@@ -1334,6 +1360,10 @@ export type Repositories = {
     getConditionOn: (day: string) => Promise<TodayCondition | null>;
     getMonthlySummary: () => Promise<MonthlyRunSummary>;
   };
+  // A run shared by link (S15P31E105-704); fails with SHARED_RUN_NOT_FOUND when it cannot be shown.
+  sharedRuns: {
+    get: (token: string) => Promise<SharedRun>;
+  };
   records: {
     // 2.1 과거 러닝 기록: my own runs only; group runs are listed in 5.1.
     getRecent: (sort: RecordSort, limit: number) => Promise<RunRecordSummary[]>;
@@ -1345,6 +1375,9 @@ export type Repositories = {
     // S11 실제로 뛴 경로만 읽는다(S15P31E105-690 러닝 종료 화면 지도). 출처 전환·공백에서 끊은 조각이며, 경로가 없거나
     // 읽지 못하면 null이다.
     getRoute: (recordId: string) => Promise<[number, number][][] | null>;
+    // The link that opens this run's replay for anyone (S15P31E105-704). The same run keeps one link; title is the
+    // name the replay shows.
+    shareLink: (recordId: string, title: string) => Promise<string>;
     // baseDate is any day (YYYY-MM-DD) inside the period.
     getStatistics: (
       period: AnalysisPeriod,
@@ -1366,7 +1399,8 @@ export type Repositories = {
       value: RecommendationPreferences,
     ) => Promise<RecommendationPreferences>;
     recommend: (search: CourseSearch) => Promise<CourseRecommendations>;
-    save: (courseId: string) => Promise<void>;
+    // Answers the stored course's id: a C01 route is stored (C10) first, so 6.8 can use it (S15P31E105-696).
+    save: (courseId: string) => Promise<string>;
     unsave: (courseId: string) => Promise<void>;
     choose: (courseId: string) => Promise<void>;
     // 4.5F 내 코스에 저장: turns a free run's path into a saved course.
@@ -1419,6 +1453,14 @@ export type Repositories = {
     // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
     // G17 방장 페이스 모드 (S15P31E105-680): before the run only; the server recalculates.
     setPaceMode?: (groupRunId: string, mode: GroupPaceMode) => Promise<void>;
+    // G04 목표만 수정 (S15P31E105-702): the host, before the run; the server recalculates the shared pace.
+    updateGoal?: (
+      groupRunId: string,
+      goal: GroupGoalUpdate,
+      scheduledAt: string,
+      // A course run keeps the course's distance and its title; only the time or pace goes.
+      courseRun: boolean,
+    ) => Promise<void>;
     cancel: (
       groupRunId: string,
       reason: GroupRunCancelReason,

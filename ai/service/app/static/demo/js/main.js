@@ -53,6 +53,11 @@
     state.serverOffsetMs = snapshot.serverTime ? Date.parse(snapshot.serverTime) - Date.now() : state.serverOffsetMs;
     state.traces = root.RunwayDemoLogic.mergeTraces(previousTraces, snapshot.traces || []);
     root.RunwayDemoRender.reset(snapshot);
+    if (root.RunwayDemoLiveMap) {          // 722: 실시간 경로 지도
+      root.RunwayDemoLiveMap.setCourse(snapshot.course || null);   // 727: 코스를 먼저 알려야 첫 판정이 코스 기준
+      root.RunwayDemoLiveMap.setRoutes(snapshot.routes || []);
+      root.RunwayDemoLiveMap.setCourse(snapshot.course || null);
+    }
     if (state.traces.length) {
       state.traces.forEach(function (trace) { processTrace(trace, false); });
     }
@@ -73,8 +78,16 @@
       return;
     }
     if (name === 'COURSE_UPDATE') {
-      state.snapshot = Object.assign({}, state.snapshot || {}, {course: data && data.course || null});
-      root.RunwayDemoRender.updateCourse(state.snapshot.course, state.traces[state.traces.length - 1] || null);
+      // 722: 실제 경로는 같은 이벤트의 routes로 온다. course가 없는 이벤트는 코스를 지우지 않는다
+      if (data && Object.prototype.hasOwnProperty.call(data, 'course')) {
+        state.snapshot = Object.assign({}, state.snapshot || {}, {course: data.course || null});
+        root.RunwayDemoRender.updateCourse(state.snapshot.course, state.traces[state.traces.length - 1] || null);
+      }
+      if (data && Array.isArray(data.routes) && root.RunwayDemoLiveMap) {
+        root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
+        root.RunwayDemoLiveMap.setRoutes(data.routes);
+        root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
+      }
       return;
     }
     if (name === 'MPC_TRACE') {
@@ -98,7 +111,14 @@
       onStatus: function (status) {
         if (status === 'connected') root.RunwayDemoRender.setConnection('연결됨 · 판단 기록 대기');
         else if (status === 'waiting') root.RunwayDemoRender.setConnection('세션 대기 중');
-        else { root.RunwayDemoRender.setConnection('연결 끊김 · 재접속 중'); updateBanner(); }
+        else if (status === 'unauthorized') {
+          sessionStorage.removeItem('runwayDemoToken');
+          root.RunwayDemoRender.setConnection('보기 토큰이 맞지 않습니다');
+          var input = byId('token-input');
+          if (input) { input.value = ''; input.focus(); }
+          show(byId('auth-error'), true);
+          show(byId('auth-panel'), true);
+        } else { root.RunwayDemoRender.setConnection('연결 끊김 · 재접속 중'); updateBanner(); }
       }});
     root.__demo = {reconnectNow: function () { if (state.stream) state.stream.reconnectNow(); }};
   }
@@ -296,6 +316,7 @@
       if (!value) { setBanner('stale', '시연 보기 토큰을 입력해 주세요.'); return; }
       sessionStorage.setItem('runwayDemoToken', value);
       show(byId('auth-panel'), false);
+      show(byId('auth-error'), false);
       setBanner(null);
       connectLive(value, session);
     }
@@ -308,6 +329,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     var params = new URLSearchParams(window.location.search);
+    if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.init();
     var zoom = byId('zoom-toggle');
     if (zoom) zoom.addEventListener('click', function () {
       var active = zoom.getAttribute('aria-pressed') !== 'true';

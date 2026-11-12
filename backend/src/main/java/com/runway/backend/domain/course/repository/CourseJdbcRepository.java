@@ -261,7 +261,8 @@ public class CourseJdbcRepository {
                            c.status::text AS status,
                            c.merged_into_course_id,
                            b.custom_name,
-                           c.distance
+                           c.distance,
+                           c.is_private
                     FROM course_bookmarks b
                     INNER JOIN courses c ON c.id = b.course_id
                     WHERE b.user_id = ?
@@ -280,7 +281,8 @@ public class CourseJdbcRepository {
                        c.status::text AS status,
                        c.merged_into_course_id,
                        b.custom_name,
-                       c.distance
+                       c.distance,
+                       c.is_private
                 FROM course_bookmarks b
                 INNER JOIN courses c ON c.id = b.course_id
                 WHERE b.user_id = ?
@@ -320,7 +322,8 @@ public class CourseJdbcRepository {
                 rs.getString("status"),
                 mergedInto,
                 rs.getString("custom_name"),
-                rs.getBigDecimal("distance"));
+                rs.getBigDecimal("distance"),
+                rs.getBoolean("is_private"));
     }
 
     private static RecommendCourseRow mapRecommendCourseRow(ResultSet rs) throws SQLException {
@@ -358,7 +361,8 @@ public class CourseJdbcRepository {
             String status,
             Long mergedIntoCourseId,
             String customName,
-            BigDecimal distanceM) {}
+            BigDecimal distanceM,
+            boolean isPrivate) {}
 
     public record RecommendCourseRow(
             long id,

@@ -14,11 +14,20 @@ import {
   kmMarks,
 } from '../SavedCoursesScreen';
 
+// Every render is unmounted after its test, so a card gives its map slot back (S15P31E105-715).
+const mounted: TestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const screen of mounted.splice(0)) {
+    await act(async () => screen.unmount());
+  }
+});
+
 async function render(element: React.ReactElement) {
   let screen!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     screen = TestRenderer.create(element);
   });
+  mounted.push(screen);
   return screen;
 }
 
@@ -254,7 +263,9 @@ describe('CourseMapThumb', () => {
       top: 14,
       left: 16,
     });
-    expect(StyleSheet.flatten(label.props.style).backgroundColor).toBeUndefined();
+    expect(
+      StyleSheet.flatten(label.props.style).backgroundColor,
+    ).toBeUndefined();
     const [text] = label.findAll(
       node =>
         node.props.accessibilityLabel === '지도 데이터 © OpenStreetMap 기여자',
@@ -335,7 +346,7 @@ describe('CourseMapThumb', () => {
     ['no basemap', null],
     ['a basemap left out', undefined],
   ] as [string, CourseBasemap | null | undefined][])(
-    '%s keeps the plain outline on the light ground',
+    '%s keeps the outline on the light ground until a real map is shown',
     async (_, given) => {
       const screen = await render(
         <CourseMapThumb {...props} route={route} basemap={given} />,
@@ -343,7 +354,8 @@ describe('CourseMapThumb', () => {
       await layOut(screen);
       expect(images(screen)).toHaveLength(0);
       expect(attribution(screen)).toHaveLength(0);
-      expect(naverMaps(screen)).toHaveLength(0);
+      // S15P31E105-715: no server image, so a compact real map sits under the outline until it is shown.
+      expect(naverMaps(screen).length).toBeGreaterThan(0);
       expect(glyphs(screen)).toHaveLength(1);
       const [thumb] = screen.root.findAll(
         node =>
@@ -355,6 +367,76 @@ describe('CourseMapThumb', () => {
       );
     },
   );
+
+  // S15P31E105-715: a course card draws a real map when it has no server image or has grey connectors.
+  const runMaps = (screen: TestRenderer.ReactTestRenderer) =>
+    screen.root.findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        node.props.compact === true &&
+        node.props.route,
+    );
+
+  test('a private course with no basemap draws its route on a compact map, and the outline leaves once it is shown', async () => {
+    const screen = await render(
+      <CourseMapThumb {...props} route={route} basemap={null} />,
+    );
+    await layOut(screen);
+    const [map] = runMaps(screen);
+    expect(map.props.route).toEqual(route);
+    expect(map.props.interactive).toBe(false);
+    // The same mint line as the course recommendation map, not the default black one.
+    expect(map.props.mintLine).toBe(true);
+    expect(glyphs(screen)).toHaveLength(1);
+    await act(async () => map.props.onShown());
+    expect(glyphs(screen)).toHaveLength(0);
+  });
+
+  test('grey connectors go to the map, and a server image is not used for them', async () => {
+    const screen = await render(
+      <CourseMapThumb
+        {...props}
+        route={route}
+        basemap={basemap}
+        unmeasuredEdges={[0]}
+      />,
+    );
+    await layOut(screen);
+    expect(images(screen)).toHaveLength(0);
+    const [map] = runMaps(screen);
+    expect(map.props.unmeasuredEdges).toEqual([0]);
+  });
+
+  test('only a few cards hold a map at a time and a leaving card gives its place back', async () => {
+    const screens: TestRenderer.ReactTestRenderer[] = [];
+    for (let card = 0; card < 4; card += 1) {
+      screens.push(
+        await render(
+          <CourseMapThumb {...props} route={route} basemap={null} />,
+        ),
+      );
+    }
+    expect(screens.map(card => runMaps(card).length > 0)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    await act(async () => screens[0].unmount());
+    mounted.splice(mounted.indexOf(screens[0]), 1);
+    const fifth = await render(
+      <CourseMapThumb {...props} route={route} basemap={null} />,
+    );
+    expect(runMaps(fifth).length).toBeGreaterThan(0);
+  });
+
+  test('a card with a loaded image keeps the image and draws no map', async () => {
+    const screen = await render(
+      <CourseMapThumb {...props} route={route} basemap={basemap} />,
+    );
+    await layOut(screen);
+    expect(runMaps(screen)).toHaveLength(0);
+  });
 
   test('a run with no points keeps the outline and does not fail', async () => {
     const load = jest.fn(() => Promise.reject(new Error('x')));

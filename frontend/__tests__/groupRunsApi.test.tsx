@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
+import { RunMap } from '../src/components/RunMap';
 import { createApiRepositories, tokenStore } from '../src/data';
 
 // 6.0 그룹런 목록, 6.4 상세·참가·수정, 6.5 대기방, 6.8 만들기 against the server (dataSource 'api'): G01–G07·G16.
@@ -450,6 +451,16 @@ test('6.4 shows participant photos from G07', async () => {
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-720: 6.4's map draws the course in the mint line, at the thinner widths of its small map.
+test('6.4 draws its map in the thin mint line', async () => {
+  const screen = await openGroup();
+  await press(screen, /^일요일, 함께 40분, /);
+  const maps = screen.root.findAllByType(RunMap);
+  expect(maps.length).toBeGreaterThan(0);
+  expect(maps.every(node => node.props.mintLine === 'thin')).toBe(true);
+  await act(async () => screen.unmount());
+});
+
 test('6.4 opens 6.8 to edit my run and saves it with G04', async () => {
   const screen = await openGroup();
   await press(screen, /^월요일, 함께 5km, /);
@@ -498,12 +509,15 @@ test('6.8 makes a free run with G01 and opens its 6.4', async () => {
   await settle(100);
 
   expect(posted).toHaveLength(1);
+  // A free run sends its picked distance (5km) with the finish time as a TIME goal (S15P31E105-696).
   expect(posted[0]).toMatchObject({
     crewId: 41,
     courseId: null,
-    title: expect.stringMatching(/요일, 함께 40분$/),
+    title: expect.stringMatching(/요일, 함께 5km$/),
+    goalInputType: 'TIME',
+    targetDistanceM: 5000,
+    targetDurationSec: 2400,
   });
-  expect(posted[0]).not.toHaveProperty('targetDurationSec');
   expect(texts(screen)).toContain((posted[0] as { title: string }).title);
   await act(async () => screen.unmount());
 });

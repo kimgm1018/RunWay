@@ -483,7 +483,6 @@ function GroupRunProgressContent({
             trailParts={trailParts ?? undefined}
             area={area}
             logo={logo}
-            group
           />
         )}
         mapSummary={[

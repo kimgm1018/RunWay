@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>RunWay 경로 재생</title>
+<meta property="og:title" content="RunWay 경로 재생">
+<meta property="og:description" content="RunWay에서 함께 뛴 길을 확인해 보세요.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
+<!-- S15P31E105-704 경로 재생 링크의 웹 화면. 앱이 설치된 Android 폰은 App Links로 앱이 열리고, 그 밖에서는 이 페이지가
+     /r/{token}의 경로를 네이버 지도 위에서 재생한다. /p/{postId}는 로그인이 필요해 앱 안내만 한다.
+     네이버 지도 클라이언트 ID는 저장소에 두지 않고 배포 때 __NAVER_MAP_CLIENT_ID__를 바꾼다(infra/README.md). -->
+<style>
+  :root {
+    --ground: #14171C;
+    --ink: #4DFFD2;
+    --ribbon: #B3FFEC;
+    --text: #FFFFFF;
+    --muted: #9299A4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
+    font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiased; }
+  #map { position: fixed; inset: 0; }
+  .shade { position: fixed; left: 0; right: 0; pointer-events: none; }
+  .shade.top { top: 0; height: 160px; background: linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0)); }
+  .shade.foot { bottom: 0; height: 55%; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.92)); }
+  header { position: fixed; top: 0; left: 0; right: 0; padding: max(16px, env(safe-area-inset-top)) 20px 0; }
+  .brand { font-weight: 800; letter-spacing: .02em; color: var(--ink); font-size: 14px; }
+  h1 { margin: 6px 0 2px; font-size: 22px; font-weight: 800; line-height: 1.25; }
+  .byline { color: var(--muted); font-size: 14px; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 20px max(20px, env(safe-area-inset-bottom)); }
+  .pace { font-size: 56px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .unit { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; margin-top: 4px; }
+  .row { display: flex; gap: 12px; margin-top: 18px; }
+  .cell { flex: 1; }
+  .cell b { display: block; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .cell span { color: var(--muted); font-size: 12px; font-weight: 700; }
+  .track { height: 3px; background: rgba(255,255,255,.18); border-radius: 2px; margin-top: 18px; overflow: hidden; }
+  .fill { height: 100%; width: 0; background: var(--ink); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; min-height: 16px; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+  .actions a { flex: 1; text-align: center; text-decoration: none; font-weight: 800; font-size: 15px;
+    padding: 14px 8px; border-radius: 12px; }
+  .primary { background: var(--ink); color: #0B1F19; }
+  .secondary { background: #2A2F36; color: var(--text); }
+  .notice { position: fixed; inset: 0; display: none; flex-direction: column; justify-content: center;
+    padding: 0 28px; text-align: left; }
+  .notice h1 { font-size: 24px; }
+  .notice p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 10px 0 0; }
+  body.noticed .notice { display: flex; }
+  body.noticed #map, body.noticed .shade, body.noticed header, body.noticed footer { display: none; }
+  body.loading footer, body.loading header h1 { visibility: hidden; }
+</style>
+</head>
+<body class="loading">
+<div id="map" aria-hidden="true"></div>
+<div class="shade top"></div>
+<div class="shade foot"></div>
+<header>
+  <div class="brand">RunWay 경로 재생</div>
+  <h1 id="title">&nbsp;</h1>
+  <div class="byline" id="byline"></div>
+</header>
+<footer>
+  <div class="pace" id="pace">–</div>
+  <div class="unit">평균 페이스 (/KM)</div>
+  <div class="row">
+    <div class="cell"><b id="km">0.00</b><span>거리 (KM)</span></div>
+    <div class="cell"><b id="time">0:00</b><span>시간</span></div>
+  </div>
+  <div class="track" role="progressbar" aria-label="재생 진행" aria-valuemin="0" aria-valuemax="100">
+    <div class="fill" id="fill"></div>
+  </div>
+  <div class="hint" id="hint"></div>
+  <div class="actions">
+    <a class="primary" id="openApp" href="#">앱에서 열기</a>
+    <a class="secondary" href="/downloads/runway.apk">앱 설치 (Android)</a>
+  </div>
+</footer>
+<section class="notice" role="alert">
+  <div class="brand">RunWay</div>
+  <h1 id="noticeTitle">RunWay 앱에서 열어 주세요</h1>
+  <p id="noticeText">이 링크는 RunWay 앱에서 볼 수 있어요. 앱이 설치되어 있다면 아래 버튼을 눌러 주세요.</p>
+  <div class="actions">
+    <a class="primary" id="noticeOpen" href="#">앱에서 열기</a>
+    <a class="secondary" href="/downloads/runway.apk">앱 설치 (Android)</a>
+  </div>
+</section>
+<script>
+(function () {
+  'use strict';
+  var clientId = '__NAVER_MAP_CLIENT_ID__';
+  var path = location.pathname.replace(/\/+$/, '');
+  var run = /^\/r\/([A-Za-z0-9_-]{43})$/.exec(path);
+  var post = /^\/p\/([A-Za-z0-9_-]{1,64})$/.exec(path);
+  // 앱에서 열기: the same https link through Android's intent, so an installed app opens it even where App Links
+  // were not verified; elsewhere it stays on this page.
+  var here = location.href.split('#')[0];
+  var intent = 'intent://' + location.host + path +
+    '#Intent;scheme=https;package=com.runway.health;S.browser_fallback_url=' + encodeURIComponent(here) + ';end';
+  var isAndroid = /Android/i.test(navigator.userAgent);
+  ['openApp', 'noticeOpen'].forEach(function (id) {
+    document.getElementById(id).href = isAndroid ? intent : here;
+  });
+
+  function notice(title, text) {
+    document.getElementById('noticeTitle').textContent = title;
+    document.getElementById('noticeText').textContent = text;
+    document.body.classList.remove('loading');
+    document.body.classList.add('noticed');
+  }
+  if (post) {
+    notice('RunWay 앱에서 열어 주세요', '게시물의 코스 재생은 RunWay 앱에 로그인해서 볼 수 있어요.');
+    return;
+  }
+  if (!run) {
+    notice('열 수 없는 링크예요', '링크 주소를 다시 확인해 주세요.');
+    return;
+  }
+
+  function pace(sec) {
+    if (sec === null || !isFinite(sec)) return '–';
+    var s = Math.round(sec);
+    return Math.floor(s / 60) + '′' + String(s % 60).padStart(2, '0') + '″';
+  }
+  function clock(sec) {
+    var s = Math.floor(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    return h ? h + ':' + pad(m) + ':' + pad(r) : m + ':' + pad(r);
+  }
+  function stamp(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Seoul' });
+  }
+  // Metres between two [lng, lat] points.
+  function metres(a, b) {
+    var rad = Math.PI / 180, dLat = (b[1] - a[1]) * rad, dLng = (b[0] - a[0]) * rad;
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+
+  // The map's key is checked after its script has loaded, so a failed check can come later than the load.
+  function mapFailed() {
+    document.getElementById('map').style.visibility = 'hidden';
+    document.getElementById('hint').textContent = '지도를 불러오지 못했어요. 앱에서 경로 재생을 볼 수 있어요';
+  }
+  function loadMap() {
+    return new Promise(function (resolve, reject) {
+      window.navermap_authFailure = function () { mapFailed(); reject(new Error('auth')); };
+      var script = document.createElement('script');
+      script.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(clientId);
+      script.onload = function () { window.naver && naver.maps ? resolve() : reject(new Error('load')); };
+      script.onerror = function () { reject(new Error('load')); };
+      document.head.appendChild(script);
+    });
+  }
+
+  fetch('/api/v1/shared-runs/' + run[1], { headers: { Accept: 'application/json' } })
+    .then(function (response) {
+      if (response.status === 404) throw new Error('missing');
+      if (!response.ok) throw new Error('server');
+      return response.json();
+    })
+    .then(function (data) {
+      document.title = data.title + ' · RunWay 경로 재생';
+      document.getElementById('title').textContent = data.title;
+      document.getElementById('byline').textContent =
+        data.runner.nickname + ' · ' + stamp(data.startedAt);
+      document.getElementById('pace').textContent = pace(data.averagePaceSecPerKm);
+      document.body.classList.remove('loading');
+      var parts = (data.segments || [])
+        .map(function (segment) { return segment.coordinates || []; })
+        .filter(function (part) { return part.length >= 2; });
+      var counters = function (shown) {
+        document.getElementById('km').textContent = ((data.distanceM || 0) * shown / 1000).toFixed(2);
+        document.getElementById('time').textContent = clock((data.durationSec || 0) * shown);
+        document.getElementById('fill').style.width = Math.round(shown * 100) + '%';
+      };
+      counters(1);
+      if (!parts.length) {
+        document.getElementById('hint').textContent = '이 러닝은 경로 기록이 없어요';
+        return;
+      }
+      return loadMap().then(function () { play(parts, counters, data.distanceM || 0); }, mapFailed);
+    })
+    .catch(function (error) {
+      if (error && error.message === 'missing') {
+        notice('열 수 없는 기록이에요', '링크가 만료됐거나 기록이 삭제됐어요.');
+      } else {
+        notice('기록을 불러오지 못했어요', '연결을 확인하고 잠시 후 다시 열어 주세요.');
+      }
+    });
+
+  // Draws the run as it is played back over the whole route, the runner's dot at its head. A tap plays it again.
+  function play(parts, counters, distanceM) {
+    var lengths = parts.map(function (part) {
+      var legs = [0];
+      for (var i = 1; i < part.length; i++) legs.push(legs[i - 1] + metres(part[i - 1], part[i]));
+      return legs;
+    });
+    var total = lengths.reduce(function (sum, legs) { return sum + legs[legs.length - 1]; }, 0) || 1;
+    var latLng = function (p) { return new naver.maps.LatLng(p[1], p[0]); };
+    var bounds = new naver.maps.LatLngBounds(latLng(parts[0][0]), latLng(parts[0][0]));
+    parts.forEach(function (part) { part.forEach(function (p) { bounds.extend(latLng(p)); }); });
+    var map = new naver.maps.Map('map', {
+      center: bounds.getCenter(),
+      zoom: 15,
+      mapTypeId: naver.maps.MapTypeId.NORMAL,
+      draggable: true, pinchZoom: true, scrollWheel: false, keyboardShortcuts: false,
+      disableDoubleTapZoom: true, disableDoubleClickZoom: true,
+      logoControl: true, logoControlOptions: { position: naver.maps.Position.TOP_RIGHT },
+      mapDataControl: false, scaleControl: false, zoomControl: false
+    });
+    var outline = parts.map(function (part) {
+      return new naver.maps.Polyline({ map: map, path: part.map(latLng), strokeColor: '#687874',
+        strokeWeight: 3, strokeOpacity: 0.9, strokeLineCap: 'round', strokeLineJoin: 'round' });
+    });
+    var glow = parts.map(function () {
+      return new naver.maps.Polyline({ map: map, path: [], strokeColor: '#00785A', strokeWeight: 12,
+        strokeOpacity: 0.55, strokeLineCap: 'round', strokeLineJoin: 'round' });
+    });
+    var core = parts.map(function () {
+      return new naver.maps.Polyline({ map: map, path: [], strokeColor: '#4DFFD2', strokeWeight: 6,
+        strokeLineCap: 'round', strokeLineJoin: 'round' });
+    });
+    var dot = new naver.maps.Marker({ map: map, position: latLng(parts[0][0]), clickable: false,
+      icon: { content: '<div style="width:18px;height:18px;border-radius:9px;background:#4DFFD2;border:3px solid #fff;box-shadow:0 0 0 6px rgba(77,255,210,.25)"></div>',
+        anchor: new naver.maps.Point(12, 12) } });
+    void outline;
+    // The whole run above the numbers.
+    map.fitBounds(bounds, { top: 150, right: 40, bottom: Math.round(window.innerHeight * 0.45), left: 40 });
+
+    // The same length as the app's replay: 6 s plus 1 ms a metre, between 8 s and 15 s.
+    var playMs = Math.round(Math.min(15000, Math.max(8000, 6000 + Math.max(0, distanceM))));
+    var hint = document.getElementById('hint');
+    var began = 0, frame = 0;
+    function draw(shown) {
+      var left = total * shown, head = null;
+      parts.forEach(function (part, index) {
+        var legs = lengths[index], drawn = [];
+        for (var i = 0; i < part.length; i++) {
+          if (legs[i] <= left) { drawn.push(part[i]); continue; }
+          if (i > 0 && left > legs[i - 1]) {
+            var t = (left - legs[i - 1]) / (legs[i] - legs[i - 1]);
+            drawn.push([part[i - 1][0] + (part[i][0] - part[i - 1][0]) * t,
+              part[i - 1][1] + (part[i][1] - part[i - 1][1]) * t]);
+          }
+          break;
+        }
+        left -= legs[legs.length - 1];
+        var path = drawn.length >= 2 ? drawn.map(latLng) : [];
+        glow[index].setPath(path);
+        core[index].setPath(path);
+        if (drawn.length) head = drawn[drawn.length - 1];
+      });
+      if (head) dot.setPosition(latLng(head));
+      counters(shown);
+    }
+    function step(now) {
+      if (!began) began = now;
+      var shown = Math.min(1, (now - began) / playMs);
+      draw(shown);
+      if (shown < 1) {
+        frame = requestAnimationFrame(step);
+      } else if (document.getElementById('map').style.visibility !== 'hidden') {
+        hint.textContent = '지도를 누르면 다시 재생';
+      }
+    }
+    function start() {
+      cancelAnimationFrame(frame);
+      began = 0;
+      if (document.getElementById('map').style.visibility !== 'hidden') hint.textContent = '';
+      frame = requestAnimationFrame(step);
+    }
+    naver.maps.Event.addListener(map, 'click', start);
+    draw(0);
+    setTimeout(start, 600);
+  }
+})();
+</script>
+</body>
+</html>

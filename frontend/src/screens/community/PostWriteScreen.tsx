@@ -86,7 +86,7 @@ function Composer({
   record: PostRecord;
   initial: PostDraft;
   onSubmit: (draft: PostDraft) => Promise<void>;
-  // 7.3 only (a new post): the region of the shared course's start, shown and sent with it. 7.3e cannot change it.
+  // 7.3 only (a new post): the region of the run's start, shown and sent with it. 7.3e cannot change it.
   regionAt?: (position: [number, number]) => Promise<PostRegion | null>;
 }) {
   const navigation = useNavigation();
@@ -102,9 +102,9 @@ function Composer({
       ? record.route
       : null;
   const drawnShape = courseShared && !realMap && record.shape.length >= 2;
-  // 지역 (S15P31E105-687, 사용자 결정 1번): only a shared course gets a region, from its own start point; a post
-  // without it is asked nothing. Not found shows nothing and the post goes without one.
-  const start = courseShared ? record.route?.[0] : undefined;
+  // 지역: prefer the shared/planned course start and otherwise use the first measured point retained for region
+  // classification. Course sharing controls route disclosure, not whether the post belongs to a region.
+  const start = record.route?.[0] ?? record.regionStart ?? undefined;
   const startLongitude = start?.[0];
   const startLatitude = start?.[1];
   const [region, setRegion] = useState<PostRegion | null>(null);
@@ -131,7 +131,7 @@ function Composer({
       await onSubmit({
         body: body.trim() || null,
         courseShared,
-        regionCode: courseShared ? region?.code ?? null : null,
+        regionCode: region?.code ?? null,
       });
     } finally {
       setBusy(false);
@@ -265,7 +265,7 @@ function Composer({
                 dark
               />
             </View>
-            {courseShared && region ? (
+            {region ? (
               <View style={styles.region}>
                 <Icon name="mapPin" color={feedLook.white} size={14} />
                 <AppText style={styles.shareNote}>
