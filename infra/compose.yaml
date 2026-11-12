@@ -23,8 +23,6 @@ services:
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/letsencrypt:ro
       - ../frontend/landing:/usr/share/nginx/landing:ro
-      # /admin/demo/ 기본 인증 파일(htpasswd-demo). git에 넣지 않으며, 없으면 그 경로만 500으로 막힌다.
-      - ./nginx/secrets:/etc/nginx/secrets:ro
     networks:
       - service
       - jenkins

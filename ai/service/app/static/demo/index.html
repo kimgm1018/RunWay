@@ -126,10 +126,11 @@
           <section id="auth-panel" class="auth-panel hidden">
             <label for="token-input">시연 보기 토큰</label>
             <div class="auth-row">
-              <input id="token-input" type="password" autocomplete="off" spellcheck="false">
+              <input id="token-input" type="password" autocomplete="off" spellcheck="false" placeholder="토큰을 입력하세요">
               <button id="token-save" type="button">연결</button>
             </div>
-            <span>토큰은 이 탭에만 저장됩니다.</span>
+            <span id="auth-error" class="auth-error hidden" role="alert">토큰이 맞지 않습니다. 다시 입력해 주세요.</span>
+            <span>토큰은 이 탭에만 저장되고 탭을 닫으면 지워집니다.</span>
           </section>
         </div>
       </div>

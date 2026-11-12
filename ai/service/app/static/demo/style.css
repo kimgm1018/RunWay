@@ -544,3 +544,16 @@ input[type="range"] { accent-color: var(--ink); }
 .guide-side { padding-left: 1.1rem; }
 .guide-side-value { font-size: 2.4rem; }
 .stat-value { font-size: 2.7rem; }
+
+/* 보기 토큰 입력(718): 앱 입력란(높이 46·모서리 15, 옅은 바탕 + 외곽선)과 주 버튼(반전색 알약) */
+.auth-panel { margin-top: 1.4rem; gap: .6rem; min-width: 30rem; padding: 1.3rem 1.4rem 1.2rem; border-radius: var(--radius-card);
+  background: rgb(232 238 244 / 6%); border: 1px solid rgb(255 255 255 / 14%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); }
+.auth-panel label { font-weight: 500; font-size: 1.05rem; }
+.auth-row { gap: .6rem; }
+.auth-row input { height: 2.9rem; border-radius: .95rem; padding: 0 1rem; font-size: 1rem; letter-spacing: .08em;
+  background: rgb(232 238 244 / 8%); border: 1px solid rgb(232 238 244 / 22%); color: var(--ice); }
+.auth-row input::placeholder { color: rgb(232 238 244 / 42%); letter-spacing: 0; }
+.auth-row input:focus { outline: none; border: 1.5px solid var(--ice); }
+.auth-row button { height: 2.9rem; padding: 0 1.6rem; border-radius: 999px; font-weight: 500; font-size: 1rem; }
+.auth-panel .auth-error { color: var(--red-light); font-size: .9rem; }
+.auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--red-light); }
