@@ -128,6 +128,47 @@ function FitLine({ run }: { run: GroupRunDetail }) {
   );
 }
 
+// Who comes, by name (팀원 의견: 사진만으로는 누가 누군지 몰라요): under the 참가 row once its photos are tapped,
+// everyone in their colour with their nickname, 그룹장 and 나 marked. Names under the overlapping 24 photos would
+// not fit, and the row shows only five; the list shows all.
+function ParticipantList({
+  run,
+  colors,
+}: {
+  run: GroupRunDetail;
+  colors: Map<string, string>;
+}) {
+  return (
+    <View style={styles.people} accessibilityLabel="참가자 이름">
+      {run.participants.map(member => (
+        <View key={member.userId} style={styles.person}>
+          <Initial
+            name={member.nickname}
+            color={colors.get(member.userId)}
+            size={28}
+            photo={member.profileImageUrl}
+          />
+          <AppText style={[styles.personName, styles.flex]} numberOfLines={1}>
+            {member.nickname}
+          </AppText>
+          {member.isHost ? (
+            <StandTag label="그룹장" style={styles.personTag} />
+          ) : null}
+          {member.isMe ? (
+            <StandTag label="나" tone="outline" style={styles.personTag} />
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// What a screen reader says for one participant's photo.
+const personLabel = (member: GroupRunDetail['participants'][number]) =>
+  `${member.nickname}${member.isHost ? ' · 그룹장' : ''}${
+    member.isMe ? ' · 나' : ''
+  }`;
+
 // One fact on the card (S15P31E105-594 담당자 시안): its icon, the value, a grey line under it when it has one, and
 // something on the right (참가: who comes); a line above every row but the first.
 function InfoRow({
@@ -136,6 +177,7 @@ function InfoRow({
   sub,
   right,
   line = true,
+  lines = 1,
 }: {
   icon: IconName;
   text: string;
@@ -143,6 +185,8 @@ function InfoRow({
   right?: React.ReactNode;
   // A thin line under the row (not under the last one before my row).
   line?: boolean;
+  // How many lines the value may take before it is cut (the 참가 row wraps beside its photos on a narrow phone).
+  lines?: number;
 }) {
   return (
     <View style={[styles.infoRow, line && styles.rowLine]}>
@@ -150,7 +194,7 @@ function InfoRow({
         <Icon name={icon} color={stand.sub} size={18} />
       </View>
       <View style={styles.flex}>
-        <NumText style={styles.infoText} text={text} numberOfLines={1} />
+        <NumText style={styles.infoText} text={text} numberOfLines={lines} />
         {sub ? <NumText style={styles.infoSub} text={sub} /> : null}
       </View>
       {right}
@@ -179,6 +223,8 @@ export function GroupRunDetailScreen() {
   const [run, setRun] = useState<GroupRunDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingGoal, setEditingGoal] = useState(false);
+  // The participants' names under the 참가 row, opened from their photos.
+  const [showPeople, setShowPeople] = useState(false);
   const loaded = detail.status === 'ready' ? detail.data : null;
   useEffect(() => {
     if (loaded) {
@@ -531,10 +577,27 @@ export function GroupRunDetailScreen() {
                   <InfoRow
                     icon="users"
                     line={false}
+                    lines={2}
                     text={`참가 ${run.participantCount}명 · 크루 멤버 ${run.crewMemberCount}명 중`}
                     right={
-                      // Who comes, small and side by side, each in their colour (그룹런 시안).
-                      <View style={styles.avatars}>
+                      // Who comes, small and side by side, each in their colour (그룹런 시안); a tap opens their
+                      // names under the row.
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`참가자 ${run.participants
+                          .map(personLabel)
+                          .join(', ')}`}
+                        accessibilityHint={
+                          showPeople ? '이름 목록을 접어요' : '이름 목록을 펼쳐요'
+                        }
+                        accessibilityState={{ expanded: showPeople }}
+                        onPress={() => setShowPeople(value => !value)}
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.avatars,
+                          pressed && styles.dim,
+                        ]}
+                      >
                         {run.participants.slice(0, 5).map((member, index) => (
                           <Initial
                             key={member.userId}
@@ -545,10 +608,16 @@ export function GroupRunDetailScreen() {
                             style={index > 0 ? styles.overlap : styles.ring}
                           />
                         ))}
-                      </View>
+                        <View style={[styles.chevron, showPeople && styles.up]}>
+                          <Icon name="chevronDown" color={stand.sub} size={16} />
+                        </View>
+                      </Pressable>
                     }
                   />
                 )}
+                {!cancelled && showPeople ? (
+                  <ParticipantList run={run} colors={colors} />
+                ) : null}
                 {/* 취소된 그룹런: the reason as a row with its icon. */}
                 {cancelled && reason ? (
                   <InfoRow icon="tag" text={`사유 · ${reason.label}`} />
@@ -806,8 +875,8 @@ const styles = StyleSheet.create({
   },
   crewName: {
     fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
     color: stand.sub,
   },
   rows: {},
@@ -821,15 +890,15 @@ const styles = StyleSheet.create({
   iconCell: { width: 30 },
   infoText: {
     fontFamily: fontFamily.bold,
-    fontSize: 14.5,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
     color: stand.text,
   },
   infoSub: {
     marginTop: 1,
     fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
     color: stand.sub,
   },
   actions: {
@@ -839,8 +908,8 @@ const styles = StyleSheet.create({
   },
   muted: {
     fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
     color: stand.sub,
   },
   // My fit: a faint mint row with a mint line under it, 10 past the page's sides.
@@ -857,11 +926,35 @@ const styles = StyleSheet.create({
   },
   blockTitle: {
     fontFamily: fontFamily.black,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
     color: stand.text,
   },
-  avatars: { flexDirection: 'row', alignItems: 'center' },
+  avatars: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  chevron: { marginLeft: 4 },
+  up: { transform: [{ rotate: '180deg' }] },
+  // The names under the 참가 row: one line each, photo, nickname, then 그룹장 · 나.
+  people: {
+    gap: 2,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
+  },
+  person: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 40,
+    paddingLeft: 30,
+  },
+  // The tags sit on the name's line (StandTag keeps to the top on its own).
+  personTag: { alignSelf: 'center' },
+  personName: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 21,
+    color: stand.text,
+  },
   // The ring takes the page's colour so the overlapping initials read apart.
   ring: { borderWidth: 2, borderColor: stand.page },
   overlap: { marginLeft: -5, borderWidth: 2, borderColor: stand.page },
@@ -874,8 +967,8 @@ const styles = StyleSheet.create({
   hostLink: {
     paddingHorizontal: 6,
     fontFamily: fontFamily.black,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     color: stand.text,
   },
   hostCancel: { color: stand.danger, paddingRight: 0 },
@@ -888,14 +981,14 @@ const styles = StyleSheet.create({
   },
   messageName: {
     fontFamily: fontFamily.black,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
     color: stand.text,
   },
   messageText: {
     fontFamily: fontFamily.regular,
-    fontSize: 13.5,
-    lineHeight: 20,
+    fontSize: 14.5,
+    lineHeight: 21,
     color: stand.text,
     paddingHorizontal: 14,
     paddingVertical: 13,
@@ -908,7 +1001,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  opens: { textAlign: 'center', color: stand.sub, fontSize: 12.5 },
+  opens: { textAlign: 'center', color: stand.sub, fontSize: 13.5 },
   footerButton: {
     flex: 1,
     minHeight: 54,
