@@ -74,7 +74,7 @@ class GroupPaceResponse(CamelModel):
     group_pace_sec_per_km: float
     changed: bool
     direction: Literal["SLOW", "FAST", "HOLD"]
-    reason: Literal["HR_LIMIT", "RECOVERED", "COOLDOWN", "WARMUP_CAP", "FLOOR", "SMALL_CHANGE", "NO_DATA"]
+    reason: Literal["HR_LIMIT", "RECOVERED", "COOLDOWN", "WARMUP_CAP", "FLOOR", "SMALL_CHANGE", "NO_DATA", "AHEAD"]
     struggling_count: int
     excluded_count: int
     pace_only_count: int

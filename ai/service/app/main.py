@@ -30,6 +30,7 @@ from app.decide.policy_port import PacePolicy
 from app.decide.schemas import DecideRequest, DecideResponse
 from app.decide.service import run_decide
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
+from app.group_pace.ahead import ahead_enabled, ahead_wait, load_ahead_settings
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
@@ -487,12 +488,17 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             demo = request.app.state.demo
             # 시연 기능이 꺼져 있거나 허용 목록 밖 그룹이면 detail을 만들지 않는다(추가 계산 0)
             detail = {} if demo is not None and group_allowed(demo, body.group_run_id, body.participants) else None
+            # S15P31E105-728 여유 가속(기본 꺼짐). 시연 대상 회원(userAllowlist)이 낀 그룹만 짧은 대기 시간을 쓴다.
+            ahead = load_ahead_settings() if ahead_enabled() else None
+            wait_sec, demo_wait = (ahead_wait(ahead, demo.config if demo is not None else None, body.participants)
+                                   if ahead is not None else (None, False))
             began = time.perf_counter()
             response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
                 hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail,
                 gru_gb_enabled=request.app.state.gru_gb_enabled,
-                readiness_lookup=request.app.state.readiness_lookup)
+                readiness_lookup=request.app.state.readiness_lookup,
+                ahead=ahead, ahead_wait_sec=wait_sec, ahead_demo_wait=demo_wait)
             if detail is not None:
                 try:
                     record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,

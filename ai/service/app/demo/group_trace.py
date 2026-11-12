@@ -9,6 +9,7 @@ HORIZONS_SEC = (30, 60, 120)
 # AI10 응답(direction, reason)을 화면 이유 코드로 바꾼다
 REASON_TEXT = {
     "SPEED_UP": "가속",
+    "AHEAD": "여유 가속",
     "SLOW_DOWN": "감속",
     "HOLD": "정상 · 유지",
     "COOLDOWN": "유지 · 변경 후 2분",
@@ -18,7 +19,7 @@ REASON_TEXT = {
 
 def reason_code(direction: str, reason: str) -> str:
     if direction == "FAST":
-        return "SPEED_UP"
+        return "AHEAD" if reason == "AHEAD" else "SPEED_UP"
     if direction == "SLOW":
         return "WARMUP" if reason == "WARMUP_CAP" else "SLOW_DOWN"
     return "COOLDOWN" if reason == "COOLDOWN" else "HOLD"
@@ -37,7 +38,11 @@ def _pace(sec: float) -> str:
     return f"{value // 60}'{value % 60:02d}\""
 
 
-def _reason_text(code: str, response, frm: float, to: float, worst: dict | None) -> str:
+def _reason_text(code: str, response, frm: float, to: float, worst: dict | None, ahead: dict | None = None) -> str:
+    if code == "AHEAD":
+        margin = round(ahead["marginBpm"]) if ahead else 15
+        demo = f" · 시연 설정 · 대기 {round(ahead['waitSec'])}초" if ahead and ahead.get("demoWait") else ""
+        return f"모두 허용선보다 {margin} bpm 이상 여유 → 출발보다 빠르게 {_pace(frm)}에서 {_pace(to)}로 여유 가속{demo}"
     if code == "SPEED_UP":
         return f"모두 허용선 아래로 여유 → {_pace(frm)}에서 {_pace(to)}로 가속"
     if code in ("SLOW_DOWN", "WARMUP"):
@@ -113,7 +118,7 @@ def build_group_trace(body, response, detail: dict, *, boot_id: str, seq: int, s
                      "fromPaceSecPerKm": _r(current), "recommendedPaceSecPerKm": _r(to),
                      "changed": response.changed, "direction": response.direction,
                      "reason": response.reason, "reasonCode": code, "reasonLabel": REASON_TEXT[code],
-                     "reasonText": _reason_text(code, response, current, to, worst)},
+                     "reasonText": _reason_text(code, response, current, to, worst, detail.get("ahead"))},
         "group": {"label": "그룹 공동 페이스 · AI10", "runLabel": label,
                   "goalPaceSecPerKm": _r(body.goal_pace_sec_per_km),
                   "progressRatio": _r(body.progress_ratio),
@@ -121,7 +126,10 @@ def build_group_trace(body, response, detail: dict, *, boot_id: str, seq: int, s
                   "members": members, "worstIndex": worst_index,
                   "strugglingCount": response.struggling_count, "excludedCount": response.excluded_count,
                   "paceOnlyCount": response.pace_only_count, "warnings": list(response.warnings),
-                  "horizonsSec": list(HORIZONS_SEC)},
+                  "horizonsSec": list(HORIZONS_SEC),
+                  # S15P31E105-728 여유 가속 판단(꺼져 있으면 None): applied, blockedBy, waitSec, demoWait, marginBpm,
+                  # steadySec, startPace, fastestPace
+                  "ahead": detail.get("ahead")},
         "latency": {"inputLagMs": None, "decideMs": _r(decide_ms), "modelMs": None},
         "modelVersion": response.model_version, "policyVersion": policy_version,
         "coaching": {"publishSuggested": response.changed, "delivery": delivery_for(stage),

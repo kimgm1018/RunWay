@@ -36,6 +36,8 @@ class DemoConfig:
     # 모니터링 대상 회원(숫자 userId). null이면 모두. 목록이면 그 회원의 개인 러닝(AI04 userId)과
     # 그 회원이 한 명이라도 낀 그룹런(AI10 participants[].userId)만 기록한다(S15P31E105-718)
     user_allowlist: frozenset[int] | None = None
+    # AI10 여유 가속 대기 시간(초). 위 회원이 낀 그룹런만 이 값을 쓴다(S15P31E105-728). 나머지는 기본 180초
+    speed_up_warmup_sec: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,9 @@ def load_demo_config(path: Path) -> DemoConfig:
     skip = raw.get("skipPayloadHashDeviceIds", [])
     group_allow = raw.get("groupAllowlist")
     group_label = raw.get("groupLabel")
+    warmup = raw.get("speedUpWarmupSec", 60)
+    if isinstance(warmup, bool) or not isinstance(warmup, (int, float)) or not 0 <= warmup <= 3600:
+        raise ValueError("speedUpWarmupSec는 0~3600초여야 합니다")
     user_allow = raw.get("userAllowlist")
     if user_allow is not None and (not isinstance(user_allow, list)
                                    or any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in user_allow)):
@@ -80,7 +85,8 @@ def load_demo_config(path: Path) -> DemoConfig:
                       frozenset(map(int, skip)),
                       frozenset(map(int, group_allow)) if group_allow is not None else None,
                       str(group_label) if group_label else None,
-                      frozenset(user_allow) if user_allow is not None else None)
+                      frozenset(user_allow) if user_allow is not None else None,
+                      float(warmup))
 
 
 def load_demo_settings() -> DemoSettings:
