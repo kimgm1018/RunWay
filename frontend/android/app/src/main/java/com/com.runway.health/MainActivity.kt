@@ -6,12 +6,31 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.runway.health.watch.WatchSessionInbox
 
 class MainActivity : ReactActivity() {
+  private var runWindowRecovery: RunWindowRecovery? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // react-native-screens cannot restore fragments after process death, so start fresh.
     super.onCreate(null)
     HealthConnectPermissionDelegate.setPermissionDelegate(this)
+    runWindowRecovery = RunWindowRecovery(window.decorView)
+  }
+
+  override fun onStop() {
+    runWindowRecovery?.onBackground()
+    super.onStop()
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    runWindowRecovery?.onFocus(hasFocus, hasFocus && WatchSessionInbox(this).activeSessionId() != null)
+  }
+
+  override fun onDestroy() {
+    runWindowRecovery?.dispose()
+    super.onDestroy()
   }
 
   /**
