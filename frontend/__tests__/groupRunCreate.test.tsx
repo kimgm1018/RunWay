@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
+import Svg, { Polyline } from 'react-native-svg';
 import App from '../App';
 import { RunMap } from '../src/components/RunMap';
 import {
@@ -107,9 +108,11 @@ async function press(screen: Screen, label: string) {
 // A ruler gives 6.8 its value once it rests (150ms), so each step waits past that.
 async function step(screen: Screen, label: string, action: string) {
   await act(async () => {
-    labelled(screen, label, 'onAccessibilityAction').props.onAccessibilityAction(
-      { nativeEvent: { actionName: action } },
-    );
+    labelled(
+      screen,
+      label,
+      'onAccessibilityAction',
+    ).props.onAccessibilityAction({ nativeEvent: { actionName: action } });
   });
   await settle(200);
 }
@@ -117,9 +120,7 @@ async function step(screen: Screen, label: string, action: string) {
 async function openCreate(repos: Repositories) {
   let screen: Screen;
   await act(async () => {
-    screen = TestRenderer.create(
-      <App repositories={repos} initialSignedIn />,
-    );
+    screen = TestRenderer.create(<App repositories={repos} initialSignedIn />);
   });
   await settle();
   await press(screen!, '그룹');
@@ -134,8 +135,7 @@ async function pickRecommended(screen: Screen) {
   await press(screen, '코스 변경');
   await press(screen, '코스 추천받기');
   await until(
-    () =>
-      all(screen, '코스 추천 받기').some(node => !node.props.disabled),
+    () => all(screen, '코스 추천 받기').some(node => !node.props.disabled),
     '3.1 코스 추천 받기',
   );
   await press(screen, '코스 추천 받기');
@@ -160,6 +160,21 @@ const timeLocked = (screen: Screen) =>
         .length > 0,
   ).length > 0;
 
+test('6.8 course preview uses the approved community outline', async () => {
+  const screen = await openCreate(repositories());
+  try {
+    const thumbnail = screen.root
+      .findAllByType(Svg)
+      .find(node => node.props.width === 72 && node.props.height === 46);
+    expect(thumbnail).toBeDefined();
+    expect(
+      thumbnail!.findAllByType(Polyline).map(node => node.props.stroke),
+    ).toEqual(['#003A2C', '#00785A', '#B3FFEC', '#4DFFD2']);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
 test('6.8 takes a recommended course with its finish time locked, keeps the meeting place free, and 6.4 marks it', async () => {
   const repos = repositories();
   const save = jest.spyOn(repos.courses, 'save');
@@ -178,7 +193,9 @@ test('6.8 takes a recommended course with its finish time locked, keeps the meet
   );
   expect(storedId).not.toBe(plan?.courseId);
   expect(picked).toBeDefined();
-  expect(texts(screen)).toContain(picked!.name.replace(/\s*\d+(\.\d+)?km$/, ''));
+  expect(texts(screen)).toContain(
+    picked!.name.replace(/\s*\d+(\.\d+)?km$/, ''),
+  );
   // 코스 고르기 reads the saved courses again, so the stored course is listed and ticked.
   await settle(50);
   await press(screen, '코스 변경');
@@ -319,7 +336,9 @@ test('6.8 leaves a private course out of 코스 고르기 and explains a private
   // The server refuses a private course however it got picked (S15P31E105-552).
   jest
     .spyOn(repos.groupRuns, 'create')
-    .mockRejectedValue(new DataError('COURSE_INACCESSIBLE', '사용할 수 없는 코스'));
+    .mockRejectedValue(
+      new DataError('COURSE_INACCESSIBLE', '사용할 수 없는 코스'),
+    );
   const screen = await openCreate(repos);
   await press(screen, '코스 변경');
   const rows = screen.root
@@ -378,15 +397,16 @@ test('6.8 does not take a private today plan course as its default course', asyn
   ]);
   let screen: Screen;
   await act(async () => {
-    screen = TestRenderer.create(
-      <App repositories={repos} initialSignedIn />,
-    );
+    screen = TestRenderer.create(<App repositories={repos} initialSignedIn />);
   });
   await settle();
   await press(screen!, '그룹');
   await settle();
   await press(screen!, '광안리 새벽 크루 그룹런 만들기');
-  await until(() => texts(screen!).includes('코스 선택'), '6.8 without a course');
+  await until(
+    () => texts(screen!).includes('코스 선택'),
+    '6.8 without a course',
+  );
   expect(texts(screen!)).not.toContain(plan!.name);
   await act(async () => screen!.unmount());
 });

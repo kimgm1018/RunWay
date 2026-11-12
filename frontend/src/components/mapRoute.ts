@@ -5,8 +5,7 @@ import { distanceM, routeLengthM, type LngLat } from '../geo';
 // 2.0 구간 색 (runway-course-handoff): 빠름 black, 보통 navy, 느림 steel blue.
 export const coursePaceColors = ['#060606', '#3A5A6C', '#8DACBA'];
 
-// How a course is drawn, on the map and in its thumbnail (S15P31E105-562 G안 · 떠 있는 리본): a white ribbon
-// with a thin centre line over a soft shadow, the start and finish standing on a pole.
+// Day-map marker, guide and progress tokens. The primary path now uses the shared community stroke below.
 export const routeLook = {
   // The centre line of a course without paces, and of the run so far.
   ink: '#060606',
@@ -24,7 +23,7 @@ export const routeLook = {
   shadowWidth: 10,
 };
 
-// The tilted city view and both RouteReplay modes share this look. Flat maps keep routeLook above.
+// The tilted city view and both RouteReplay modes share this palette. All map views now reuse its route stroke.
 // Every colour is opaque: the Naver path overlay on Android drew part-see-through colours solid black (above).
 // Fully transparent (`unpassed`) is the one exception, and draws nothing (S15P31E105-561's replay).
 export const darkMapLook = {
@@ -75,6 +74,18 @@ export const mintMapLook = {
   me: '#4DFFD2',
   meRing: '#02050E',
 };
+
+// S15P31E105-743: the community replay line approved on the device, shared by every route renderer.
+// SVG draws the native path's outline as a separate stroke; small cards scale all four widths together.
+export const routeStrokeLayers = [
+  { color: darkMapLook.glowOuter, width: darkMapLook.glowOuterWidth },
+  { color: darkMapLook.glowInner, width: darkMapLook.glowInnerWidth },
+  {
+    color: darkMapLook.ribbon,
+    width: darkMapLook.coreWidth + 2 * darkMapLook.coreEdge,
+  },
+  { color: darkMapLook.ink, width: darkMapLook.coreWidth },
+] as const;
 
 // A run's measured route (S11 parts, or the app's own trail) is shown on a map and played back only when its parts
 // of two or more points cover at least this much (S15P31E105-690): an indoor run, or one that never found GPS, has

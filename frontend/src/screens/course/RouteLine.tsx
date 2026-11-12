@@ -1,13 +1,12 @@
 import React from 'react';
-import Svg, { Circle, Polyline, Text } from 'react-native-svg';
+import Svg, { Circle, Text } from 'react-native-svg';
+import { RouteStroke } from '../../components/RouteStroke';
 import { k1, palette } from '../../theme';
 
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
-// A course as a white line with a faint white halo and the S·F start dot, fitted into its box
-// (DESIGN.md 2-7 코스 카드: 3.1b 앞면, 4.5·4.5F 경로). It takes GeoJSON [longitude, latitude] points.
-// thin: runway-course-handoff 3.1b, a bare 1.5px white line with a white start dot and S·F.
-// color draws the line, halo, dot and S·F in one colour instead (6.7 on the mist in mint, S15P31E105-563).
+// A course in the shared layered community stroke, fitted into its box from GeoJSON [longitude, latitude].
+// `thin` scales every layer together for a small tile; `color` controls only the start dot and S·F label.
 export function RouteLine({
   route,
   thin = false,
@@ -44,25 +43,7 @@ export function RouteLine({
   const start = project(route[0]);
   return (
     <Svg width="100%" height="100%" viewBox="0 0 100 100">
-      {thin ? null : (
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={color ?? palette.white}
-          strokeOpacity={0.18}
-          strokeWidth={6}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      )}
-      <Polyline
-        points={points}
-        fill="none"
-        stroke={color ?? palette.white}
-        strokeWidth={thin ? 0.6 : 2.2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+      <RouteStroke points={points} scale={thin ? 0.12 : 0.3} />
       <Circle
         cx={start.x}
         cy={start.y}

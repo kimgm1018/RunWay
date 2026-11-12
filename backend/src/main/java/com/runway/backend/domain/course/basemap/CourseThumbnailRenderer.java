@@ -25,16 +25,15 @@ import org.springframework.stereotype.Component;
  * (S15P31E105-612). 글자를 그리지 않으므로 글꼴이 없는 컨테이너에서도 동작한다. 같은 입력은 같은 바이트를 만든다.
  *
  * <p>순서(뒤→앞): 바탕 → 바다·녹지·공원·해변·물 면 → 물길 선 → 해안선 → 건물 평면 → 도로(테두리 전부, 그다음 채움. 작은 길→큰 길) →
- * 코스(진한 청록 테두리, 민트 리본, 밝은 민트 가운데 줄, 출발점). 건물 높이는 쓰지 않는다. 선 굵기는 시안(카드 160px 기준)에
+ * 코스(짙은 녹색 바깥선, 안쪽 녹색, 밝은 민트 테두리, 민트 중심, 출발점). 건물 높이는 쓰지 않는다. 선 굵기는 시안(카드 160px 기준)에
  * {@value #SCALE}(=600/160)를 곱한 화면 px이다.
  *
- * <p>코스 모양은 앱 러닝 지도의 민트 리본(S15P31E105-683 {@code mintMapLook}: 가운데 {@code #B8FFEC} 2.4dp, 양쪽 리본
- * {@code #4DFFD2} 4dp씩, 테두리 {@code #06231E} 14dp)과 같은 색·굵기 비율이다(S15P31E105-698). 카드에서는 테두리 전체 굵기를 이전
- * 흰 테두리와 같은 {@value #COURSE_SHADOW_WIDTH}로 두고 비율대로 줄였다.
+ * <p>코스 모양은 승인된 커뮤니티 경로선(S15P31E105-743)의 네 겹 색과 18:12.2:9.3:6.9 굵기 비율을 따른다.
+ * 카드의 바깥선 전체 굵기는 기존 {@value #COURSE_SHADOW_WIDTH}px를 유지하고 네 겹을 함께 축소한다.
  *
  * <p>축척(B-2): 시안은 폭 약 1km 코스({@link #REFERENCE_METERS_PER_PIXEL} m/px)에서 확인했다. 그보다 넓은 코스는 지도 선 굵기(도로
  * 채움·테두리, 물길·해안선, 건물 테두리)에 {@link #lineFactor}(= 기준 m/px ÷ m/px, {@value #MIN_LINE_FACTOR}~1)를 곱해 도로가
- * 블록을 덮지 않게 한다. 건물 테두리는 {@value #MIN_BUILDING_EDGE_PX}px보다 가늘게 하지 않는다. 코스 선·흰 테두리·출발점은 줄이지
+ * 블록을 덮지 않게 한다. 건물 테두리는 {@value #MIN_BUILDING_EDGE_PX}px보다 가늘게 하지 않는다. 코스 선·테두리·출발점은 줄이지
  * 않는다. 화면에서 거의 보이지 않는 것은 그리지 않는다(Route가 보내더라도): 보행로·자전거길·보행자 도로는 {@value
  * #MINOR_PATH_MAX_METERS_PER_PIXEL} m/px 초과, 이면도로(residential·unclassified·living_street·등급 모름)는 {@value
  * #LOCAL_ROAD_MAX_METERS_PER_PIXEL} m/px 초과, 건물은 바깥 고리 넓이가 ({@value #MIN_BUILDING_SIDE_PX}px)²보다 작을 때다. 같은
@@ -58,17 +57,24 @@ public class CourseThumbnailRenderer {
     /** 코스 민트 리본(출발점 채움). */
     static final Color COURSE = new Color(0x4DFFD2);
 
-    /** 코스 가운데 밝은 민트 줄. */
-    static final Color COURSE_CENTRE = new Color(0xB8FFEC);
+    /** 코스 중심 민트 줄. */
+    static final Color COURSE_CENTRE = COURSE;
 
-    /** 코스 리본 바깥 진한 청록 테두리(출발점 테두리). */
-    static final Color COURSE_SHADOW = new Color(0x06231E);
+    /** 중심을 감싸는 밝은 민트 테두리. */
+    static final Color COURSE_RIBBON = new Color(0xB3FFEC);
 
-    /** 코스 굵기(카드 px). 앱 14 : 10.4(2.4 + 4 × 2) : 2.4 dp 비율. */
+    /** 밝은 민트 테두리 바깥의 안쪽 녹색 선. */
+    static final Color COURSE_INNER = new Color(0x00785A);
+
+    /** 코스 바깥 짙은 녹색 선(출발점 테두리). */
+    static final Color COURSE_SHADOW = new Color(0x003A2C);
+
+    /** 코스 굵기(카드 px). 커뮤니티의 18 : 12.2 : 9.3 : 6.9 dp 비율. */
     static final double COURSE_SHADOW_WIDTH = 5.0;
 
-    static final double COURSE_RIBBON_WIDTH = COURSE_SHADOW_WIDTH * 10.4 / 14;
-    static final double COURSE_CENTRE_WIDTH = COURSE_SHADOW_WIDTH * 2.4 / 14;
+    static final double COURSE_INNER_WIDTH = COURSE_SHADOW_WIDTH * 12.2 / 18;
+    static final double COURSE_RIBBON_WIDTH = COURSE_SHADOW_WIDTH * 9.3 / 18;
+    static final double COURSE_CENTRE_WIDTH = COURSE_SHADOW_WIDTH * 6.9 / 18;
 
     /** 출발점 반지름(카드 px): 테두리 바깥, 민트 채움. */
     static final double START_RADIUS = 3.5;
@@ -302,7 +308,8 @@ public class CourseThumbnailRenderer {
                 }
             }
             stroke(g, path, roundStroke(COURSE_SHADOW_WIDTH * SCALE), COURSE_SHADOW);
-            stroke(g, path, roundStroke(COURSE_RIBBON_WIDTH * SCALE), COURSE);
+            stroke(g, path, roundStroke(COURSE_INNER_WIDTH * SCALE), COURSE_INNER);
+            stroke(g, path, roundStroke(COURSE_RIBBON_WIDTH * SCALE), COURSE_RIBBON);
             stroke(g, path, roundStroke(COURSE_CENTRE_WIDTH * SCALE), COURSE_CENTRE);
         }
         double sx = camera.screenX(course.get(0)[0]);

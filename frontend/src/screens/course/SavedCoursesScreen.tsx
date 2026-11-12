@@ -36,6 +36,7 @@ import {
   type SavedCourse,
 } from '../../data';
 import { RunMap } from '../../components/RunMap';
+import { RouteStroke } from '../../components/RouteStroke';
 import { formatKm } from '../../format';
 import { routeSections, shapeOfRoute, type LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -140,11 +141,9 @@ export function labelAt([x, y]: [number, number], ways: [number, number][]) {
 }
 
 const glyphInk = { ink: '#060606', white: palette.white };
-const glyphHalo = { ink: palette.white, white: '#060606' };
 
-// The course's outline (S15P31E105-562 G안): a thin line with a dot on each whole km, the start dot and its
-// S · F labels — one SF where the course ends where it started. `tone` follows what the outline sits on: ink
-// on the light top of a card (3.1c, the light post photo), white on a dark one.
+// The shared community stroke, with a dot on each whole km, the start dot and S · F labels (SF for a loop).
+// `tone` keeps the dots and labels legible on light or dark cards; the layered route style stays the same.
 // No drawable point draws nothing; a single point draws only the start dot.
 export function CourseGlyph({
   shape,
@@ -163,9 +162,9 @@ export function CourseGlyph({
     return null;
   }
   const color = glyphInk[tone];
-  const points = route.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
   const sections = routeSections(route, unmeasuredEdges);
-  const toPoints = (line: LngLat[]) => line.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
+  const toPoints = (line: LngLat[]) =>
+    line.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
   const [startX, startY] = route[0];
   const line = route.length > 1;
   const end = route[route.length - 1];
@@ -194,30 +193,27 @@ export function CourseGlyph({
   );
   return (
     <Svg width="100%" height="100%" viewBox="0 0 100 100">
-      {/* A faint halo in the other tone keeps the line clear where the card turns dark under it. */}
       {line ? (
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={glyphHalo[tone]}
-          strokeOpacity={0.35}
-          strokeWidth={4.5}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      ) : null}
-      {line ? (unmeasuredEdges.length ? (
         <>
           {sections.measured.map((part, index) => (
-            <Polyline key={`measured-${index}`} points={toPoints(part)} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+            <RouteStroke
+              key={`measured-${index}`}
+              points={toPoints(part)}
+              scale={0.3}
+            />
           ))}
           {sections.connectors.map((part, index) => (
-            <Polyline key={`gap-${index}`} points={toPoints(part)} fill="none" stroke="#8A979E" strokeWidth={1.8} strokeDasharray="3 2" />
+            <Polyline
+              key={`gap-${index}`}
+              points={toPoints(part)}
+              fill="none"
+              stroke="#8A979E"
+              strokeWidth={1.8}
+              strokeDasharray="3 2"
+            />
           ))}
         </>
-      ) : (
-        <Polyline points={points} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
-      )) : null}
+      ) : null}
       {line
         ? kmMarks(km).map(share => {
             const [x, y] = pointAlong(route, share);
@@ -382,12 +378,19 @@ export function CourseMapThumb({
   const map = basemap ?? loaded?.basemap ?? null;
   // An image that failed is not asked again; the card keeps the outline (a new address tries again).
   const [failed, setFailed] = useState<string | null>(null);
-  const image = map && failed !== map.imageUrl && !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length
-    ? map.imageUrl : null;
+  const image =
+    map &&
+    failed !== map.imageUrl &&
+    !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length
+      ? map.imageUrl
+      : null;
   // The outline stays until the image has loaded, so a slow image never leaves the card without its course.
   const [shown, setShown] = useState<string | null>(null);
   // The server thumbnail is a single-colour route; use the SVG until it supports grey connectors.
-  const imageShown = !!image && shown === image && !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length;
+  const imageShown =
+    !!image &&
+    shown === image &&
+    !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length;
   const gaps = unmeasuredEdges ?? loaded?.unmeasuredEdges;
   // No usable server image: a real map under the course, while a slot is free (see useCardMapSlot).
   const mapWanted = !!points && !image;
@@ -451,7 +454,12 @@ export function CourseMapThumb({
             },
           ]}
         >
-          <CourseGlyph shape={outline} km={km} tone="ink" unmeasuredEdges={unmeasuredEdges ?? loaded?.unmeasuredEdges} />
+          <CourseGlyph
+            shape={outline}
+            km={km}
+            tone="ink"
+            unmeasuredEdges={unmeasuredEdges ?? loaded?.unmeasuredEdges}
+          />
         </View>
       )}
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
@@ -470,10 +478,7 @@ export function CourseMapThumb({
       </Svg>
       {imageShown ? (
         // ODbL: the map's data is OpenStreetMap contributors' (8 설정 > 데이터 라이선스 has the full notice).
-        <View
-          testID="course-basemap-attribution"
-          style={styles.attribution}
-        >
+        <View testID="course-basemap-attribution" style={styles.attribution}>
           <AppText
             style={styles.attributionText}
             accessibilityLabel="지도 데이터 © OpenStreetMap 기여자"

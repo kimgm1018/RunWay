@@ -13,13 +13,13 @@ import Svg, {
   Line,
   LinearGradient,
   Path,
-  Polyline,
   Rect,
   Stop,
 } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon } from '../../components';
 import { RunMap } from '../../components/RunMap';
+import { RouteStroke } from '../../components/RouteStroke';
 import { useRepositories, type Post } from '../../data';
 import type { LngLat } from '../../geo';
 import { formatDuration, formatKm, formatPace } from '../../format';
@@ -277,23 +277,7 @@ export function RouteLine({
       style={StyleSheet.absoluteFill}
       pointerEvents="none"
     >
-      <Polyline
-        points={line}
-        fill="none"
-        stroke={feedLook.route}
-        strokeOpacity={0.22}
-        strokeWidth={14 * scale}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Polyline
-        points={line}
-        fill="none"
-        stroke={feedLook.route}
-        strokeWidth={5 * scale}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <RouteStroke points={line} scale={scale} />
       <Circle
         cx={startX}
         cy={startY}
