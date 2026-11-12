@@ -121,6 +121,7 @@ export function createMockWatchSession(options: Options): MockWatchSession {
       Promise.resolve<LinkedDevices | null>(
         options.linked() ? { watchDeviceId: '101', phoneDeviceId: '102' } : null,
       ),
+    getPhoneDeviceId: () => Promise.resolve('102'),
     prepare: (sessionId, { stateVersion }) =>
       new Promise(resolve =>
         after(() => {

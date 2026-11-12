@@ -29,6 +29,7 @@ import type {
 
 export type ControlProblem =
   | { kind: 'watchRequired' }
+  | { kind: 'locationRequired' }
   | { kind: 'watchNotReady'; reasonCode: string | null }
   | { kind: 'rejected'; action: ControlAction; reasonCode: string | null }
   // 실행 미확인. 시작이면 "시작 여부를 확인할 수 없습니다".
@@ -62,7 +63,7 @@ export type RunControlState = {
   // 폰이 받은 워치 batch(또는 인계 후 폰 batch)에서 읽은 실측값(S15P31E105-517). 아직 받은 값이 없으면 null.
   live: LiveMetrics | null;
   // WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 서버 값 그대로.
-  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | 'PHONE_ONLY' | null;
   // 워치 기록 중 워치 연결이 끊겼거나 워치 기록(batch)이 한동안 오지 않았다. 폰 인계를 안내한다.
   watchLost: boolean;
   // 폰 기록 중 폰 GPS를 받는지. 권한·GPS가 없으면 'off'이고 기록은 시간만 이어간다.
@@ -376,7 +377,7 @@ export function createRunControl({
     }
   };
 
-  const phoneMode = () => state.recordingMode === 'PHONE_FALLBACK';
+  const phoneMode = () => state.recordingMode === 'PHONE_FALLBACK' || state.recordingMode === 'PHONE_ONLY';
 
   // ── 화면용 실측값. W07로 올리는 원문은 그대로 두고, 같은 본문을 한 번 더 읽는다(S15P31E105-517).
   let liveFor: string | null = null;
@@ -401,12 +402,22 @@ export function createRunControl({
     (phoneMode() ? controlDeviceId ?? relayDeviceId : relayDeviceId) ?? devices?.phoneDeviceId ?? null;
 
   // 폰 GPS를 다시 켜고 결과를 화면 상태에 남긴다. 권한을 나중에 받았을 때도 부른다.
-  const startGps = (target: PhoneRecorder) => {
-    target.start().then(on => {
+  let gpsStartPending: Promise<boolean> | null = null;
+  const startGps = (target: PhoneRecorder): Promise<boolean> => {
+    if (gpsStartPending) {
+      return gpsStartPending;
+    }
+    const started = target.start().catch(() => false);
+    gpsStartPending = started;
+    started.then(on => {
+      if (gpsStartPending === started) {
+        gpsStartPending = null;
+      }
       if (recorder === target) {
         setState({ phoneGps: on ? 'on' : 'off' });
       }
-    }, noop);
+    });
+    return started;
   };
 
   // 진행 중 세션 동안 폰 GPS 기록을 서버 상태에 맞춘다(S15P31E105-549, 통합 설계 2장 GPS 출처 선택).
@@ -1210,6 +1221,9 @@ export function createRunControl({
         knownGuides.set(seen.commandId, seen);
       }
     }
+    if (view.recordingMode === 'PHONE_ONLY') {
+      return;
+    }
     if (view.recordingMode === 'PHONE_FALLBACK') {
       // 폰으로 기록 중이면 워치 적용이 없으므로 새로 받은 코칭을 안내한다(S15P31E105-579).
       if (view.coaching) {
@@ -1412,19 +1426,31 @@ export function createRunControl({
   async function createSession(goal: SessionGoalDraft): Promise<boolean> {
     devices = await watch.getLinkedDevices();
     mark('devices');
+    let phoneId: string;
     if (!devices) {
-      setState({ problem: { kind: 'watchRequired' } });
-      return false;
+      // Phone-only personal runs require a usable fix before creating a server session.
+      const granted = await location.requestPermission().catch(() => false);
+      const fix = granted ? await location.current().catch(() => null) : null;
+      if (!fix) {
+        setState({ problem: { kind: 'locationRequired' } });
+        return false;
+      }
+      phoneId = await watch.getPhoneDeviceId?.() ?? '';
+      if (!phoneId) {
+        setState({ problem: { kind: 'error', code: 'DEVICE_FORBIDDEN' } });
+        return false;
+      }
+    } else {
+      phoneId = devices.phoneDeviceId;
     }
-    const linked = devices;
     setState({ problem: null });
     mark('create sent');
     try {
       // 응답이 없으면 서버의 AI 계획 상한(40초)이 지난 뒤에만 한 번 다시 보낸다. 서버는 그 사이 만든 세션을 409로 알려 준다.
       const created = await callWith(createRetryDelaysMs, () =>
         session.create({
-          controlDeviceId: linked.watchDeviceId,
-          relayDeviceId: linked.phoneDeviceId,
+          controlDeviceId: devices?.watchDeviceId ?? phoneId,
+          relayDeviceId: phoneId,
           goal,
         }),
       );
@@ -1504,7 +1530,7 @@ export function createRunControl({
     if (event) {
       early.delete(pending.commandId);
       await report(action, event);
-    } else if (serverCommandOf(view)?.commandId === pending.commandId && view.recordingMode !== 'PHONE_FALLBACK') {
+    } else if (serverCommandOf(view)?.commandId === pending.commandId && view.recordingMode === 'WATCH') {
       // 서버가 승인한 그룹 출발·종료가 아직 유효하다. 같은 명령을 다시 보내 워치가 보관한 결과(또는 첫 실행 결과)를 받는다.
       await deliver(approval);
     } else {
@@ -1717,7 +1743,15 @@ export function createRunControl({
     // 거절·미준비 뒤에는 버전이 바뀌었을 수 있으므로 같은 버전으로 준비가 확인된 경우에만 다시 준비하지 않는다.
     // 워치 연결이 끊겼으면 워치가 준비를 잃었을 수 있어 다시 준비한다.
     const goalNow = target ?? emptyGoal;
+    if (phoneMode()) {
+      const granted = await location.requestPermission().catch(() => false);
+      if (!granted || !(await location.current().catch(() => null)) || !recorder || !(await startGps(recorder))) {
+        setState({ problem: { kind: 'locationRequired' } });
+        return;
+      }
+    }
     const reuse =
+      phoneMode() ||
       preparedFor?.sessionId === state.sessionId &&
       preparedFor.stateVersion === state.stateVersion &&
       (await watchConnected());
@@ -1777,7 +1811,9 @@ export function createRunControl({
       ) {
         return;
       }
-      await prepareWatch(goal);
+      if (!phoneMode()) {
+        await prepareWatch(goal);
+      }
     } catch (error) {
       diag(`prepare failed ${errorCode(error)}`);
     } finally {

@@ -94,7 +94,9 @@ public final class RunningSessionMapper {
         if (session.getControlDeviceId() == null) {
             return null;
         }
-        return session.isPhoneFallback() ? "PHONE_FALLBACK" : "WATCH";
+        return session.isPhoneOnly()
+                ? "PHONE_ONLY"
+                : session.isPhoneFallback() ? "PHONE_FALLBACK" : "WATCH";
     }
 
     private static RunningSessionResponse.Plan plan(

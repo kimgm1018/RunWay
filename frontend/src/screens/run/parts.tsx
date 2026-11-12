@@ -471,6 +471,8 @@ function startNotice(problem: ControlProblem | null): {
     return null;
   }
   switch (problem.kind) {
+    case 'locationRequired':
+      return { text: '휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.', restart: true };
     case 'watchRequired':
       return { text: '워치를 연결해 주세요' };
     case 'watchNotReady':

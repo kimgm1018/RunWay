@@ -443,7 +443,8 @@ CREATE TABLE "running_sessions" (
     "relay_device_id" BIGINT NULL,
     "state_version" BIGINT DEFAULT 1 NOT NULL CHECK (state_version >= 0),
     "current_bpm" INTEGER NULL CHECK (current_bpm BETWEEN 60 AND 220),
-    "analysis_status" "running_sessions_analysis_status_enum" DEFAULT 'PENDING' NOT NULL
+    "analysis_status" "running_sessions_analysis_status_enum" DEFAULT 'PENDING' NOT NULL,
+    "phone_only" BOOLEAN DEFAULT FALSE NOT NULL
 );
 
 COMMENT ON COLUMN "running_sessions"."max_heart_rate" IS '최대 심박수(bpm)';
@@ -1238,6 +1239,8 @@ ALTER TABLE running_sessions ADD CONSTRAINT fk_session_control_device
     FOREIGN KEY (control_device_id) REFERENCES user_devices(id);
 ALTER TABLE running_sessions ADD CONSTRAINT fk_session_relay_device
     FOREIGN KEY (relay_device_id) REFERENCES user_devices(id);
+ALTER TABLE running_sessions ADD CONSTRAINT ck_phone_only_control
+    CHECK (NOT phone_only OR (control_device_id IS NOT NULL AND control_device_id = relay_device_id));
 ALTER TABLE running_sessions ADD CONSTRAINT ck_session_protocol_active
     CHECK (state_version > 0 OR status NOT IN ('RUNNING','PAUSED'));
 ALTER TABLE coaching_decisions ADD CONSTRAINT ck_coaching_context CHECK (

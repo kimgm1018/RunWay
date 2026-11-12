@@ -5,7 +5,7 @@ import {
   useFocusEffect,
   useNavigation,
 } from '@react-navigation/native';
-import { useToast } from '../../components';
+import { AppText, useToast } from '../../components';
 import { useRepositories } from '../../data';
 import {
   formatDuration,
@@ -69,7 +69,7 @@ export function controlModeOf(
 // The line under the title only when the phone records (after a takeover). With the watch recording it stays
 // empty: the status pill already says 기록 중 (담당자 결정).
 export function recordingDevice(control: RunControlState | null) {
-  if (control?.recordingMode === 'PHONE_FALLBACK') {
+  if (control?.recordingMode === 'PHONE_FALLBACK' || control?.recordingMode === 'PHONE_ONLY') {
     return control.phoneGps === 'off'
       ? '폰으로 기록 중 · 위치 권한이 없어 경로는 남지 않아요'
       : '폰으로 기록 중';
@@ -226,14 +226,19 @@ export function RunProgressScreen() {
       key: 'coaching',
       title: '코칭',
       content: (
-        <CoachingPage
-          pace={sample.paceSecPerKm}
-          goalPace={goalPace}
-          coaching={control.coaching}
-          currentBpm={control.currentBpm}
-          cadence={sample.cadence}
-          now={clock.now()}
-        />
+        <View>
+          {control.recordingMode === 'PHONE_ONLY' ? (
+            <AppText>워치가 없어 심박·케이던스 기반 코칭은 제공되지 않아요. 페이스 안내만 확인할 수 있어요.</AppText>
+          ) : null}
+          <CoachingPage
+            pace={sample.paceSecPerKm}
+            goalPace={goalPace}
+            coaching={control.coaching}
+            currentBpm={control.currentBpm}
+            cadence={sample.cadence}
+            now={clock.now()}
+          />
+        </View>
       ),
     });
   }

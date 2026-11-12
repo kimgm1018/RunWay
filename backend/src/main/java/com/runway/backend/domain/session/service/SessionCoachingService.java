@@ -363,7 +363,7 @@ public class SessionCoachingService {
                 || session.getStateVersion() < 1
                 || session.getStartedAt() == null
                 || session.getControlDeviceId() == null
-                || session.isPhoneFallback()) {
+                || session.isPhoneControlled()) {
             return false;
         }
         if (!coachingRepository.healthConsented(session.getUserId())) {

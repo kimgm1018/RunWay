@@ -241,6 +241,10 @@ export function RunSessionProvider({
             clockRef.current,
             Date.now(),
           );
+          if (controlRef.current?.getState().recordingMode === 'PHONE_ONLY') {
+            sample.heartRate = null;
+            sample.cadence = null;
+          }
           // With measured values the readings come in as they arrive (below), not once per tick.
           if (!live && sample.heartRate !== null) {
             readings.current.heartRates.push(sample.heartRate);

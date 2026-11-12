@@ -127,7 +127,7 @@ export function createMockSession(options: Options = {}): Repositories['session'
             stateVersion: 1,
             startedAt: null,
             endedAt: null,
-            recordingMode: 'WATCH',
+            recordingMode: controlDeviceId === relayDeviceId ? 'PHONE_ONLY' : 'WATCH',
             analysisStatus: 'PENDING',
             // 목업은 측정값으로 비교를 계산하지 않는다. 비교 기록을 고르면 서버처럼 결과를 기다리는 상태만 보인다(S15P31E105-422).
             comparison: goal.comparisonSessionId

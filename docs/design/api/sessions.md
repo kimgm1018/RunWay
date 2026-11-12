@@ -120,7 +120,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
-| `controlDeviceId` | integer (int64) | O | 본인 등록 워치 ID. 양의 정수 |
+| `controlDeviceId` | integer (int64) | O | 본인 등록 워치 ID. 양의 정수; PHONE_ONLY uses the same PHONE ID as relayDeviceId. |
 | `relayDeviceId` | integer (int64) | O | 본인 등록 폰 ID. 양의 정수 |
 | `courseId` | integer (int64) / null | X | ACTIVE 상태의 선택 코스 ID. 자유러닝은 null 또는 생략. [C01](courses.md#c01-코스-추천)의 AI 생성 후보는 선택 후 저장해야 `courseId`가 생기며, 저장으로 얻은 `courseId`를 여기에 전달한다 |
 | `comparisonSessionId` | integer (int64) / null | X | 비교할 본인 과거 운동 ID. 미선택은 null 또는 생략 |
@@ -135,6 +135,8 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 }
 ```
 
+PHONE_ONLY personal sessions use the same registered PHONE ID for `controlDeviceId` and `relayDeviceId`. The server accepts S03 START, S04 PAUSE, S05 RESUME, and S06 END REQUEST/RESULT from this phone without S08 watch preparation. The app blocks start and guides the user when location permission is denied or GPS is unavailable. The server cannot inspect phone permission state. W07 stores phone GPS and S11 returns PHONE route segments. Existing WATCH sessions continue using distinct WATCH and PHONE IDs; PHONE_FALLBACK remains a watch-started session that later transfers control.
+
 ### Response
 
 `201 Created` — S02와 같은 전체 세션 상태를 반환한다.
@@ -142,7 +144,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
 | `sessionId` | integer (int64) | O | 세션 ID |
-| `controlDeviceId` | integer (int64) / null | O | 현재 제어기기 ID. 기존 기록에 기기 정보가 없으면 null |
+| `controlDeviceId` | integer (int64) / null | O | 현재 제어기기 ID. 기존 기록에 기기 정보가 없으면 null; PHONE_ONLY uses the same PHONE ID as relayDeviceId. |
 | `relayDeviceId` | integer (int64) / null | O | 서버 통신을 중계하는 폰 ID. 기존 기록에 정보가 없으면 null |
 | `state` | string (enum) | O | READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) / CANCELLED(취소) / INTERRUPTED(중단) |
 | `stateVersion` | integer (int64) | O | 서버 상태 버전. 신규 세션은 1부터, 기존 기록은 0 |
@@ -160,7 +162,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
-| `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
+| `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null; PHONE_ONLY denotes phone control from creation. |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
 | `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 
@@ -302,7 +304,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
-| `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
+| `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null; PHONE_ONLY denotes phone control from creation. |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
 | `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 

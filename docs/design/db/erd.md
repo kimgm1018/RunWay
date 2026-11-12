@@ -137,13 +137,14 @@
 
 | 컬럼 | 타입·기본값 | 용도 |
 | --- | --- | --- |
-| control_device_id | BIGINT/null | 현재 제어기기. 시작은 워치, 인계 후 기존 중계 폰. user_devices 참조 |
+| control_device_id | BIGINT/null | Current control device: WATCH for watch runs, PHONE from creation for PHONE_ONLY, or PHONE after takeover; references user_devices. |
 | relay_device_id | BIGINT/null | 중계 폰, user_devices 참조 |
+| phone_only | BOOLEAN NOT NULL, default false | True when a personal session starts with phone control; false for WATCH and PHONE_FALLBACK. |
 | state_version | BIGINT NOT NULL, 기본값 1 | 목표·운동 상태·BPM에 공통으로 쓰는 단일 버전 |
 | current_bpm | INTEGER/null, 60~220 | 실제 현재 BPM. READY/PAUSED에서는 값을 보존하되 소리를 재생하지 않음 |
 | analysis_status | running_sessions_analysis_status_enum NOT NULL, PENDING | 현재 결과 준비 상태만 표시. PENDING/PROCESSING/READY/FAILED/LEGACY |
 
-목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다. 사용자별 완료 러닝을 종료 시각 최근순으로 찾는 조회(AI09 속도 보정·AI04 BPM 이력 등, `ended_at IS NOT NULL ORDER BY ended_at DESC`)는 `(user_id, ended_at DESC)` 인덱스 `idx_running_sessions_user_ended`(V11)를 사용할 수 있다. `DESC`는 NULL(진행 중 세션)을 앞에 두므로 `NULLS LAST` 정렬은 이 인덱스 순서를 그대로 쓰지 못한다.
+For a new PHONE_ONLY personal run, S01 saves the same registered PHONE ID as control and relay and sets `phone_only=true`. WATCH runs begin with `phone_only=false`; S08 takeover changes the control ID but leaves this marker false. `recordingMode` combines the marker and current control ID to distinguish PHONE_ONLY, WATCH, and PHONE_FALLBACK. 목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며. One active session per user is enforced by partial UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다. 사용자별 완료 러닝을 종료 시각 최근순으로 찾는 조회(AI09 속도 보정·AI04 BPM 이력 등, `ended_at IS NOT NULL ORDER BY ended_at DESC`)는 `(user_id, ended_at DESC)` 인덱스 `idx_running_sessions_user_ended`(V11)를 사용할 수 있다. `DESC`는 NULL(진행 중 세션)을 앞에 두므로 `NULLS LAST` 정렬은 이 인덱스 순서를 그대로 쓰지 못한다.
 
 #### run_share_links — 기록 공유 링크
 

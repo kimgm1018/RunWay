@@ -234,9 +234,9 @@ test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다�
   expect(texts(screen)).not.toContain('시작 여부를 확인할 수 없습니다');
 });
 
-test('no watch shows 워치를 연결해 주세요', async () => {
-  const screen = await countDown({ scenario: 'watchDisconnected' }, '워치를 연결해 주세요');
-  expect(texts(screen)).toContain('워치를 연결해 주세요');
+test('no watch without GPS shows location guidance', async () => {
+  const screen = await countDown({ scenario: 'watchDisconnected' }, '휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.');
+  expect(texts(screen)).toContain('휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.');
   expect(texts(screen)).not.toContain('운동 시간');
 });
 

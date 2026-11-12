@@ -95,12 +95,78 @@ test('start twice while pending creates one session and one START', async () => 
   control.dispose();
 });
 
-test('no linked watch stops with watchRequired and creates no session', async () => {
+test('no linked watch requires a GPS fix before creating a session', async () => {
   const { control, calls } = setup('watchDisconnected');
   await control.start(goal);
 
-  expect(control.getState()).toMatchObject({ sessionId: null, problem: { kind: 'watchRequired' } });
+  expect(control.getState()).toMatchObject({ sessionId: null, problem: { kind: 'locationRequired' } });
   expect(calls.create).toBe(0);
+  control.dispose();
+});
+
+test('phone-only run uses the phone ID and completes pause, resume and end', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0, scenario: 'watchDisconnected' });
+  const created: { controlDeviceId: string; relayDeviceId: string }[] = [];
+  const session = {
+    ...repositories.session,
+    create: (request: Parameters<typeof repositories.session.create>[0]) => {
+      created.push(request);
+      return repositories.session.create(request);
+    },
+  };
+  const location = {
+    requestPermission: async () => true,
+    current: async () => ({ latitude: 37.5, longitude: 127, accuracyM: 5, altitudeM: null, time: Date.now() }),
+    start: async () => true,
+    stop: async () => undefined,
+    subscribe: () => () => undefined,
+  };
+  const control = createRunControl({ session, watch: repositories.watchSession, location, timers: { retryDelaysMs: [0], phoneFinishWaitMs: 10 } });
+  await control.start(goal);
+  expect(control.getState()).toMatchObject({ status: 'RUNNING', recordingMode: 'PHONE_ONLY' });
+  expect(created).toMatchObject([{ controlDeviceId: '102', relayDeviceId: '102' }]);
+  await control.pause();
+  expect(control.getState().status).toBe('PAUSED');
+  await control.resume();
+  expect(control.getState().status).toBe('RUNNING');
+  await control.finish();
+  expect(control.getState().status).toBe('COMPLETED');
+  control.dispose();
+});
+
+test('phone-only START stays READY when GPS tracking cannot start despite a current fix', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0, scenario: 'watchDisconnected' });
+  const requests: string[] = [];
+  const session = {
+    ...repositories.session,
+    requestControl: (...args: Parameters<typeof repositories.session.requestControl>) => {
+      requests.push(args[1]);
+      return repositories.session.requestControl(...args);
+    },
+  };
+  const location = {
+    requestPermission: async () => true,
+    current: async () => ({ latitude: 37.5, longitude: 127, accuracyM: 5, altitudeM: null, time: Date.now() }),
+    start: async () => false,
+    stop: async () => undefined,
+    subscribe: () => () => undefined,
+  };
+  const control = createRunControl({ session, watch: repositories.watchSession, location, timers: { retryDelaysMs: [0] } });
+  await control.start(goal);
+  expect(control.getState()).toMatchObject({ status: 'READY', recordingMode: 'PHONE_ONLY', problem: { kind: 'locationRequired' } });
+  expect(requests).not.toContain('START');
+  control.dispose();
+});
+
+test('restoring a pending PHONE_ONLY command never relays it to a watch', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0, scenario: 'watchDisconnected' });
+  const created = await repositories.session.create({ controlDeviceId: '102', relayDeviceId: '102', goal });
+  await repositories.session.requestControl(created.sessionId, 'START', { deviceId: '102', expectedVersion: created.stateVersion });
+  const sendCommand = jest.fn(repositories.watchSession.sendCommand);
+  const control = createRunControl({ session: repositories.session, watch: { ...repositories.watchSession, sendCommand }, timers: { retryDelaysMs: [0] } });
+  await control.joinGroup(created.sessionId, goal, 'group-1');
+  expect(sendCommand).not.toHaveBeenCalled();
+  expect(control.getState().recordingMode).toBe('PHONE_ONLY');
   control.dispose();
 });
 

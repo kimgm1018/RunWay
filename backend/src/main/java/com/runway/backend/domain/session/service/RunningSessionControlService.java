@@ -381,10 +381,10 @@ public class RunningSessionControlService {
         if (controlDeviceId == null || controlDeviceId != request.deviceId()) {
             throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
-        boolean phoneFallback = session.isPhoneFallback();
+        boolean phoneControlled = session.isPhoneControlled();
         access.requireOwnedDevice(
-                userId, request.deviceId(), phoneFallback ? DeviceType.PHONE : DeviceType.WATCH);
-        if (phoneFallback && action == ControlAction.START) {
+                userId, request.deviceId(), phoneControlled ? DeviceType.PHONE : DeviceType.WATCH);
+        if (session.isPhoneFallback() && action == ControlAction.START) {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         // 끝난 세션(취소·종료·중단)은 어떤 버전으로도 승인할 수 없으므로 버전보다 먼저 상태로 거절한다(S07 "뒤의 새 START는 상태 검사로 거절").
