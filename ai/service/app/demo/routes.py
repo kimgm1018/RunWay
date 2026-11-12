@@ -18,10 +18,11 @@ log = logging.getLogger("runway.ai")
 
 POLL_SEC = 3.0                 # 같은 시연 키를 DB에서 다시 읽는 최소 간격
 SESSION_CACHE_SEC = 30.0       # 그룹 참가자의 진행 중 세션 ID를 다시 찾는 간격
-MAX_POINTS_PER_ROUTE = 20000   # 메모리 상한(1초 간격이면 5시간)
+MAX_POINTS_PER_ROUTE = 12000   # 선 하나(1초 간격 약 3시간 20분)
+MAX_TOTAL_POINTS = 120000      # 738: 전체 상한(점 1개 약 112 B 실측 → 약 13 MiB). 넘으면 오래된 세션 선부터 지운다
 MAX_SENT_POINTS = 1500         # SSE로 보내는 선 하나의 점 수 상한(고르게 솎음)
-MAX_KEYS = 10                  # 738: 이전 기록(버퍼 MAX_SESSIONS)과 같게
-IDLE_EXPIRE_SEC = 12 * 3600.0  # 738: 버퍼와 같게 12시간
+MAX_KEYS = 40                  # 738: 이전 기록(버퍼 MAX_SESSIONS)과 같게
+IDLE_EXPIRE_SEC = 7 * 24 * 3600.0  # 738: 버퍼와 같게 7일
 DB_TIMEOUT_MS = 800
 FETCH_LIMIT = 5000
 
@@ -156,10 +157,26 @@ class DemoRoutes:
                 with self._lock:
                     if key in self._keys:
                         self._keys[key].version += 1
+                    self._trim_total(key)
         except Exception as exc:   # DB가 없거나 느려도 시연 SSE는 계속 돈다
             if not self._warned:
                 log.warning("시연 경로 조회 실패(%s). 지도 선 없이 계속합니다", type(exc).__name__)
                 self._warned = True
+
+    def _trim_total(self, keep: int) -> None:
+        """738: 전체 점 수 상한. 방금 갱신한 세션(keep)이 아닌 가장 오래 안 본 세션의 선부터 통째로 지운다."""
+        def total():
+            return sum(len(r.points) for s in self._keys.values() for r in s.routes.values())
+        while total() > MAX_TOTAL_POINTS:
+            others = [k for k, s in self._keys.items() if k != keep and any(r.points for r in s.routes.values())]
+            if others:
+                oldest = min(others, key=lambda k: self._keys[k].last_touch)
+                for route in self._keys[oldest].routes.values():
+                    route.points.clear()
+                self._keys[oldest].version += 1
+            else:
+                longest = max(self._keys[keep].routes.values(), key=lambda r: len(r.points))
+                longest.points.popleft()
 
     def _group_session(self, key: int, user_id: int) -> int | None:
         with self._lock:

@@ -8,17 +8,19 @@ from app.demo.course import _haversine
 
 # 라이브 화면이 쓰는 창(콘솔 TRACE_WINDOW_SEC와 같음). 라이브 SNAPSHOT·판단 계산(traces)은 이 창만 본다.
 WINDOW_SEC = 600.0
-# 738 '이전 기록': 러닝 전체를 메모리에 보관한다(재시작·재배포하면 사라짐). 상한은 trace 수로 묶는다.
-#   trace 1개 = 개인 약 6 KB(JSON)·28 KB(파이썬 객체), 그룹 약 4 KB·17 KB(후보 9개 실측).
-#   MAX_TOTAL_TRACES 3000 x 28 KB = 약 84 MB가 최악(전부 개인). 경로 점(세션당 최대 1만 점)까지 약 105 MB.
+# 738 '이전 기록': 러닝 전체를 메모리에 보관한다(재시작·재배포하면 사라짐). 시연은 다음 주까지라 7일 보관.
+# 메모리는 세션 수가 아니라 전체 건수·점 수로 묶는다(실측: trace 1개 = 개인 약 27.7 KiB, 그룹 2명 약 17 KiB 파이썬 객체;
+# 수집 경로 점 1개 약 152 B). 최악(전부 개인): trace 3500 x 27.7 KiB = 약 95 MiB + 수집 경로 점 6만 x 152 B = 약 9 MiB.
+# routes.py(지도 경로 12만 점 x 112 B = 약 13 MiB)와 다시 보기 1회 전송(약 9 MiB)까지 합쳐 약 126 MiB.
 RETAIN_SEC = 3 * 3600.0           # 세션당 최근 3시간(시연 러닝 전체)
 MAX_TRACES_PER_SESSION = 2200     # 5초 간격 개인 판단 약 3시간
-MAX_TOTAL_TRACES = 3000           # 전체 상한. 넘으면 가장 오래된 세션부터 통째로 지운다
-MAX_SESSIONS = 10
-IDLE_EXPIRE_SEC = 12 * 3600.0     # 마지막 기록 뒤 12시간 보관
+MAX_TOTAL_TRACES = 3500           # 전체 상한. 넘으면 가장 오래된 세션부터 통째로 지운다
+MAX_SESSIONS = 40
+IDLE_EXPIRE_SEC = 7 * 24 * 3600.0 # 마지막 기록 뒤 7일 보관
+MAX_TOTAL_ROUTE_POINTS = 60000    # 시연 수집(inlet) 경로 점 전체 상한
 LIVE_AFTER_SEC = 120.0            # 마지막 기록이 이보다 최근이면 '진행 중'
 MAX_SUBSCRIBERS = 2
-MAX_ROUTE_POINTS = 10000
+MAX_ROUTE_POINTS = 12000          # 세션당(1초 간격 약 3시간 20분)
 MAX_COURSE_SUMMARY_POINTS = 500
 # 그룹 러닝 스트림 키. Nginx 경로(/v1/demo/sessions/(latest|[0-9]+)/events)를 바꾸지 않도록 숫자 키를 쓰고,
 # 개인 세션 ID와 겹치지 않게 큰 값을 더한다. 콘솔은 ?group=<groupRunId>를 이 키로 바꿔 연결한다.
@@ -86,6 +88,15 @@ class DemoBuffer:
                 self._drop(min(others, key=lambda sid: self._last_add[sid]))
             else:
                 self._records[keep].popleft()
+        # 수집 경로 점 전체 상한: 오래된 세션의 점부터 지운다(판단 기록은 남김)
+        while sum(len(r) for r in self._route_points.values()) > MAX_TOTAL_ROUTE_POINTS:
+            others = [sid for sid in self._route_points if sid != keep and self._route_points[sid]]
+            if others:
+                oldest = min(others, key=lambda sid: self._last_add.get(sid, self.now()))
+                self._route_points.pop(oldest, None)
+                self._route_version[oldest] = self._route_version.get(oldest, 0) + 1
+            else:
+                self._route_points[keep].popleft()
 
     def append(self, session_id: int, trace: dict) -> None:
         with self._lock:
