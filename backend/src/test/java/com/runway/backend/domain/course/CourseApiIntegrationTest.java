@@ -418,9 +418,12 @@ class CourseApiIntegrationTest {
                 .andExpect(jsonPath("$.items[0].myAlias").value("비"))
                 .andExpect(jsonPath("$.items[0].distanceM").value(2000.0))
                 .andExpect(jsonPath("$.items[0].status").value("ACTIVE"))
+                // 공용 코스는 개인 코스가 아니다(S15P31E105-696).
+                .andExpect(jsonPath("$.items[0].isPrivate").value(false))
                 .andExpect(jsonPath("$.items[1].id").value((int) courseA))
                 .andExpect(jsonPath("$.items[1].myAlias").value("에이"))
                 .andExpect(jsonPath("$.items[1].distanceM").value(1000.0))
+                .andExpect(jsonPath("$.items[1].isPrivate").value(false))
                 .andExpect(jsonPath("$.page").doesNotExist());
 
         MvcResult firstPage =
@@ -453,6 +456,8 @@ class CourseApiIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value((int) courseA))
                 .andExpect(jsonPath("$.items[0].myAlias").value("에이"))
                 .andExpect(jsonPath("$.items[0].distanceM").value(1000.0))
+                // 커서 경로 SQL도 isPrivate를 내려준다(S15P31E105-696 리뷰 A-2·B-3).
+                .andExpect(jsonPath("$.items[0].isPrivate").value(false))
                 .andExpect(jsonPath("$.page").doesNotExist());
     }
 

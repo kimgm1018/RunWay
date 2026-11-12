@@ -759,7 +759,8 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
       "status": "ACTIVE",
       "mergedIntoCourseId": null,
       "myAlias": "내 아침 코스",
-      "distanceM": 5000
+      "distanceM": 5000,
+      "isPrivate": false
     }
   ]
 }
@@ -797,6 +798,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].distanceM` | number | O | courses.distance(m). distance 대신 단위 명시. |
+| `items[].isPrivate` | boolean | O | `courses.is_private`. 자유 러닝 기록으로 만든 개인 코스(본인 것, 또는 공유받아 저장한 것)는 true. 개인 코스는 그룹런 코스로 쓸 수 없으므로(G01 `403 COURSE_INACCESSIBLE`) 앱이 그룹런 코스 고르기에서 제외한다([S15P31E105-696](https://ssafy.atlassian.net/browse/S15P31E105-696)). |
 
 ### 오류 응답
 

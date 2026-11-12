@@ -328,14 +328,33 @@ export function BottomFade({
   );
 }
 
-// 6.8 그룹런 만들기 draft, shared with 6.9 만남 장소 선택 which fills the meeting place.
+// A course 3.1b picked for 6.8 (S15P31E105-696): the stored course, and the finish time and start the search asked
+// with, which become the run's goal and meeting place.
+export type RecommendedPick = {
+  course: {
+    id: string;
+    name: string;
+    distanceM: number;
+    // [longitude, latitude] points; 6.8 draws its outline.
+    route: [number, number][];
+  };
+  minutes: number;
+  place: MeetingPlace & { note: string | null };
+};
+
+// 6.8 그룹런 만들기 draft, shared with 6.9 만남 장소 선택 which fills the meeting place, and with 3.1 · 3.1b when 6.8
+// asks for a recommended course (pickingCourse) and gets one back (picked).
 // version goes up whenever a screen changes a group run, so 6.0 (in the tab under them) reloads.
 type Draft = {
   place: (MeetingPlace & { note: string | null }) | null;
+  pickingCourse: boolean;
+  picked: RecommendedPick | null;
 };
 const DraftContext = createContext<{
   draft: Draft;
   setPlace: (place: Draft['place']) => void;
+  setPickingCourse: (picking: boolean) => void;
+  setPicked: (picked: RecommendedPick | null) => void;
   version: number;
   changed: () => void;
 } | null>(null);
@@ -345,17 +364,31 @@ export function GroupRunDraftProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [draft, setDraft] = useState<Draft>({ place: null });
+  const [draft, setDraft] = useState<Draft>({
+    place: null,
+    pickingCourse: false,
+    picked: null,
+  });
   const [version, setVersion] = useState(0);
-  const value = useMemo(
-    () => ({
-      draft,
-      setPlace: (place: Draft['place']) =>
-        setDraft(current => ({ ...current, place })),
-      version,
+  // The setters keep one identity, and setting the same value changes nothing, so a screen may call them from
+  // an effect or on focus without rendering again (S15P31E105-696).
+  const setters = useMemo(() => {
+    const set =
+      <K extends keyof Draft>(key: K) =>
+      (next: Draft[K]) =>
+        setDraft(current =>
+          current[key] === next ? current : { ...current, [key]: next },
+        );
+    return {
+      setPlace: set('place'),
+      setPickingCourse: set('pickingCourse'),
+      setPicked: set('picked'),
       changed: () => setVersion(current => current + 1),
-    }),
-    [draft, version],
+    };
+  }, []);
+  const value = useMemo(
+    () => ({ draft, version, ...setters }),
+    [draft, version, setters],
   );
   return (
     <DraftContext.Provider value={value}>{children}</DraftContext.Provider>
@@ -370,6 +403,11 @@ export function useGroupRunDraft() {
     );
   }
   return value;
+}
+
+// For a screen that also runs outside the group run flow (3.1b on its own): null without the provider.
+export function useOptionalGroupRunDraft() {
+  return useContext(DraftContext);
 }
 
 const styles = StyleSheet.create({

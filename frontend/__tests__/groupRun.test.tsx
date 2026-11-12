@@ -564,10 +564,12 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
     '광안리해수욕장 입구',
     '10.24 토',
     '오전 07:00',
-    '자동 산출',
+    // 목표 시간 on a ruler with its pace; 공동 페이스 moved to the waiting room (S15P31E105-696).
+    '목표 페이스',
   ]) {
     expect(page).toContain(text);
   }
+  expect(page).not.toContain('자동 산출');
   await press(screen, '만나는 곳 변경');
   await type(screen, '장소·주소 검색', '수영강');
   await waitForAction(screen, '수영강 APEC나루공원 입구');
@@ -579,11 +581,23 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   expect(texts(screen)).toContain('수영강 APEC나루공원 입구');
 
   await press(screen, '자유 러닝');
-  await press(screen, '50분');
+  // 목표 시간 is a ruler now (S15P31E105-696): 40분 → 50분, one minute a step.
+  for (let i = 0; i < 10; i++) {
+    await act(async () => {
+      labelled(
+        screen,
+        '목표 완주 시간',
+        'onAccessibilityAction',
+      ).props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } });
+    });
+  }
+  // The ruler gives 6.8 its value once it rests (150ms).
+  await settle(200);
   await press(screen, '그룹런 만들기');
   await settle();
   page = texts(screen);
-  expect(page).toContain('토요일, 함께 50분');
+  // A free run sends its distance (5km by default), which names the run.
+  expect(page).toContain('토요일, 함께 5km');
   expect(page).toContain('자유 러닝 · 50분');
   expect(page).toContain('내가 만든 그룹런');
   await act(async () => screen.unmount());

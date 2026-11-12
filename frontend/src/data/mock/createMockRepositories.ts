@@ -784,7 +784,7 @@ export function createMockRepositories(
             },
           ];
         }
-        return respond(undefined, options);
+        return respond(courseId, options);
       },
       unsave: courseId => {
         saved = saved.filter(item => item.id !== courseId);
@@ -810,6 +810,8 @@ export function createMockRepositories(
             expectedMinutes: Math.round(record.durationSec / 60),
             shape: shapeOf(route),
             route,
+            // A course made from a free run is private, as on the server (S15P31E105-696).
+            isPrivate: true,
           },
         ];
         return respond({ courseId: id }, options);

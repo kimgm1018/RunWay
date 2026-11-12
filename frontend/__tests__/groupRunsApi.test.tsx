@@ -498,12 +498,15 @@ test('6.8 makes a free run with G01 and opens its 6.4', async () => {
   await settle(100);
 
   expect(posted).toHaveLength(1);
+  // A free run sends its picked distance (5km) with the finish time as a TIME goal (S15P31E105-696).
   expect(posted[0]).toMatchObject({
     crewId: 41,
     courseId: null,
-    title: expect.stringMatching(/요일, 함께 40분$/),
+    title: expect.stringMatching(/요일, 함께 5km$/),
+    goalInputType: 'TIME',
+    targetDistanceM: 5000,
+    targetDurationSec: 2400,
   });
-  expect(posted[0]).not.toHaveProperty('targetDurationSec');
   expect(texts(screen)).toContain((posted[0] as { title: string }).title);
   await act(async () => screen.unmount());
 });

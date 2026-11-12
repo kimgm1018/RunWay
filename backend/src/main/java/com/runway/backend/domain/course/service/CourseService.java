@@ -284,7 +284,8 @@ public class CourseService {
                                                 row.status(),
                                                 row.mergedIntoCourseId(),
                                                 row.customName(),
-                                                row.distanceM()))
+                                                row.distanceM(),
+                                                row.isPrivate()))
                         .toList();
 
         String nextPage =

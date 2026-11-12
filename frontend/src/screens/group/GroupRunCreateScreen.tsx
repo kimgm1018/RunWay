@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,6 +10,7 @@ import {
 import Svg, { Polyline, Rect } from 'react-native-svg';
 import {
   StackActions,
+  useFocusEffect,
   useNavigation,
   useRoute,
   type RouteProp,
@@ -32,7 +33,10 @@ import {
   type Repositories,
   type SavedCourse,
 } from '../../data';
-import { formatDotDateWeekday, formatKm } from '../../format';
+import { formatDotDateWeekday, formatKm, formatPace } from '../../format';
+import { RulerPicker } from '../../components/RulerPicker';
+import { navigateTo } from '../../navigation/navigateTo';
+import { formatGoalDuration } from '../run/goal/runGoal';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { groupTone, NightBackground, NumText } from './look';
@@ -54,7 +58,16 @@ const modes: { value: Mode; label: string }[] = [
   { value: 'COURSE', label: '코스 러닝' },
   { value: 'FREE', label: '자유 러닝' },
 ];
-const goalMinutes = [30, 40, 50, 60];
+// 목표 시간 and a free run's 거리 on rulers like 3.1's (S15P31E105-696): 5–180 minutes, and C01's 1–21.1km.
+const goalLimits = { min: 5, max: 180 };
+const freeKmLimits = { min: 1, max: 21.1 };
+const clampMinutes = (value: number) =>
+  Math.min(goalLimits.max, Math.max(goalLimits.min, Math.round(value)));
+const fallbackShape: [number, number][] = [
+  [0.1, 0.6],
+  [0.5, 0.3],
+  [0.9, 0.5],
+];
 // Start times offered on 6.8, every 30 minutes from 05:00 to 22:00.
 const times = Array.from({ length: 35 }, (_, index) => 5 * 60 + index * 30);
 const kstOffsetMs = 9 * 3600 * 1000;
@@ -167,20 +180,112 @@ function CourseThumb({ shape }: { shape: [number, number][] }) {
   );
 }
 
+// A ruler that keeps its own value while it is dragged and gives it to 6.8 once the drag rests, so the whole form
+// does not redraw on every tick (S15P31E105-696: the drag stuttered). Given paceOverM, the value is minutes and
+// the goal pace over that distance follows the moving value.
+const settleMs = 150;
+function SettledRuler({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onSettle,
+  paceOverM,
+  live,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  onSettle: (value: number) => void;
+  paceOverM?: number | null;
+  // Holds the value as it moves, so 그룹런 만들기 pressed before the drag rests saves what the ruler shows.
+  live?: React.MutableRefObject<number>;
+}) {
+  const [shown, setShown] = useState(value);
+  // The value last given to 6.8; a different one coming back was set from outside (a recommended course).
+  const given = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (value !== given.current) {
+      given.current = value;
+      setShown(value);
+    }
+  }, [value]);
+  useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+      }
+    },
+    [],
+  );
+  const change = (next: number) => {
+    setShown(next);
+    if (live) {
+      live.current = next;
+    }
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+    timer.current = setTimeout(() => {
+      given.current = next;
+      onSettle(next);
+    }, settleMs);
+  };
+  return (
+    <>
+      <RulerPicker
+        compact
+        label={label}
+        value={shown}
+        min={min}
+        max={max}
+        step={step}
+        format={format}
+        onChange={change}
+        color={stand.text}
+        mutedColor={stand.line}
+      />
+      {paceOverM !== undefined ? (
+        <View style={styles.paceRow}>
+          <AppText style={styles.rowDetail}>목표 페이스</AppText>
+          <NumText
+            text={
+              paceOverM && paceOverM > 0
+                ? `${formatPace((shown * 60) / (paceOverM / 1000))}/km`
+                : '– –'
+            }
+            style={styles.paceValue}
+          />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 // 변경 stays a bold text button (6.8-CourseCard), with the mockup's chevron after it (S15P31E105-594 담당자 시안).
 function ChangeButton({
   label,
   text = '변경',
   onPress,
+  disabled = false,
 }: {
   label: string;
   text?: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={8}
       style={styles.change}
@@ -282,9 +387,12 @@ export function GroupRunCreateScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunCreate'>>();
   const editingId = route.params?.groupRunId;
-  const { groupRuns, clock } = useRepositories();
+  const { groupRuns, courses, clock } = useRepositories();
+  // The saved courses read again after a recommendation was stored, so 코스 고르기 lists it (S15P31E105-696).
+  const [savedAgain, setSavedAgain] = useState<SavedCourse[] | null>(null);
   const toast = useToast();
-  const { draft, setPlace, changed } = useGroupRunDraft();
+  const { draft, setPlace, setPickingCourse, setPicked, changed } =
+    useGroupRunDraft();
   const options = useResource(useCallback(loadOptions, []));
   const editing = useResource(
     useCallback(
@@ -306,6 +414,20 @@ export function GroupRunCreateScreen() {
     shape: [number, number][];
   } | null>(null);
   const [minutes, setMinutes] = useState(40);
+  // A free run's distance (S15P31E105-696); a course run uses the course's.
+  const [freeKm, setFreeKm] = useState(5);
+  // A course picked on 3.1b brings its finish time, which stays as searched until the course is changed
+  // (S15P31E105-696). The meeting place stays free.
+  const [locked, setLocked] = useState(false);
+  // The rulers' values as they move, ahead of the state they settle into.
+  const liveMinutes = useRef(minutes);
+  const liveFreeKm = useRef(freeKm);
+  useEffect(() => {
+    liveMinutes.current = minutes;
+  }, [minutes]);
+  useEffect(() => {
+    liveFreeKm.current = freeKm;
+  }, [freeKm]);
   const [day, setDay] = useState<string | null>(null);
   const [time, setTime] = useState(7 * 60);
   const [sheet, setSheet] = useState<'course' | 'day' | 'time' | null>(null);
@@ -317,12 +439,17 @@ export function GroupRunCreateScreen() {
   useEffect(() => {
     const stop = navigation.addListener('beforeRemove', () => {
       setPlace(null);
+      // Leaving 6.8 for good also ends a recommendation asked for it, so 3.1b runs its own course again
+      // (S15P31E105-696).
+      setPickingCourse(false);
+      setPicked(null);
     });
     return stop;
-  }, [navigation, setPlace]);
+  }, [navigation, setPicked, setPickingCourse, setPlace]);
 
   const ready = options.status === 'ready' ? options.data : null;
-  const [mine, saved, plan, places] = ready ?? [];
+  const [mine, savedFirst, plan, places] = ready ?? [];
+  const saved = savedAgain ?? savedFirst;
   const crew =
     mine?.crews.find(item => item.crew.id === route.params?.crewId)?.crew ??
     mine?.crews.find(item => item.crew.membership === 'MEMBER')?.crew;
@@ -337,10 +464,55 @@ export function GroupRunCreateScreen() {
     dayAfter(now, index),
   ).filter(value => timesOn(value).length > 0);
   const passed = day === todayDay && time <= nowMinutes;
-  // An edited run's saved minutes stay pickable even when not one of the usual chips.
-  const minuteOptions = goalMinutes.includes(minutes)
-    ? goalMinutes
-    : [...goalMinutes, minutes].sort((a, b) => a - b);
+  // The goal's distance: the course's, or the free run's ruler.
+  const goalDistanceM =
+    mode === 'COURSE' ? course?.distanceM ?? null : Math.round(freeKm * 1000);
+
+  // Back from 6.4 or 3.1: no recommendation is being asked for 6.8 any more.
+  useFocusEffect(
+    useCallback(() => {
+      setPickingCourse(false);
+    }, [setPickingCourse]),
+  );
+  // A course picked on 3.1b: its course and finish time (locked as searched), and its start for an empty
+  // meeting place.
+  useEffect(() => {
+    const pick = draft.picked;
+    if (!pick) {
+      return;
+    }
+    setMode('COURSE');
+    setCourse({
+      id: pick.course.id,
+      name: pick.course.name,
+      distanceM: pick.course.distanceM,
+      shape:
+        pick.course.route.length > 1
+          ? outlineOf(pick.course.route)
+          : fallbackShape,
+    });
+    setMinutes(clampMinutes(pick.minutes));
+    // The meeting place need not be the course's start: the start only fills an empty one, and it stays
+    // free to change (담당자 결정, S15P31E105-696).
+    if (!draft.place) {
+      setPlace(pick.place);
+    }
+    setLocked(true);
+    setPicked(null);
+    courses.getSaved().then(setSavedAgain, () => undefined);
+  }, [courses, draft.picked, draft.place, setPicked, setPlace]);
+  const askRecommendation = () => {
+    setSheet(null);
+    setPickingCourse(true);
+    navigateTo(navigation, 'TodayRun');
+  };
+  const changeMode = (next: Mode) => {
+    setMode(next);
+    // A free run has no course, so nothing stays locked to one.
+    if (next === 'FREE') {
+      setLocked(false);
+    }
+  };
 
   // Editing starts from the run as it is: its course or minutes, place, day and time (KST).
   useEffect(() => {
@@ -368,7 +540,15 @@ export function GroupRunCreateScreen() {
         : null,
     );
     if (edited.targetDurationSec) {
-      setMinutes(Math.round(edited.targetDurationSec / 60));
+      setMinutes(clampMinutes(edited.targetDurationSec / 60));
+    }
+    if (!edited.courseId && edited.targetDistanceM) {
+      setFreeKm(
+        Math.min(
+          freeKmLimits.max,
+          Math.max(freeKmLimits.min, edited.targetDistanceM / 1000),
+        ),
+      );
     }
     setPlace({
       name: edited.meetingPlaceName,
@@ -382,15 +562,18 @@ export function GroupRunCreateScreen() {
     setFilled(true);
   }, [edited, filled, ready, saved, setPlace]);
 
-  // Defaults: today's course, the nearest meeting place and the coming Saturday.
+  // Defaults: today's course, the nearest meeting place and the coming Saturday. A course just picked on 3.1b is
+  // applied by the effect above in the same commit, so the defaults wait for it rather than read the old empty
+  // course and overwrite it (S15P31E105-696).
   useEffect(() => {
-    if (!ready || (editingId && !filled)) {
+    if (!ready || (editingId && !filled) || draft.picked) {
       return;
     }
     if (!course) {
       const today = saved?.find(item => item.id === plan?.courseId);
       setCourse(
-        plan
+        // Today's course stands in unless it is private (a free run's), which a group run cannot use.
+        plan && !today?.isPrivate
           ? {
               id: plan.courseId,
               name: plan.name,
@@ -414,6 +597,7 @@ export function GroupRunCreateScreen() {
   }, [
     course,
     day,
+    draft.picked,
     draft.place,
     editingId,
     filled,
@@ -426,8 +610,8 @@ export function GroupRunCreateScreen() {
   ]);
 
   const chooseCourse = (item: SavedCourse) => {
-    // SYS-002: only ACTIVE saved courses may start a new group run.
-    if (item.status === 'MERGED' || item.status === 'BLOCKED') {
+    // SYS-002: only ACTIVE saved courses may start a new group run, and no private one (S15P31E105-696).
+    if (item.status === 'MERGED' || item.status === 'BLOCKED' || item.isPrivate) {
       return;
     }
     setCourse({
@@ -436,6 +620,8 @@ export function GroupRunCreateScreen() {
       distanceM: item.distanceM,
       shape: item.shape,
     });
+    // Another course frees the finish time and place a recommendation set.
+    setLocked(false);
     setSheet(null);
   };
 
@@ -453,9 +639,12 @@ export function GroupRunCreateScreen() {
       scheduledAt: `${day}T${pad(Math.floor(time / 60))}:${pad(
         time % 60,
       )}:00+09:00`,
-      targetDistanceM: mode === 'COURSE' ? course?.distanceM ?? null : null,
-      // Course runs send it as the TIME goal; a free run's minutes only name the run.
-      targetDurationSec: minutes * 60,
+      // Both modes send a TIME goal: the course's distance, or the free run's (S15P31E105-696).
+      targetDistanceM:
+        mode === 'COURSE'
+          ? course?.distanceM ?? null
+          : Math.round(liveFreeKm.current * 1000),
+      targetDurationSec: liveMinutes.current * 60,
     };
     try {
       if (edited) {
@@ -476,6 +665,10 @@ export function GroupRunCreateScreen() {
       toast(
         errorCode(error) === 'INVALID_GOAL'
           ? '목표 시간을 저장하지 못했어요. 코스와 시간을 확인해 주세요'
+          : // A course the server will not take for a group run: private (a free run's), merged or blocked, all
+          // answered alike, so the notice does not guess which (S15P31E105-696 review B-1).
+          errorCode(error) === 'COURSE_INACCESSIBLE'
+          ? '이 코스는 그룹런에 쓸 수 없어요. 다른 코스를 골라 주세요'
           : !edited
           ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
           : errorCode(error) === 'EDIT_NOT_ALLOWED'
@@ -557,7 +750,7 @@ export function GroupRunCreateScreen() {
           </View>
         ) : null}
         <Label title="코스" />
-        <ModeSwitch value={mode} onChange={setMode} />
+        <ModeSwitch value={mode} onChange={changeMode} />
         {mode === 'COURSE' ? (
           // Without a course yet the card asks for one (S15P31E105-637).
           <View style={[styles.card, styles.courseCard]}>
@@ -581,7 +774,7 @@ export function GroupRunCreateScreen() {
                 </AppText>
               ) : (
                 <AppText style={styles.courseHint}>
-                  저장한 코스에서 골라 주세요
+                  저장한 코스나 코스 추천에서 골라 주세요
                 </AppText>
               )}
             </View>
@@ -593,31 +786,42 @@ export function GroupRunCreateScreen() {
               />
             </View>
           </View>
-        ) : null}
-        {/* Both modes pick minutes: a course run's TIME goal, a free run's name. The mockup's 목표 시간 label
-            names the chips that used to sit under 코스 without one. */}
-        <Label title="목표 시간" />
-        <View style={styles.chips}>
-          {minuteOptions.map(value => {
-            const selected = value === minutes;
-            return (
-              <PressableScale
-                key={value}
-                accessibilityRole="radio"
-                accessibilityLabel={`${value}분`}
-                accessibilityState={{ selected }}
-                onPress={() => setMinutes(value)}
-                style={styles.flex}
-              >
-                <View style={[styles.chip, selected && styles.chipOn]}>
-                  <NumText
-                    text={`${value}분`}
-                    style={selected ? styles.chipTextOn : styles.chipText}
-                  />
-                </View>
-              </PressableScale>
-            );
-          })}
+        ) : (
+          // A free run picks its distance instead of a course (S15P31E105-696).
+          <View style={[styles.card, styles.rulerCard]}>
+            <SettledRuler
+              label="목표 거리"
+              value={freeKm}
+              min={freeKmLimits.min}
+              max={freeKmLimits.max}
+              step={0.5}
+              format={value => `${value.toFixed(1)}km`}
+              onSettle={setFreeKm}
+              live={liveFreeKm}
+            />
+          </View>
+        )}
+        {/* Both modes send a TIME goal: the finish time on a ruler as on 3.1, with the pace it means for the
+            course's or the free run's distance (S15P31E105-696). Set by a recommended course, it stays as searched. */}
+        <Label
+          title="목표 시간"
+          note={locked ? '코스 추천 조건으로 정했어요' : undefined}
+        />
+        <View
+          style={[styles.card, styles.rulerCard, locked && styles.locked]}
+          pointerEvents={locked ? 'none' : 'auto'}
+        >
+          <SettledRuler
+            label="목표 완주 시간"
+            value={minutes}
+            min={goalLimits.min}
+            max={goalLimits.max}
+            step={1}
+            format={value => formatGoalDuration(value * 60)}
+            onSettle={setMinutes}
+            live={liveMinutes}
+            paceOverM={goalDistanceM}
+          />
         </View>
         <Label title="만나는 곳" note="상세 위치" />
         <View style={styles.card}>
@@ -658,16 +862,7 @@ export function GroupRunCreateScreen() {
             onPress={() => setSheet('time')}
           />
         </View>
-        <Label title="공동 페이스" note="예상값 · 직접 입력하지 않아요" />
-        <View style={styles.card}>
-          <View style={styles.iconCell}>
-            <Icon name="users" color={stand.sub} size={18} />
-          </View>
-          <AppText style={styles.autoTitle}>자동 산출</AppText>
-          <AppText style={[styles.rowDetail, styles.flex]}>
-            지금 참가자 기록으로 낸 예상값이에요 · 참가·탈퇴·수정 때마다 다시 계산해요
-          </AppText>
-        </View>
+        {/* 공동 페이스 is shown in the waiting room, not here (S15P31E105-696 담당자 결정). */}
       </ScrollView>
       {/* 6.8-CreateCTA: the white main button (GroupCta navy) over the navy page's foot. */}
       <SafeAreaView edges={['bottom']} style={styles.footer}>
@@ -696,9 +891,27 @@ export function GroupRunCreateScreen() {
           title="코스 고르기"
           background={sheetNavy}
         >
+          {/* 3.1's recommendation, whose 이 코스로 정하기 brings the course back (S15P31E105-696). */}
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="코스 추천받기"
+            onPress={askRecommendation}
+          >
+            <View style={styles.courseRow}>
+              <Icon name="route" color={stand.mint} size={18} />
+              <AppText style={[styles.courseRowTextOn, styles.flex]}>
+                코스 추천받기
+              </AppText>
+              <Icon name="forward" color={stand.sub} size={16} />
+            </View>
+          </PressableScale>
           {(saved ?? [])
+            // A private course made from a free run cannot be a group run's course (S15P31E105-696).
             .filter(
-              item => item.status !== 'MERGED' && item.status !== 'BLOCKED',
+              item =>
+                item.status !== 'MERGED' &&
+                item.status !== 'BLOCKED' &&
+                !item.isPrivate,
             )
             .map(item => {
               const selected = item.id === course?.id;
@@ -913,29 +1126,26 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: stand.sub,
   },
-  // Four square-cornered choices, the picked one mint.
-  chips: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  chip: {
-    height: 44,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: stand.glassLine,
+  // A ruler on its own line (목표 시간, a free run's 거리), with the pace under the finish time.
+  rulerCard: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 4,
+    paddingVertical: 10,
   },
-  chipOn: { borderColor: stand.mint, backgroundColor: stand.mint },
-  chipText: {
+  paceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  paceValue: {
     fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     color: stand.text,
   },
-  chipTextOn: {
-    fontFamily: fontFamily.black,
-    fontSize: 14,
-    lineHeight: 19,
-    color: stand.onMint,
-  },
+  // Set by a recommended course: faint and not pressable until the course changes.
+  locked: { opacity: 0.45 },
   // 날짜 · 시간: two fields over a heavier line each.
   picks: { flexDirection: 'row', gap: 16 },
   pick: {
@@ -951,13 +1161,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: stand.text,
-  },
-  autoTitle: {
-    marginRight: 12,
-    fontFamily: fontFamily.black,
-    fontSize: 16,
-    lineHeight: 21,
     color: stand.text,
   },
   footer: {
