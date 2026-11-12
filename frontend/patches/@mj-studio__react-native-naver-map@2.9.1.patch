@@ -1,3 +1,78 @@
+diff --git a/android/src/main/java/com/mjstudio/reactnativenavermap/event/NaverMapLoadEvent.kt b/android/src/main/java/com/mjstudio/reactnativenavermap/event/NaverMapLoadEvent.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..70aafd9e96c12c791df938a5720cf3ce1ca56dbf
+--- /dev/null
++++ b/android/src/main/java/com/mjstudio/reactnativenavermap/event/NaverMapLoadEvent.kt
+@@ -0,0 +1,22 @@
++package com.mjstudio.reactnativenavermap.event
++
++import com.facebook.react.bridge.Arguments
++import com.facebook.react.bridge.WritableMap
++import com.facebook.react.uimanager.events.Event
++
++class NaverMapLoadEvent(
++  surfaceId: Int,
++  viewId: Int,
++) : Event<NaverMapLoadEvent>(surfaceId, viewId) {
++  override fun getEventName(): String = EVENT_NAME
++
++  override fun canCoalesce(): Boolean = false
++
++  override fun getCoalescingKey(): Short = 0
++
++  override fun getEventData(): WritableMap = Arguments.createMap()
++
++  companion object {
++    const val EVENT_NAME = "topMapLoaded"
++  }
++}
+diff --git a/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapView.kt b/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapView.kt
+index 40f757193bc417d4789268ec44c332612ae3236b..2893b7a0e45dfa3e50c39e40201769dd56c5b696 100644
+--- a/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapView.kt
++++ b/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapView.kt
+@@ -9,6 +9,7 @@ import com.facebook.react.uimanager.ThemedReactContext
+ import com.mjstudio.reactnativenavermap.event.NaverMapCameraChangeEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapCameraIdleEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapInitializeEvent
++import com.mjstudio.reactnativenavermap.event.NaverMapLoadEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapOptionChangeEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapTapEvent
+ import com.mjstudio.reactnativenavermap.overlay.RNCNaverMapOverlay
+@@ -54,6 +55,14 @@ class RNCNaverMapView(
+         NaverMapInitializeEvent(surfaceId, reactTag)
+       }
+ 
++      // RunWay S15P31E105-719: the SDK's map load (its first full set of tiles drawn), for screens that wait for
++      // a drawn map rather than a made one.
++      it.addOnLoadListener {
++        reactContext.emitEvent(reactTag) { surfaceId, reactTag ->
++          NaverMapLoadEvent(surfaceId, reactTag)
++        }
++      }
++
+       it.addOnOptionChangeListener {
+         reactContext.emitEvent(reactTag) { surfaceId, reactTag ->
+           val modeString =
+diff --git a/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapViewManager.kt b/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapViewManager.kt
+index c92093f93ff92013db5574361eb0a21853f356cd..02ecd0695be825ce5d1f1a4b346b56342d7847a9 100644
+--- a/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapViewManager.kt
++++ b/android/src/main/java/com/mjstudio/reactnativenavermap/mapview/RNCNaverMapViewManager.kt
+@@ -18,6 +18,7 @@ import com.mjstudio.reactnativenavermap.event.NaverMapCoordinateToScreenEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapCustomStyleLoadFailedEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapCustomStyleLoadedEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapInitializeEvent
++import com.mjstudio.reactnativenavermap.event.NaverMapLoadEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapOptionChangeEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapScreenToCoordinateEvent
+ import com.mjstudio.reactnativenavermap.event.NaverMapTapEvent
+@@ -120,6 +121,7 @@ class RNCNaverMapViewManager(
+   override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> =
+     (super.getExportedCustomDirectEventTypeConstants() ?: mutableMapOf()).apply {
+       registerDirectEvent(this, NaverMapInitializeEvent.EVENT_NAME)
++      registerDirectEvent(this, NaverMapLoadEvent.EVENT_NAME)
+       registerDirectEvent(this, NaverMapOptionChangeEvent.EVENT_NAME)
+       registerDirectEvent(this, NaverMapCameraChangeEvent.EVENT_NAME)
+       registerDirectEvent(this, NaverMapCameraIdleEvent.EVENT_NAME)
 diff --git a/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt b/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt
 index 509e1ec715d475671f26797a70fc2872cd6fde9c..03848d440b3d59fd0b79eb49248c2d5448b68a64 100644
 --- a/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt
@@ -35,3 +110,70 @@ index 509e1ec715d475671f26797a70fc2872cd6fde9c..03848d440b3d59fd0b79eb49248c2d54
        }
      }
    }
+diff --git a/lib/typescript/commonjs/src/component/NaverMapView.d.ts b/lib/typescript/commonjs/src/component/NaverMapView.d.ts
+index 83f41067be85014cf8c43f5d970c9b361e12cf12..4c560cde1940b2b7c170bb59c80997a9af890c80 100644
+--- a/lib/typescript/commonjs/src/component/NaverMapView.d.ts
++++ b/lib/typescript/commonjs/src/component/NaverMapView.d.ts
+@@ -475,6 +475,7 @@ export interface NaverMapViewProps extends ViewProps {
+      *
+      * @group Events
+      */
++    onMapLoaded?: () => void;
+     onInitialized?: () => void;
+     /**
+      * 지도 유형, 디스플레이 옵션 등 지도와 관련된 옵션이 변경되면 이벤트가 발생합니다.
+diff --git a/lib/typescript/module/src/component/NaverMapView.d.ts b/lib/typescript/module/src/component/NaverMapView.d.ts
+index 83f41067be85014cf8c43f5d970c9b361e12cf12..4c560cde1940b2b7c170bb59c80997a9af890c80 100644
+--- a/lib/typescript/module/src/component/NaverMapView.d.ts
++++ b/lib/typescript/module/src/component/NaverMapView.d.ts
+@@ -475,6 +475,7 @@ export interface NaverMapViewProps extends ViewProps {
+      *
+      * @group Events
+      */
++    onMapLoaded?: () => void;
+     onInitialized?: () => void;
+     /**
+      * 지도 유형, 디스플레이 옵션 등 지도와 관련된 옵션이 변경되면 이벤트가 발생합니다.
+diff --git a/src/component/NaverMapView.tsx b/src/component/NaverMapView.tsx
+index df51f20952faf3d8c0ce000318793f22fcc75895..f264583bd47523a8537bdeb6c9cd9ec79b530cf5 100644
+--- a/src/component/NaverMapView.tsx
++++ b/src/component/NaverMapView.tsx
+@@ -518,6 +518,10 @@ export interface NaverMapViewProps extends ViewProps {
+    * @group Events
+    */
+   onInitialized?: () => void;
++  /**
++   * RunWay S15P31E105-719: Android only. Called when the map has loaded (NaverMap.OnLoadListener).
++   */
++  onMapLoaded?: () => void;
+   /**
+    * 지도 유형, 디스플레이 옵션 등 지도와 관련된 옵션이 변경되면 이벤트가 발생합니다.
+    * 지도의 옵션이 변경되면 콜백 메서드가 호출됩니다.
+@@ -733,6 +737,7 @@ export const NaverMapView = forwardRef(
+       onCameraIdle: onCameraIdleProp,
+       onTapMap: onTapMapProp,
+       onInitialized,
++      onMapLoaded,
+       onOptionChanged: onOptionChangedProp,
+       customStyleId,
+       onCustomStyleLoaded: onCustomStyleLoadedProp,
+@@ -1192,6 +1197,7 @@ export const NaverMapView = forwardRef(
+         symbolScale={clamp(symbolScale, 0, 2)}
+         symbolPerspectiveRatio={clamp(symbolPerspectiveRatio, 0, 1)}
+         onInitialized={onInitialized}
++        onMapLoaded={onMapLoaded}
+         onCameraChanged={onCameraChangedProp ? onCameraChanged : undefined}
+         onCameraIdle={onCameraIdleProp ? onCameraIdle : undefined}
+         onTapMap={onTapMapProp ? onTapMap : undefined}
+diff --git a/src/spec/RNCNaverMapViewNativeComponent.ts b/src/spec/RNCNaverMapViewNativeComponent.ts
+index 74c0ab99035d9d59e5fb42ceafe93f6066efe67c..756165d151e9576b0912bd946299525dceb0c0df 100644
+--- a/src/spec/RNCNaverMapViewNativeComponent.ts
++++ b/src/spec/RNCNaverMapViewNativeComponent.ts
+@@ -153,6 +153,7 @@ interface Props extends ViewProps {
+   customStyleId?: string;
+ 
+   onInitialized?: DirectEventHandler<Readonly<{}>>;
++  onMapLoaded?: DirectEventHandler<Readonly<{}>>;
+   onOptionChanged?: DirectEventHandler<
+     Readonly<{
+       locationTrackingMode: string;

@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Modal,
@@ -416,6 +417,9 @@ const introMs = 2200;
 const holdMs = 1500;
 // A map that never says it is ready still starts after this long.
 const readyLimitMs = 4000;
+// S15P31E105-719: the intro waits until the map has drawn its first tiles (onMapLoaded), so it is not played over a
+// blank map; a map that never says so still starts after this long.
+const drawnLimitMs = 8000;
 // A restart swoops back in from the closing overview after this short pause.
 const againMs = 300;
 // At the end the camera waits a beat on the finish, then pulls back to the whole course.
@@ -620,6 +624,9 @@ function MapReplay({
   const [shown, setShown] = useState(0);
   const [intro, setIntro] = useState(true);
   const [ready, setReady] = useState(false);
+  // Whether the map has drawn its tiles (S15P31E105-719): until then a loading cover stands over it and the
+  // timeline does not start.
+  const [drawn, setDrawn] = useState(false);
   // The whole course shows faintly over the overview, until the swoop.
   const [outline, setOutline] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -656,15 +663,20 @@ function MapReplay({
     // The map is made anew on every opening and its tiles stay blank until it is ready; the swoop waits for
     // that (or for the limit) so it is not spent over an empty map.
     const limit = setTimeout(() => setReady(true), readyLimitMs);
+    // The overview stays still until its tiles are in (the map says so only once its camera rests), or the limit.
+    const drawnLimit = setTimeout(() => setDrawn(true), drawnLimitMs);
     return () => {
       clearTimeout(limit);
+      clearTimeout(drawnLimit);
       setReady(false);
+      setDrawn(false);
     };
   }, [visible]);
 
-  // The swoop: from the overview down to the start, leaning back and turning to the way ahead, then the run.
+  // The swoop: from the overview down to the start, leaning back and turning to the way ahead, then the run. It
+  // waits for the drawn map, so the hold shows the course over real streets.
   useEffect(() => {
-    if (!visible || !ready) {
+    if (!visible || !ready || !drawn) {
       return;
     }
     const [first] = path.current;
@@ -688,7 +700,7 @@ function MapReplay({
       clearTimeout(swoop);
       clearTimeout(go);
     };
-  }, [visible, ready, round]);
+  }, [visible, ready, drawn, round]);
 
   // Playback: each tick moves the camera to the next point over the tick's length, so the moves join into one
   // glide; progress follows the clock, so a slow phone keeps the same pace.
@@ -797,6 +809,8 @@ function MapReplay({
             // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
             // flat. With no custom style to load, the map is ready once made.
             onInitialized={() => setReady(true)}
+            // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
+            onMapLoaded={() => setDrawn(true)}
             animationDuration={motion.duration}
             animationEasing={motion.easing}
             mapType="Basic"
@@ -916,6 +930,22 @@ function MapReplay({
             ) : null}
           </NaverMapView>
         </View>
+        {drawn ? null : (
+          // Until the map has drawn, a quiet cover in the feed's ground with a spinner, instead of an empty map
+          // with the intro already moving over it (S15P31E105-719).
+          <View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, styles.loading]}
+            testID="replay-map-loading"
+          >
+            <View style={[styles.loadingMark, { top: height * markerAt + 24 }]}>
+              <ActivityIndicator color={feedLook.white} />
+              <AppText style={styles.loadingText}>
+                지도를 불러오는 중이에요
+              </AppText>
+            </View>
+          </View>
+        )}
         <ReplayChrome
           run={run}
           shown={shown}
@@ -1260,6 +1290,20 @@ const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden', backgroundColor: feedLook.ground },
   pressed: { opacity: 0.6 },
   canvas: { position: 'absolute', left: 0, top: 0 },
+  loading: { backgroundColor: feedLook.ground },
+  loadingMark: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: feedLook.sub,
+  },
   pin: { position: 'absolute', width: 52, alignItems: 'center' },
   pinHead: {
     width: 52,
