@@ -18,6 +18,7 @@
   <script defer src="js/stream.js"></script>
   <script defer src="js/standings.js"></script>
   <script defer src="js/livemap.js"></script>
+  <script defer src="js/zoom.js"></script>
   <script defer src="js/main.js"></script>
 </head>
 <body class="is-waiting">
@@ -126,7 +127,7 @@
           <div class="elev-wrap"><svg id="elevation" role="img" aria-label="코스 고도 단면"></svg></div>
         </section>
         <section class="panel records-panel">
-          <div class="panel-head"><h2>판단 기록</h2><span class="meta"><b id="record-count">0</b>건</span></div>
+          <div class="panel-head"><h2>판단 기록</h2><span id="record-age" class="meta record-age hidden" aria-live="off"></span><span class="meta"><b id="record-count">0</b>건</span></div>
           <ol id="record-list" class="record-list"></ol>
         </section>
       </aside>

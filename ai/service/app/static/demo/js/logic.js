@@ -41,6 +41,18 @@
       (row.live ? ' · 진행 중' : '');
   }
 
+  var GROUP_STALE_MS = 50000;
+
+  // 736: 판단 기록 머리의 '마지막 판단 N초 전'. 라이브에서만, 서버 시각 보정 후 판단 시각(없으면 입력 시각) 기준.
+  function lastDecisionText(trace, nowMs, serverOffsetMs) {
+    if (!trace) return '';
+    var at = Date.parse(trace.decidedAt || trace.inputAsOf || '');
+    if (!Number.isFinite(at)) return '';
+    var sec = Math.max(0, Math.round((nowMs + (serverOffsetMs || 0) - at) / 1000));
+    if (sec < 60) return '마지막 판단 ' + sec + '초 전';
+    return '마지막 판단 ' + Math.floor(sec / 60) + '분 ' + (sec % 60) + '초 전';
+  }
+
   function bannerFor(options) {
     var trace = options.trace || {};
     var nowMs = options.nowMs;
@@ -50,8 +62,15 @@
     if (trace.status === 'PAUSED') return {kind: 'paused', text: '일시정지'};
     var asOf = Date.parse(trace.inputAsOf || '');
     var adjustedNow = nowMs + (options.serverOffsetMs || 0);
-    if (trace.status === 'INPUT_INSUFFICIENT' || (stage !== 'L3' && Number.isFinite(asOf) && adjustedNow - asOf >= 20000)) {
-      return {kind: 'insufficient', text: '입력 부족·20초 이상'};
+    if (trace.status === 'INPUT_INSUFFICIENT') return {kind: 'insufficient', text: '입력 부족·20초 이상'};
+    // 736: 그룹(AI10)은 30초마다 판단하므로 20초 기준이면 정상 운행 중에도 매 주기 배너가 켜졌다 꺼진다.
+    // 그룹은 GROUP_STALE_MS(판단 간격 30초 + 여유) 넘게 새 판단이 없을 때만 '판단 지연'으로 알린다.
+    if (stage !== 'L3' && Number.isFinite(asOf)) {
+      var age = adjustedNow - asOf;
+      if (trace.kind === 'GROUP' && age >= GROUP_STALE_MS) {
+        return {kind: 'stale', text: '판단 지연 ' + Math.round(age / 1000) + '초 · 새 기록 없음'};
+      }
+      if (trace.kind !== 'GROUP' && age >= 20000) return {kind: 'insufficient', text: '입력 부족·20초 이상'};
     }
     if (trace.status === 'SAFETY') return {kind: 'safety', text: '속도 낮추기'};
     if (trace.status === 'HR_STALE') return {kind: 'stale', text: '입력 지연 20초+: 가속 안 함'};
@@ -301,6 +320,7 @@
   }
 
   var RunwayDemoLogic = {
+    lastDecisionText: lastDecisionText, GROUP_STALE_MS: GROUP_STALE_MS,
     actualPace: actualPace, ACTUAL_WINDOW_TEXT: ACTUAL_WINDOW_TEXT,
     GROUP_KEY_OFFSET: GROUP_KEY_OFFSET,
     streamRef: streamRef,

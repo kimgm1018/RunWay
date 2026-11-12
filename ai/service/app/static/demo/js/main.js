@@ -14,6 +14,14 @@
   function updateBanner() {
     if (state.mode === 'history') { root.RunwayDemoRender.setBanner(null); return; }   // 738: 지난 기록은 경고 없음
     var trace = state.traces[state.traces.length - 1];
+    var age = document.getElementById('record-age');
+    if (age) {                                   // 736: 라이브에서만 '마지막 판단 N초 전'
+      var live = state.mode === 'live' && trace;
+      age.textContent = live ? root.RunwayDemoLogic.lastDecisionText(trace, Date.now(), state.serverOffsetMs) : '';
+      age.classList.toggle('hidden', !live);
+      age.classList.toggle('late', !!live && Date.now() + (state.serverOffsetMs || 0) - Date.parse(trace.decidedAt || trace.inputAsOf || '') >
+        (trace.kind === 'GROUP' ? root.RunwayDemoLogic.GROUP_STALE_MS : 20000));
+    }
     if (!trace) return;
     var banner = root.RunwayDemoLogic.bannerFor({trace: trace, nowMs: Date.now(), serverOffsetMs: state.serverOffsetMs,
       lastMessageAtMs: state.lastMessageAtMs, stage: state.snapshot && state.snapshot.stage || trace.stage});
@@ -449,6 +457,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     var params = new URLSearchParams(window.location.search);
     if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.init();
+    if (root.RunwayDemoZoom) root.RunwayDemoZoom.init();       // 736: 패널 확대 모달
     var zoom = byId('zoom-toggle');
     if (zoom) zoom.addEventListener('click', function () {
       var active = zoom.getAttribute('aria-pressed') !== 'true';
