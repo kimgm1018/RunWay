@@ -144,7 +144,34 @@ public class GroupRunJdbcRepository {
                 groupRunId);
     }
 
-    /** G12. RUNNING 그룹만 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 호출 전에 그룹 행을 잠근다. */
+    /**
+     * 자동 종료 판단용 참가자 세션 집계(S15P31E105-734). started = 실제 시작한 세션, running = 진행·일시정지 중, unsettled = START가
+     * PENDING/UNKNOWN인데 세션이 아직 정리(중단·취소·완료)되지 않은 수.
+     */
+    public record CompletionCounts(int started, int running, int unsettled) {}
+
+    public CompletionCounts completionCounts(long groupRunId) {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE s.started_at IS NOT NULL) AS started,
+                  COUNT(*) FILTER (WHERE s.status::text IN ('RUNNING', 'PAUSED')) AS running,
+                  COUNT(*) FILTER (WHERE s.status::text NOT IN ('INTERRUPTED', 'CANCELLED', 'COMPLETED')
+                    AND EXISTS (SELECT 1 FROM session_control_events e
+                                WHERE e.session_id = s.id AND e.action::text = 'START'
+                                  AND e.result::text IN ('PENDING', 'UNKNOWN'))) AS unsettled
+                FROM group_run_participants p
+                JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
+                WHERE p.group_run_id = ?
+                """,
+                (rs, n) -> new CompletionCounts(rs.getInt("started"), rs.getInt("running"),
+                        rs.getInt("unsettled")),
+                groupRunId);
+    }
+
+    /**
+     * G12·자동 종료(S15P31E105-734). RUNNING 그룹만 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 호출 전에 그룹 행을 잠근다.
+     */
     public int markCompleted(long groupRunId, Instant endedAt) {
         return jdbcTemplate.update(
                 """
