@@ -1,15 +1,23 @@
-import React, { useCallback, useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, EmptyState, FadeIn } from '../../components';
+import { AppText, EmptyState, FadeIn, useToast } from '../../components';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import {
   useResource,
+  DataError,
+  useRepositories,
   type Repositories,
   type RunRecordDetail,
   type RunRecordSummary,
 } from '../../data';
-import { onRecordsChanged } from '../../data/recordsChanged';
+import { onRecordsChanged, recordsChanged } from '../../data/recordsChanged';
 import {
   formatClockTime,
   formatDotDateWeekday,
@@ -77,6 +85,108 @@ function rowLabel(record: RunRecordSummary) {
   return `${record.title}, ${formatDotDateWeekday(
     record.startedAt,
   )} · ${formatDuration(record.durationSec)}, ${formatKm(record.distanceM)}km`;
+}
+
+function deleteFailure(error: unknown) {
+  const code = error instanceof DataError ? error.code : null;
+  const status = error instanceof DataError ? error.status : null;
+  if (status === 403) return '내 기록만 삭제할 수 있어요';
+  if (code === 'SESSION_NOT_FOUND' || status === 404) {
+    return '이미 삭제된 기록이에요';
+  }
+  if (code === 'INVALID_STATE' || status === 409) {
+    return '기록을 정리하는 중이라 지금은 삭제할 수 없어요. 잠시 후 다시 시도해 주세요';
+  }
+  return '기록을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요';
+}
+
+function DeleteRecordAction({ recordId }: { recordId: string }) {
+  const { records } = useRepositories();
+  const toast = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await records.remove(recordId);
+      setConfirming(false);
+      recordsChanged();
+      toast('기록을 삭제했어요');
+    } catch (error) {
+      toast(deleteFailure(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="기록 삭제"
+        onPress={() => setConfirming(true)}
+        style={({ pressed }) => [styles.deleteLink, pressed && styles.dim]}
+      >
+        <AppText style={styles.deleteLinkText}>기록 삭제</AppText>
+      </Pressable>
+      <Modal
+        visible={confirming}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => !busy && setConfirming(false)}
+      >
+        <View style={styles.confirmRoot}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="삭제 확인 닫기"
+            disabled={busy}
+            onPress={() => setConfirming(false)}
+            style={styles.confirmScrim}
+          />
+          <View accessibilityViewIsModal style={styles.confirmCard}>
+            <AppText style={styles.confirmTitle}>
+              이 운동 기록을 삭제할까요?
+            </AppText>
+            <AppText style={styles.confirmDescription}>
+              이 기록을 공유한 게시물도 함께 삭제됩니다.
+            </AppText>
+            <View style={styles.confirmButtons}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="삭제 취소"
+                disabled={busy}
+                onPress={() => setConfirming(false)}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.cancelButton,
+                  pressed && styles.dim,
+                ]}
+              >
+                <AppText style={styles.cancelText}>취소</AppText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="삭제 확인"
+                accessibilityState={{ disabled: busy }}
+                disabled={busy}
+                onPress={remove}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.removeButton,
+                  (pressed || busy) && styles.dim,
+                ]}
+              >
+                <AppText style={styles.removeText}>
+                  {busy ? '삭제 중' : '삭제'}
+                </AppText>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
 }
 
 // Two runs on one day: pick which one the card shows.
@@ -273,6 +383,7 @@ export function DayRecords({
                 }
               />
             }
+            footerAction={<DeleteRecordAction recordId={run.id} />}
           />
         </FadeIn>
       ) : detail.status === 'error' ? (
@@ -337,4 +448,54 @@ const styles = StyleSheet.create({
     color: recordsLook.onCard,
   },
   dim: { opacity: 0.7 },
+  deleteLink: {
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  deleteLinkText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: '#9B4550',
+  },
+  confirmRoot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  confirmScrim: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(2, 5, 13, 0.58)',
+  },
+  confirmCard: {
+    width: '84%',
+    maxWidth: 360,
+    borderRadius: 24,
+    padding: 22,
+    backgroundColor: '#F4F7F9',
+    gap: 8,
+  },
+  confirmTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    color: recordsLook.ink,
+    textAlign: 'center',
+  },
+  confirmDescription: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: '#65717C',
+    textAlign: 'center',
+  },
+  confirmButtons: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  confirmButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: { backgroundColor: '#E4E9ED' },
+  removeButton: { backgroundColor: '#9B4550' },
+  cancelText: { fontFamily: fontFamily.bold, color: recordsLook.ink },
+  removeText: { fontFamily: fontFamily.bold, color: '#FFFFFF' },
 });

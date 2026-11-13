@@ -157,6 +157,7 @@ export function RecordView({
   onOpen,
   openLabel,
   headerAction,
+  footerAction,
   layout = 'records',
   metric = 'pace',
 }: {
@@ -165,6 +166,7 @@ export function RecordView({
   onOpen?: () => void;
   openLabel?: string;
   headerAction?: React.ReactNode;
+  footerAction?: React.ReactNode;
   // home: 2.1 홈 최근 러닝 (S15P31E105-615).
   layout?: 'records' | 'home';
   metric?: SplitMetric;
@@ -188,19 +190,22 @@ export function RecordView({
   );
   if (layout === 'home') {
     return (
-      <HomeRecord
-        record={record}
-        onOpen={onOpen}
-        openLabel={openLabel}
-        headerAction={headerAction}
-        action={
-          record.runType === 'SOLO' && !record.courseId ? (
-            <SaveCourseButton key={record.id} recordId={record.id} />
-          ) : null
-        }
-        route={route}
-        facts={facts}
-      />
+      <>
+        <HomeRecord
+          record={record}
+          onOpen={onOpen}
+          openLabel={openLabel}
+          headerAction={headerAction}
+          action={
+            record.runType === 'SOLO' && !record.courseId ? (
+              <SaveCourseButton key={record.id} recordId={record.id} />
+            ) : null
+          }
+          route={route}
+          facts={facts}
+        />
+        {footerAction}
+      </>
     );
   }
   const reference =
@@ -291,6 +296,7 @@ export function RecordView({
         tone="card"
         style={styles.route}
       />
+      {footerAction}
     </View>
   );
 }

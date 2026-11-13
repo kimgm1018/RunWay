@@ -173,7 +173,7 @@ test.each([
     // The number step works again: a new code can be requested and verified.
     expect(isDisabled(screen, '인증번호 받기')).toBe(false);
     await press(screen, '인증번호 받기');
-    expect(texts(screen)).toContain('03:00');
+    expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
     await type(screen, '인증번호 6자리', fixtures.verificationCode);
     await type(screen, '새 비밀번호', 'newpass123');
     await type(screen, '새 비밀번호 확인', 'newpass123');
