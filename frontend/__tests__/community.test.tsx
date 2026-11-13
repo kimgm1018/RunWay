@@ -457,7 +457,7 @@ test('7.1 falls back to the drawn map when the shared course cannot be read', as
 // card and 달성, and a comment bar that opens the same comments sheet as 7.1.
 test('7.2 shows the run over its map, likes it and opens the comments from the card and the bar', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await press(screen, 'seoyun.run의 5.02km 러닝');
   await settle(50);
@@ -492,7 +492,7 @@ test('7.2 shows the run over its map, likes it and opens the comments from the c
 // (115 over a 48 three-button bar), so the 댓글 card scrolls clear of it.
 test('7.2 keeps the end of the sheet clear of a comment bar that grew', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await press(screen, 'seoyun.run의 5.02km 러닝');
   await settle(50);
@@ -1218,7 +1218,7 @@ test('7.4b falls back to the letter when my profile photo fails to load', async 
 test('7.4 of a private runner shows only the name until the request is approved, and takes it back', async () => {
   const screen = await openCommunity();
   // Their posts stay out of the feed, so the profile opens from 7.5 검색.
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await type(screen, '러너·크루 검색 검색', 'jiwoo');
   await settle(400);
