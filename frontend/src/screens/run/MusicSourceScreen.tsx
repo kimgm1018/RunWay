@@ -198,7 +198,10 @@ export function MusicSourceScreen() {
         {music.canStartWithoutTrack ? (
           <View style={styles.account}>
             <AppText style={[styles.accountHint, styles.accountText]}>
-              {state?.spotifyAccount
+              {state?.services.SPOTIFY === 'INSTALL_REQUIRED'
+                ? // S15P31E105-776: no Spotify app on this phone yet.
+                  '휴대폰에 Spotify 앱이 없어요. 설치를 눌러 Play 스토어에서 설치한 뒤 연결해 주세요'
+                : state?.spotifyAccount
                 ? // S15P31E105-573: the account RunWay plays and lists for; it changes in the Spotify app.
                   `Spotify 계정 ${state.spotifyAccount}로 연결돼 있어요. 계정은 Spotify 앱에서 바꾼 뒤 다시 연결해 주세요`
                 : '휴대폰 Spotify 앱의 계정으로 연결해요'}

@@ -44,6 +44,7 @@ import {
   CalendarPanel,
   DateLine,
   DayLegend,
+  earliestDay,
   WeekStrip,
 } from '../records/DatePicker';
 import { AnalysisPanel } from './AnalysisPanel';
@@ -564,7 +565,7 @@ export function HomeScreen() {
                 text and arrows, no button shapes; no 오늘 button. */}
             <DayArrow
               direction={-1}
-              disabled={calendar}
+              disabled={calendar || day <= earliestDay(today)}
               onPress={() => choose(addDays(day, -1))}
             />
             <DateLine
@@ -666,7 +667,8 @@ export function HomeScreen() {
   );
 }
 
-// One day back or forward from 2.1's date line; the next day stops at today.
+// One day back or forward from 2.1's date line; the next day stops at today, the day before at the date
+// picker's earliest day (S15P31E105-776).
 function DayArrow({
   direction,
   disabled,

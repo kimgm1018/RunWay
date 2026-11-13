@@ -28,6 +28,8 @@ function failure(error: unknown): SpotifyError {
       ? 'PREMIUM_REQUIRED'
       : code === 'NO_HISTORY'
       ? 'NO_HISTORY'
+      : code === 'INSTALL_REQUIRED'
+      ? 'INSTALL_REQUIRED'
       : 'FAILED';
   return new SpotifyError(reason);
 }
@@ -203,8 +205,16 @@ export function withSpotifyRemote(
     const epoch = remoteConsent.version();
     const state = await base.getState();
     if (!(await remote.installed())) {
-      await remote.openApp?.();
-      return getState();
+      // S15P31E105-776: the store opens to install it, and the screen says why and what comes next.
+      try {
+        await remote.openApp?.();
+      } catch {
+        // The message still tells the user to install Spotify.
+      }
+      throw new SpotifyStateError(
+        new SpotifyError('INSTALL_REQUIRED'),
+        await getState(),
+      );
     }
     try {
       if (epoch !== remoteConsent.version()) {

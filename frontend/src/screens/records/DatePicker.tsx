@@ -26,11 +26,17 @@ import { addDays, kstDay, kstMonth, mondayOf, shiftMonth } from './parts';
 
 // The date picker of 2.1 홈 and 5.1 내 기록 (S15P31E105-564, 담당자 레퍼런스): a week of days that swipes a week at a
 // time, and a month calendar that swipes a month at a time. Both go back as far as `historyMonths` and stop at
-// today; later days are dimmed and cannot be picked.
+// today; later (and earlier) days are dimmed and cannot be picked.
 
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 // How far back the week strip and the calendar go.
 const historyMonths = 36;
+
+// S15P31E105-776: the first day 2.1 and 5.1 can go back to, the first of the month `historyMonths` before today's.
+// The arrows, the week strip and the calendar all stop here and at today.
+export function earliestDay(today: string) {
+  return `${shiftMonth(kstMonth(today), -historyMonths)}-01`;
+}
 // The week strip (담당자 시안 2026-11-10, S15P31E105-657): each day a tall capsule, deep navy on a day with a run,
 // white on a day without, grey after today; the chosen day ringed. 80-high capsules with room for the ring (1.5 line,
 // 2 gap) above and below, then the legend: recordsFrame.tabsHeight in all.
@@ -424,7 +430,8 @@ export function WeekStrip({
   // The strip spans the screen less the frame's 16 sides until it measures itself.
   const [width, setWidth] = useState(screen - recordsFrame.side * 2 - 2);
   const monday = mondayOf(value);
-  const first = mondayOf(`${shiftMonth(kstMonth(today), -historyMonths)}-01`);
+  const earliest = earliestDay(today);
+  const first = mondayOf(earliest);
   const runDays = useRunDays([
     kstMonth(addDays(monday, -7)),
     kstMonth(monday),
@@ -432,7 +439,7 @@ export function WeekStrip({
   ]);
   const turn = (direction: -1 | 1) => {
     const next = addDays(value, direction * 7);
-    onChange(next > today ? today : next);
+    onChange(next > today ? today : next < earliest ? earliest : next);
   };
   return (
     <View style={style}>
@@ -463,7 +470,7 @@ export function WeekStrip({
                       day={day}
                       hasRun={runDays.has(day)}
                       selected={day === value}
-                      disabled={day > today}
+                      disabled={day > today || day < earliest}
                       onPress={() => onChange(day)}
                     />
                   );
