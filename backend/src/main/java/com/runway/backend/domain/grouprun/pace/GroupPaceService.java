@@ -113,6 +113,8 @@ public class GroupPaceService {
         Integer current = state.pace();
         // GOAL holds the goal from the first evaluation, not the measured median (review A-2).
         if (current == null && state.goalMode()) current = goalPace(group);
+        // TOGETHER starts at the stored AI recommendation until AI10 first decides (S15P31E105-750, G17 / 702).
+        if (current == null && !state.goalMode()) current = state.startPace();
         if (current == null) current = GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
                 participants.findRunningParticipantGuidePaces(groupId,
                         now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS)));

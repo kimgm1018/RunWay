@@ -786,7 +786,12 @@ public class GroupRunService {
             if (pace != null) return pace;
             // GOAL starts at the host's goal even when the start calculation has not finished or gave up.
             Integer goal = GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
-            if ("SCHEDULED".equals(row.status()) && stored.get().goalMode() && goal != null) return goal;
+            boolean beforeFirstDecision = "SCHEDULED".equals(row.status()) || "RUNNING".equals(row.status());
+            if (beforeFirstDecision && stored.get().goalMode() && goal != null) return goal;
+            // TOGETHER runs at the stored AI recommendation until AI10 first decides (S15P31E105-750, G17 / 702).
+            if ("RUNNING".equals(row.status()) && !stored.get().goalMode() && stored.get().startPace() != null) {
+                return stored.get().startPace();
+            }
         }
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
             Instant measuredAtCeiling =
