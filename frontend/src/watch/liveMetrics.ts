@@ -1,4 +1,4 @@
-import { routeLengthM, type LngLat } from '../geo';
+import { distanceM as pointDistanceM, type LngLat } from '../geo';
 import { currentPace, type DistanceSample } from './paceRule';
 
 // 러닝 중 화면의 실측값(S15P31E105-517). 폰은 워치 batch와 인계 후 폰 batch를 W07에 원문 그대로 올린다. 그 원문을
@@ -56,6 +56,10 @@ type Located = Point & { from: LiveMetrics['source'] };
 const MAX_ACCURACY_M = 30;
 const WATCH_HOLD_MS = 15_000;
 const PART_GAP_MS = 60_000;
+// 폰 GPS 보완 거리·페이스에서 두 위치 사이 속도가 이 값(m/s, 시속 43 km)을 넘으면 위치가 튄 것으로 보고 그 구간 거리는
+// 더하지 않는다(S15P31E105-783). 기준점은 새 위치로 옮겨 이후 구간은 정상으로 더한다. 정상 러닝은 2~6 m/s, 전력 질주도
+// 10 m/s 안팎이라 12 m/s 위는 사람이 달린 속도가 아니다. 정확도 30 m 필터가 못 거르는 시작 직후·실내외 전환 튐을 막는다.
+export const MAX_BRIDGE_SPEED_MPS = 12;
 
 const usable = (point: Point) =>
   point.accuracyM === null || point.accuracyM === undefined || point.accuracyM <= MAX_ACCURACY_M;
@@ -270,8 +274,17 @@ export function createLiveMetrics() {
       ? { at, value }
       : reading;
 
+  // 구간 속도가 MAX_BRIDGE_SPEED_MPS 이하인 구간만 더한다. 같은 시각 두 위치는 거리가 0일 때만 더한다.
+  const stepM = (from: Point, to: Point) => {
+    const metres = pointDistanceM(from.position, to.position);
+    const seconds = (to.at - from.at) / 1000;
+    return metres <= MAX_BRIDGE_SPEED_MPS * Math.max(seconds, 0) ? metres : 0;
+  };
+
   const lengthOf = (list: Point[]) =>
-    list.length >= 2 ? routeLengthM(list.map(point => point.position)) : null;
+    list.length >= 2
+      ? list.slice(1).reduce((sum, point, index) => sum + stepM(list[index], point), 0)
+      : null;
 
   // GPS 위치 조각을 누적 거리 표본으로 바꿔 같은 페이스 규칙에 넣는다(S15P31E105-549 2안).
   function gpsPace(list: Point[]): number | null {
@@ -279,7 +292,7 @@ export function createLiveMetrics() {
     let metres = 0;
     list.forEach((point, index) => {
       if (index > 0) {
-        metres += routeLengthM([list[index - 1].position, point.position]);
+        metres += stepM(list[index - 1], point);
       }
       samples.push({ at: point.at, metres });
     });
