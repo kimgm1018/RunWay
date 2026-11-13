@@ -55,6 +55,22 @@ test('markers off takes the poles off and keeps the lines; back on brings them b
   expect(lines(renderer.root)).toBe(shownLines);
 });
 
+// S15P31E105-739: the waiting room's small map leaves the poles out so the km pills stay clear; pills stay.
+test('poles off takes only the S and F poles off', () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  ReactTestRenderer.act(() => {
+    renderer = ReactTestRenderer.create(
+      <RunMap route={route} paceLabels={['5′36″']} poles={false} />,
+    );
+  });
+  const withoutPoles = markers(renderer.root);
+  ReactTestRenderer.act(() =>
+    renderer.update(<RunMap route={route} paceLabels={['5′36″']} />),
+  );
+  expect(markers(renderer.root)).toBe(withoutPoles + 2);
+  expect(withoutPoles).toBeGreaterThan(0);
+});
+
 // S15P31E105-692: nothing goes on a map before it is ready, whatever markers says, so turning them on or off
 // then removes nothing from the native map.
 test('switching markers before the map is ready puts nothing on it', () => {

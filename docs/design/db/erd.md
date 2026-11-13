@@ -225,10 +225,11 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | pace_basis_user_id | BIGINT NULL, FK users.id ON DELETE SET NULL | AI 추천의 기준 회원(가장 느린 계획의 주인) |
 | slower_than_goal_count | INTEGER NULL, CHECK >= 0 | 시작 계산 대상 중 AI09 계획이 목표 페이스보다 느린 회원 수. 목표가 없으면 NULL |
 | start_requested_at | TIMESTAMPTZ NULL | 시작 재계산 요청 시각. 성공·포기 시 NULL. 값이 있고 120초 안(DB 시계)이면 계산 중으로 본다 |
+| start_segment_ratios | JSONB NULL, CHECK 배열 | 출발 추천 기준 회원의 AI09 계획 km 구간 비율 `[{startDistanceM, endDistanceM, ratio}]`(S15P31E105-739, V39). 재계산 요청 시 NULL, 비율 검증(0.85~1.20, 0부터 연속, 1 km 이하, 목표 거리로 끝남) 실패 시 NULL |
 
 - `last_change_direction`과 `last_change_at`은 모두 NULL이거나 모두 값이 있어야 한다.
 - `trg_group_run_pace_state_updated_at` BEFORE UPDATE 트리거가 공통 `set_updated_at()` 함수로 갱신 시각을 기록한다.
-- 기준 SQL은 Flyway V22·V33과 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
+- 기준 SQL은 Flyway V22·V33·V39와 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 #### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
 

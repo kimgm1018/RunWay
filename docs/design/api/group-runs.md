@@ -429,6 +429,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `paceBasis.nickname` | string / null | 조건부 | AI 추천 기준 회원 닉네임. 앱은 누가 가장 느린지 드러나지 않게 화면에 쓰지 않는다(S15P31E105-702). `type`이 `GOAL`이어도 AI 추천이 있으면 채운다. 그 회원이 탈퇴·비활성이거나 건강정보 동의를 철회했거나 AI 추천이 없으면 null. |
 | `paceCalculating` | boolean / null | O | `SCHEDULED`에서 생성·참가·탈퇴·목표/코스·모드 변경 뒤 120초 안(DB 시계)에 아직 출발 추천 결과가 없으면 true. 앱은 이때 중앙값 대신 "계산 중"을 보이고 다시 조회한다. OFF면 null. |
 | `slowerThanGoalCount` | integer / null | O | 계산 대상 중 AI09 계획이 방장 목표보다 느린 회원 수(가장 느린 3명 + 기록 없는 동의자 기준이라 전체 참가자 수의 하한). 목표가 없거나 계산 전이면 null. GOAL 모드 경고 문구에 쓴다. |
+| `paceSegments` | array / null | O | km별 공동 출발 페이스(S15P31E105-739). S01 `plan.segments`와 같은 모양(`sequence`, `startDistanceM`, `endDistanceM`, `recommendedPaceSecPerKm`). 저장된 출발 추천 페이스 × 기준 회원 AI09 계획의 구간 비율(소수 둘째 자리). AI 추천(`TOGETHER`)은 출발 페이스가 AI 평균의 정수 반올림이라 AI 구간 페이스와 1초/km 미만 차이가 날 수 있고, 목표 페이스(`GOAL`)는 목표에 비율을 적용한다. 비율은 S01과 같은 검증(0부터 1 km 단위, 구간 페이스 = 평균 × 비율, 0.85~1.20, 거리 가중 평균 1)을 통과한 것만 저장한다. `SCHEDULED`에서만 채우며, 출발 추천이 없거나(계산 전·실패·중앙값) 비율이 없거나 기준 회원이 탈퇴·건강정보 동의를 철회했으면 빈 배열, 기능 OFF면 null |
 
 **사용 흐름과 응답 판단**
 
