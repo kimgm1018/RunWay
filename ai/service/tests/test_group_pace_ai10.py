@@ -109,11 +109,12 @@ def test_progress_raises_allow_line_so_previously_failing_candidate_passes():
     model = GroupModel(lambda pace, hr: [170] * 3)
     start = run(body(progressRatio=0.0), model)
     finish = run(body(progressRatio=1.0), model)
-    assert (start.group_pace_sec_per_km, start.reason, start.struggling_count) == (400, "FLOOR", 1)
+    # A non-danger FLOOR slows at most +30 at once (S15P31E105-751).
+    assert (start.group_pace_sec_per_km, start.reason, start.struggling_count) == (370, "FLOOR", 1)
     assert (finish.group_pace_sec_per_km, finish.reason, finish.struggling_count) == (320, "RECOVERED", 0)
 
 
-@pytest.mark.parametrize("progress,normalized,expected", [(None, None, 400), (-0.5, 0.0, 400), (1.5, 1.0, 320)])
+@pytest.mark.parametrize("progress,normalized,expected", [(None, None, 370), (-0.5, 0.0, 370), (1.5, 1.0, 320)])
 def test_progress_null_defaults_to_start_and_out_of_range_is_clamped(progress, normalized, expected):
     from app.group_pace.schemas import GroupPaceRequest
 
@@ -168,9 +169,8 @@ def test_current_and_speedup_use_all_prediction_horizons():
     assert run(model=model).group_pace_sec_per_km == 350
 
 
-@pytest.mark.parametrize("direction", ["SLOW", "FAST"])
-def test_cooldown_and_danger_exception(direction):
-    data = body(lastChange={"direction": direction, "changedAt": (T0 - timedelta(seconds=119)).isoformat()})
+def test_cooldown_and_danger_exception():
+    data = body(lastChange={"direction": "SLOW", "changedAt": (T0 - timedelta(seconds=119)).isoformat()})
     safe_slow = GroupModel(lambda pace, hr: [170 if pace < 344 else 150] * 3)
     held = run(data, safe_slow)
     assert (held.direction, held.reason, held.struggling_count) == ("HOLD", "COOLDOWN", 1)
@@ -180,6 +180,35 @@ def test_cooldown_and_danger_exception(direction):
     assert run(data, safe_slow).direction == "SLOW"
     data["lastChange"]["changedAt"] = (T0 - timedelta(seconds=119)).isoformat()
     assert run(data).reason == "COOLDOWN"
+
+
+# S15P31E105-751 (P-4): right after a speed-up (AHEAD or RECOVERED) the group slows past the allow line without
+# waiting out the cooldown; a speed-up is still held by the cooldown.
+def test_slowdown_right_after_speed_up_skips_cooldown():
+    data = body(lastChange={"direction": "FAST", "changedAt": (T0 - timedelta(seconds=30)).isoformat()})
+    safe_slow = GroupModel(lambda pace, hr: [170 if pace < 344 else 150] * 3)
+    result = run(data, safe_slow)
+    assert (result.group_pace_sec_per_km, result.direction, result.reason) == (350, "SLOW", "HR_LIMIT")
+    assert run(data).reason == "COOLDOWN"
+    data["lastChange"]["direction"] = "SLOW"
+    assert run(data, safe_slow).reason == "COOLDOWN"
+
+
+# S15P31E105-751 (P-5): with no passing slower candidate, a non-danger FLOOR slows at most +30 at once; a danger
+# FLOOR keeps +60, and the next decision slows further.
+@pytest.mark.parametrize("bpm,pace", [(172, 370), (177, 370), (178, 400), (180, 400)])
+def test_floor_step_is_thirty_unless_danger(bpm, pace):
+    result = run(model=GroupModel(lambda p, hr: [bpm] * 3))
+    assert (result.group_pace_sec_per_km, result.reason) == (pace, "FLOOR")
+
+
+def test_floor_step_keeps_slowing_on_the_next_decisions():
+    model = GroupModel(lambda p, hr: [172] * 3)
+    first = run(body(), model)
+    second = run(body(currentGroupPaceSecPerKm=first.group_pace_sec_per_km,
+                      lastChange={"direction": "SLOW", "changedAt": (T0 - timedelta(seconds=130)).isoformat()}), model)
+    assert (first.group_pace_sec_per_km, second.group_pace_sec_per_km) == (370, 400)
+    assert second.reason == "FLOOR"
 
 
 def test_warmup_cap_and_boundary():
@@ -261,10 +290,11 @@ def test_large_group_chunks_without_participant_cap():
 
 @pytest.mark.parametrize("residual_margin", [0, 20])
 @pytest.mark.parametrize("grade,slow_hr,expected", [
-    (0, 158.01, 350), (0, 158.21, 400),    # FLAT: +4.89 bpm
-    (3, 156.92, 350), (3, 157.12, 400),    # UP: +5.98 bpm
-    (-3, 156.25, 350), (-3, 156.45, 400),  # DOWN: +6.65 bpm
-    (None, 155.44, 350), (None, 155.64, 400),  # UNKNOWN: +7.46 bpm
+    # A failing +10 ends in a non-danger FLOOR, at most +30 at once (S15P31E105-751).
+    (0, 158.01, 350), (0, 158.21, 370),    # FLAT: +4.89 bpm
+    (3, 156.92, 350), (3, 157.12, 370),    # UP: +5.98 bpm
+    (-3, 156.25, 350), (-3, 156.45, 370),  # DOWN: +6.65 bpm
+    (None, 155.44, 350), (None, 155.64, 370),  # UNKNOWN: +7.46 bpm
 ])
 def test_slow_candidates_use_ai04_config_independent_of_residual_table(grade, slow_hr, expected, residual_margin):
     model = GroupModel(lambda pace, hr: [170, 170, slow_hr] if pace > 344 else [170] * 3)
@@ -299,7 +329,8 @@ def test_slow_upper_equal_to_allow_fails():
 
 
 def test_cooldown_danger_exception_uses_raw_prediction_not_margin():
-    data = body(lastChange={"direction": "FAST", "changedAt": (T0 - timedelta(seconds=30)).isoformat()})
+    # SLOW: right after a speed-up the slowdown is not held at all (S15P31E105-751).
+    data = body(lastChange={"direction": "SLOW", "changedAt": (T0 - timedelta(seconds=30)).isoformat()})
     model = GroupModel(lambda pace, hr: [176 if pace < 344 else 150] * 3)
     result = run(data, model, flat_table(4))
     assert (result.reason, result.direction) == ("COOLDOWN", "HOLD")

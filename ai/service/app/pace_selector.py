@@ -5,6 +5,8 @@
 - 지금 안내가 통과하면 상한(목표 페이스, 없으면 시작 추천) 안에서 30초/km까지 빠른 후보 중 허용 − 3 bpm도
   통과하는 가장 빠른 후보로 올린다(RECOVERED). 상한이 없으면 올리지 않는다.
 - 마지막 변경 뒤 120초는 바꾸지 않는다(COOLDOWN). 단 위험 심박에서 늦추는 것은 허용한다.
+  AI10은 직전 변경이 가속(FAST)이면 쿨다운 중에도 늦춘다(slow_after_fast, S15P31E105-751).
+- AI10은 FLOOR를 위험 심박이 아니면 한 번에 FLOOR_STEP까지만 늦춘다(floor_step_sec_per_km, S15P31E105-751).
 - 출발 뒤 180초 동안은 +10초/km까지만 늦춘다(WARMUP_CAP). 10초/km 미만 변화는 유지(SMALL_CHANGE)다.
 
 이 모듈은 numpy와 모델 상수만 쓴다. app.decide.schemas가 DELTAS를 가져가므로 app.policy를 import하지 않는다.
@@ -22,6 +24,7 @@ COOLDOWN_SEC = 120
 WARMUP_SEC = 180
 WARMUP_SLOW_CAP_SEC_PER_KM = 10
 RECOVER_BAND_BPM = 3.0
+FLOOR_STEP_SEC_PER_KM = 30
 MAX_RECOVER_SEC_PER_KM = 30
 # 요청 페이스는 소수 둘째 자리까지 오므로(AI04 후보 검증 허용 0.01) 부동소수 오차를 이 안에서 같은 값으로 본다.
 PACE_EPS = 0.01
@@ -79,15 +82,23 @@ class PaceSelector:
 
     def select(self, *, danger: bool, cap: float | None, elapsed_sec: float,
                since_change_sec: float | None, slow_base: float | None = None,
-               warmup_exempt: bool = False) -> Selection:
+               warmup_exempt: bool = False, slow_after_fast: bool = False,
+               floor_step_sec_per_km: float | None = None) -> Selection:
         """slow_base: 워밍업 감속 상한의 기준(기본 = current). warmup_exempt: 위험이면 워밍업 상한을 걸지 않는다.
-        두 인자는 AI04만 쓴다(S15P31E105-624 수정 1·2). AI10은 기본값이라 동작이 그대로다."""
+        두 인자는 AI04만 쓴다(S15P31E105-624 수정 1·2). AI10은 기본값이라 동작이 그대로다.
+        slow_after_fast: 직전 변경이 가속이면 쿨다운 중에도 감속을 허용한다. floor_step_sec_per_km: 위험 심박이
+        아닐 때 FLOOR 감속 폭 상한. 두 인자는 AI10만 쓴다(S15P31E105-751). AI04는 기본값이라 동작이 그대로다."""
         paces, current, baseline = self.paces, self.current, self.baseline
         chosen, reason, cap_missing = baseline, "SMALL_CHANGE", False
         if not self.passes(baseline):
             slower = [j for j, pace in enumerate(paces) if pace > current]
             chosen = next((j for j in slower if self.passes(j)), slower[-1])
             reason = "HR_LIMIT" if self.passes(chosen) else "FLOOR"
+            if reason == "FLOOR" and floor_step_sec_per_km is not None and not danger:
+                # 통과 후보가 없어도 위험 심박이 아니면 한 번에 크게 늦추지 않고 다음 판단에서 더 늦춘다.
+                within = [j for j in slower if paces[j] <= current + floor_step_sec_per_km + PACE_EPS]
+                if within:
+                    chosen = within[-1]
         else:
             if cap is None:
                 cap_missing = True
@@ -100,7 +111,7 @@ class PaceSelector:
                 reason = "RECOVERED"
 
         if since_change_sec is not None and since_change_sec < COOLDOWN_SEC:
-            if not (paces[chosen] > current + PACE_EPS and danger):
+            if not (paces[chosen] > current + PACE_EPS and (danger or slow_after_fast)):
                 return Selection(baseline, "COOLDOWN", cap_missing)
         warm_base = current if slow_base is None else slow_base
         if (elapsed_sec < WARMUP_SEC and not warmup_exempt
