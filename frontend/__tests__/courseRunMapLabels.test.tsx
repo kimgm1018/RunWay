@@ -59,6 +59,8 @@ async function render(plan: Partial<CoursePlan>) {
       const base = await original();
       return base ? { ...base, ...plan } : base;
     });
+  // A plan with no km paces of its own means C12 has none either (S15P31E105-766 asks it separately).
+  jest.spyOn(repositories.courses, 'getPacePlan').mockResolvedValue(null);
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
