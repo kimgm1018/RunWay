@@ -138,6 +138,9 @@ def test_invalid_or_missing_speed_ref_falls_back_to_default(value, runs):
     (100, 1500, 1600, None),            # 0.07 m/s: 기록 오류·보행
     (50000, 1500, 1600, None),          # 33 m/s: 기록 오류
     (float("nan"), 1500, 1600, None), (True, 1500, 1600, None),
+    # S15P31E105-785: 이동 10분·1 km 미만의 짧은 시험 기록은 v_ref에 넣지 않는다.
+    (999, 600, 620, None), (1000, 599, 620, None), (1000, 600, 620, 1000 / 600),
+    (68, 26, 30, None),
 ])
 def test_run_moving_speed_guards_zero_null_and_absurd_values(distance, moving, elapsed, expected):
     value = run_moving_speed(distance, moving, elapsed)
@@ -163,6 +166,9 @@ def test_db_speed_ref_query_is_bound_and_cut_off_at_plan_time():
     sql, params = db.calls[0]
     assert sql == SPEED_REF_SQL and params["user_id"] == 73 and params["cutoff"] == NOW
     assert params["limit"] == 20 and (params["min_speed_mps"], params["max_speed_mps"]) == (0.5, 8.0)
+    assert (params["min_moving_sec"], params["min_distance_m"]) == (600, 1000)
+    for clause in ("moving_duration >= %(min_moving_sec)s", "total_distance >= %(min_distance_m)s"):
+        assert clause in SPEED_REF_SQL
     # 미래 기록 누수 방지는 SQL 조건이 맡는다: 계획 시각 이후 종료·미완료·삭제 기록은 고르지 않는다.
     for clause in ("ended_at <= %(cutoff)s", "status = 'COMPLETED'", "deleted_at IS NULL",
                    "ORDER BY ended_at DESC", "moving_duration > 0", "total_distance > 0"):
