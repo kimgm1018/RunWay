@@ -799,7 +799,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].distanceM` | number | O | courses.distance(m). distance 대신 단위 명시. |
-| `items[].isPrivate` | boolean | O | `courses.is_private`. 자유 러닝 기록으로 만든 개인 코스(본인 것, 또는 공유받아 저장한 것)는 true. 개인 코스는 그룹런 코스로 쓸 수 없으므로(G01 `403 COURSE_INACCESSIBLE`) 앱이 그룹런 코스 고르기에서 제외한다([S15P31E105-696](https://ssafy.atlassian.net/browse/S15P31E105-696)). |
+| `items[].isPrivate` | boolean | O | `courses.is_private`. 자유 러닝 또는 자유 그룹런 기록으로 만든 개인 코스(본인 것, 또는 공유받아 저장한 것)는 true. 개인 코스는 그룹런 코스로 쓸 수 없으므로(G01 `403 COURSE_INACCESSIBLE`) 앱이 그룹런 코스 고르기에서 제외한다([S15P31E105-696](https://ssafy.atlassian.net/browse/S15P31E105-696)). |
 
 ### 오류 응답
 
@@ -972,7 +972,7 @@ BE는 같은 요청에서 자동 재시도하지 않는다. 사용자가 명시�
 
 ## C11 완료 기록을 개인 코스로 저장
 
-`PUT /api/v1/running-records/{sessionId}/course`는 인증된 본인의 미삭제·완료 세션에서만 코스를 만든다. 성공 응답은 `{ "courseId": 123 }`이며 본인 `course_bookmarks`에도 저장한다. 기존 코스를 사용한 세션이나 이미 변환된 동일 세션은 같은 ID를 반환한다. `courses.source_session_id` 고유 인덱스로 동일 세션 재시도를 제한하며 서로 다른 기록의 유사·동일 경로는 합치지 않는다. 코스 상태는 `ACTIVE`, `is_private=true`, `creator_id`와 `source_session_id`는 해당 회원·기록이다. 추천 후보 C10의 공용 코스 중복 규칙은 변경하지 않는다.
+`PUT /api/v1/running-records/{sessionId}/course`는 인증된 본인의 미삭제·완료 세션에서만 코스를 만든다. 세션이 자유 러닝인지 자유 그룹런(코스 미지정 그룹런) 참가 기록인지는 구분하지 않으며, 코스를 지정하지 않은 자유 그룹런 참가자의 개인 기록도 이 API로 개인 코스를 만들 수 있다(S15P31E105-762). 성공 응답은 `{ "courseId": 123 }`이며 본인 `course_bookmarks`에도 저장한다. 기존 코스를 사용한 세션(지정 코스 그룹런 포함)이나 이미 변환된 동일 세션은 같은 ID를 반환한다. `courses.source_session_id` 고유 인덱스로 동일 세션 재시도를 제한하며 서로 다른 기록의 유사·동일 경로는 합치지 않는다. 코스 상태는 `ACTIVE`, `is_private=true`, `creator_id`와 `source_session_id`는 해당 회원·기록이다. 추천 후보 C10의 공용 코스 중복 규칙은 변경하지 않는다.
 
 기록의 GPS는 측정시각 순으로 선택하고, 적용된 PAUSE~RESUME 안의 위치를 제외한다. 원본 위치의 측정 구간 길이를 합산해 코스 거리를 정하며 3,000개를 넘는 표시 좌표는 축소한다. 2점 미만 또는 측정 거리 1m 미만이면 코스를 만들지 않는다. 하나의 GeoJSON LineString은 유지하되 측정하지 않은 연결부의 시작 좌표 인덱스를 `unmeasuredEdges` 배열에 저장·응답한다. 앱은 이 변을 회색 직선으로 표시한다. 해당 변은 거리·경사·완주 진행률에서 제외하며 경사는 측정된 변에만 DEM을 적용한다. 정상 측정의 원본 GPS나 기록별 시간·거리 계산은 별도로 유지한다.
 
