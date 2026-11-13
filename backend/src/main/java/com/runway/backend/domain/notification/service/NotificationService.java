@@ -101,9 +101,10 @@ public class NotificationService {
                 items, next, hasNext, notifications.countUnread(userId));
     }
 
+    /** Marks the user's unread rows read; {@code upToId} null means all of them, otherwise ids up to it. */
     @Transactional
-    public void markAllRead(long userId) {
-        notifications.markAllRead(userId);
+    public void markAllRead(long userId, Long upToId) {
+        notifications.markAllRead(userId, upToId);
     }
 
     private static int resolveLimit(Integer limit) {

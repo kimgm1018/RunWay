@@ -52,10 +52,15 @@ class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
                 login);
     }
 
-    /** 가입 기본값: BPM 안내만 켬이고 나머지는 모두 끔이다(S15P31E105-706). */
+    /**
+     * 가입 기본값: BPM 안내(S15P31E105-706)와 그룹런·커뮤니티 알림(S15P31E105-801)은 켬, 음성 코칭은 끔이다.
+     */
     void assertSignupDefaults(String body) {
-        assertThat(body).contains("\"bpmGuideEnabled\":true");
-        assertThat(body.replace("\"bpmGuideEnabled\":true", "")).doesNotContain(":true");
+        assertThat(body)
+                .contains("\"voiceCoachingEnabled\":false")
+                .contains("\"bpmGuideEnabled\":true")
+                .contains("\"groupRun\":true")
+                .contains("\"community\":true");
     }
 
     String read(long id) throws Exception {

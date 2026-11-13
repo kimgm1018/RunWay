@@ -167,11 +167,11 @@
 | 인증 | 회원 |
 | 관련 요구사항 | [알림 정책](../requirements.md#알림-정책) |
 | 관련 화면 | 2.9 알림 |
-| 비고 | 2026-11-06 사용자 확정(S15P31E105-458). 단건 읽음 API는 두지 않는다 |
+| 비고 | 2026-11-06 사용자 확정(S15P31E105-458). 단건 읽음 API는 두지 않는다. 2026-11-13 `upToId` 추가(S15P31E105-801) |
 
 ### 설명
 
-본인 알림 중 미읽음(`read_at IS NULL`)을 모두 현재 시각으로 읽음 처리한다.
+본인 알림 중 미읽음(`read_at IS NULL`)을 현재 시각으로 읽음 처리한다. `upToId`가 있으면 그 id 이하의 알림만 처리한다. 앱은 알림함(2.9)을 나갈 때 화면에 불러온 알림 중 가장 큰 id를 보내, 보는 사이 새로 생긴 알림이 미읽음으로 남게 한다.
 
 ### 인증 및 권한
 
@@ -183,7 +183,9 @@
 
 ### Query Parameters
 
-없음
+| 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `upToId` | long | 아니오 | 이 id 이하의 본인 미읽음 알림만 읽음 처리한다. 1 이상의 정수. 없으면 본인 미읽음 전체 |
 
 ### Request Body
 
@@ -199,9 +201,11 @@
 
 | HTTP·코드 | 발생 조건 |
 |---|---|
+| `400 VALIDATION_ERROR` | `upToId`가 1 미만이거나 정수가 아님 |
 | `401 UNAUTHORIZED` | 인증 실패 |
 
 ### 처리 규칙
 
-- `UPDATE notifications SET read_at = now() WHERE user_id = :me AND read_at IS NULL`.
+- `UPDATE notifications SET read_at = now() WHERE user_id = :me AND read_at IS NULL`(`upToId`가 있으면 `AND id <= :upToId`).
+- `notifications.id`는 증가하는 IDENTITY라 "id 이하" = "그 알림까지 받은 것"이다. 다른 사용자의 id를 넣어도 `user_id = :me` 조건 때문에 본인 행만 바뀐다.
 - 이미 `read_at`이 있는 행은 덮어쓰지 않는다.

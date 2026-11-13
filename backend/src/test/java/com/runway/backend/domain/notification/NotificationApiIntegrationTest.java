@@ -245,4 +245,87 @@ class NotificationApiIntegrationTest {
                                 recipient))
                 .isEqualTo(1);
     }
+
+    // S15P31E105-801 AC-1·2: a new account starts with group·community notifications on and so gets inbox rows.
+    @Test
+    void newMemberStartsWithNotificationsOnAndReceivesRows() {
+        long fresh = member("nfresh");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT group_notifications_enabled AND community_notifications_enabled"
+                                        + " FROM user_settings WHERE user_id=?",
+                                Boolean.class,
+                                fresh))
+                .isTrue();
+        follows.follow(actor, fresh);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
+                                Long.class,
+                                fresh))
+                .isEqualTo(1);
+    }
+
+    long row(long userId, String key) {
+        notifications.create(userId, NotificationType.POST_COMMENT, actor, "m", key);
+        return jdbc.queryForObject(
+                "SELECT id FROM notifications WHERE dedupe_key=?", Long.class, key);
+    }
+
+    boolean isRead(long notificationId) {
+        return Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        "SELECT read_at IS NOT NULL FROM notifications WHERE id=?",
+                        Boolean.class,
+                        notificationId));
+    }
+
+    // AC-4: only rows up to upToId are marked read; a row created after it stays unread.
+    @Test
+    void readAllUpToIdMarksOnlyRowsUpToThatId() throws Exception {
+        long first = row(recipient, "k801-a");
+        long middle = row(recipient, "k801-b");
+        long last = row(recipient, "k801-c");
+        mvc.perform(
+                        post("/api/v1/notifications/read-all")
+                                .param("upToId", String.valueOf(middle))
+                                .header("Authorization", auth(recipient)))
+                .andExpect(status().isNoContent());
+        assertThat(isRead(first)).isTrue();
+        assertThat(isRead(middle)).isTrue();
+        assertThat(isRead(last)).isFalse();
+        mvc.perform(get("/api/v1/notifications").header("Authorization", auth(recipient)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unreadCount").value(1));
+    }
+
+    // AC-5: zero, negative or non-number upToId is a validation error and changes nothing.
+    @Test
+    void readAllRejectsInvalidUpToId() throws Exception {
+        long only = row(recipient, "k801-bad");
+        for (String bad : new String[] {"0", "-1", "abc"}) {
+            mvc.perform(
+                            post("/api/v1/notifications/read-all")
+                                    .param("upToId", bad)
+                                    .header("Authorization", auth(recipient)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        assertThat(isRead(only)).isFalse();
+    }
+
+    // AC-6: an upToId covering someone else's row changes only the caller's rows.
+    @Test
+    void readAllUpToIdTouchesOnlyCallersRows() throws Exception {
+        long other = member("nother");
+        long mine = row(recipient, "k801-mine");
+        long theirs = row(other, "k801-theirs");
+        mvc.perform(
+                        post("/api/v1/notifications/read-all")
+                                .param("upToId", String.valueOf(theirs))
+                                .header("Authorization", auth(recipient)))
+                .andExpect(status().isNoContent());
+        assertThat(isRead(mine)).isTrue();
+        assertThat(isRead(theirs)).isFalse();
+    }
 }
