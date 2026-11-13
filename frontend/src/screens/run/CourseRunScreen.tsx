@@ -20,7 +20,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, ThemeProvider, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
 import { RunMap } from '../../components/RunMap';
-import { gpsLabels, RunStartBar } from './parts';
+import { gpsLabels, PlaceRetryCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 import { RunGoalSheet } from './goal/RunGoalSheet';
 import {
@@ -346,6 +346,14 @@ export function CourseRunScreen() {
   const top = (
     <View style={styles.nightTop}>
       <BackButton onPress={navigation.goBack} />
+      {/* No position from the phone (no permission, location off, no fix): say so and let a tap look again
+          (S15P31E105-798, TEAM QA T22). */}
+      {placeResource.status === 'error' ||
+      (placeResource.status === 'ready' && !placeResource.data.position) ? (
+        <View style={styles.flex}>
+          <PlaceRetryCard onPress={placeResource.reload} />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -573,6 +581,7 @@ const grey = '#95969A';
 
 const styles = StyleSheet.create({
   nightTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  flex: { flex: 1 },
   picker: { gap: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {

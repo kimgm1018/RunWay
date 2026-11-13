@@ -30,6 +30,10 @@ import {
   ThemeProvider,
   typography,
 } from '../../theme';
+import {
+  locationFailureNotice,
+  noLocationNotice,
+} from '../course/currentLocation';
 import { groupLook, NumText } from './look';
 import { ColorBar, stand, StandButton } from './stand';
 import { Tag, useGroupRunDraft } from './parts';
@@ -108,7 +112,7 @@ function ConfirmButton({
 // Archivo; the colours stay as they were (담당자 결정: 색은 그대로, 구성만 시안대로).
 export function MeetingPlaceScreen() {
   const navigation = useNavigation();
-  const { groupRuns } = useRepositories();
+  const { groupRuns, phoneLocation } = useRepositories();
   const { draft, setPlace } = useGroupRunDraft();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MeetingPlace[]>([]);
@@ -125,6 +129,18 @@ export function MeetingPlaceScreen() {
   const [showMe, setShowMe] = useState(false);
   // True while the camera flies to my location; where it stops is the picked place.
   const locating = useRef(false);
+  // 내 위치로 asks the phone for a fix; when it cannot give one the screen says why instead of staying silent
+  // (S15P31E105-798, TEAM QA T22).
+  const [findingMe, setFindingMe] = useState(false);
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
+  const [recenter, setRecenter] = useState(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -156,14 +172,20 @@ export function MeetingPlaceScreen() {
   }, [groupRuns, query, me, attempt]);
 
   const choose = (place: MeetingPlace) => {
+    setLocationNotice(null);
     setPicked(place);
     setQuery('');
   };
 
   // A point on the map shows at once under its placeholder, then takes the name and address the phone finds.
   // A later pick in the meantime keeps its own: the answer only lands on the point it was asked for.
-  const pickPoint = (point: LngLat, fallbackName: string, from: LngLat | null) => {
+  const pickPoint = (
+    point: LngLat,
+    fallbackName: string,
+    from: LngLat | null,
+  ) => {
     const place = mapPlace(point, fallbackName, from);
+    setLocationNotice(null);
     setPicked(place);
     Promise.all([placeNameOf(point), placeAddressOf(point)]).then(
       ([name, address]) => {
@@ -183,17 +205,53 @@ export function MeetingPlaceScreen() {
     );
   };
 
-  // 내 위치로: with the location permission the map follows me once; without it the nearest place.
+  // 내 위치로: the phone's own fix (permission, location off and timeout each answered with a notice). A device
+  // with no phone location (iOS, the mock) keeps the map's own follow: with the permission it follows me once,
+  // without it the nearest place.
   const goToMe = async () => {
-    if (!(await locationAllowed())) {
-      if (results[0]) {
-        choose(results[0]);
-      }
+    if (findingMe) {
       return;
     }
-    locating.current = true;
-    setShowMe(true);
-    map.current?.setLocationTrackingMode('Follow');
+    setLocationNotice(null);
+    if (!phoneLocation) {
+      if (!(await locationAllowed())) {
+        if (results[0]) {
+          choose(results[0]);
+        } else {
+          setLocationNotice(
+            `${noLocationNotice.title} ${noLocationNotice.detail}`,
+          );
+        }
+        return;
+      }
+      locating.current = true;
+      setShowMe(true);
+      map.current?.setLocationTrackingMode('Follow');
+      return;
+    }
+    setFindingMe(true);
+    try {
+      const fix = await phoneLocation.current();
+      if (!mounted.current) {
+        return;
+      }
+      const center: LngLat = [fix.longitude, fix.latitude];
+      setShowMe(true);
+      setMe(center);
+      setConfirming(false);
+      pickPoint(center, '내 위치', center);
+      // Back to me even when the map was moved by hand to where the last pick stood.
+      setRecenter(value => value + 1);
+    } catch (error) {
+      if (mounted.current) {
+        const notice = locationFailureNotice(error);
+        setLocationNotice(`${notice.title} ${notice.detail}`);
+      }
+    } finally {
+      if (mounted.current) {
+        setFindingMe(false);
+      }
+    }
   };
 
   return (
@@ -206,6 +264,7 @@ export function MeetingPlaceScreen() {
           ref={map}
           position={picked?.position}
           showLocation={showMe}
+          recenterSignal={recenter}
           area={{ top: 0.447, bottom: 0.447 }}
           // The NAVER logo just over the place sheet (S15P31E105-429).
           logo={{ above: 0.255 }}
@@ -290,7 +349,11 @@ export function MeetingPlaceScreen() {
           {query ? (
             <View style={styles.results}>
               {searching ? (
-                <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
+                <LightGlass
+                  radius={16}
+                  solid={resultSurface}
+                  style={styles.resultCard}
+                >
                   <AppText style={[styles.sub, styles.noResult]}>
                     검색 중이에요
                   </AppText>
@@ -301,7 +364,11 @@ export function MeetingPlaceScreen() {
                   accessibilityLabel="장소 검색 다시 시도"
                   onPress={() => setAttempt(value => value + 1)}
                 >
-                  <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
+                  <LightGlass
+                    radius={16}
+                    solid={resultSurface}
+                    style={styles.resultCard}
+                  >
                     <AppText style={[styles.sub, styles.noResult]}>
                       검색하지 못했어요. 눌러서 다시 시도해 주세요
                     </AppText>
@@ -341,7 +408,11 @@ export function MeetingPlaceScreen() {
                   </Pressable>
                 ))
               ) : (
-                <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
+                <LightGlass
+                  radius={16}
+                  solid={resultSurface}
+                  style={styles.resultCard}
+                >
                   <AppText style={[styles.sub, styles.noResult]}>
                     찾는 장소가 없어요
                   </AppText>
@@ -354,8 +425,19 @@ export function MeetingPlaceScreen() {
               <GlassIconButton
                 icon="locate"
                 accessibilityLabel="내 위치로"
+                disabled={findingMe}
                 onPress={goToMe}
               />
+              {locationNotice ? (
+                <View
+                  style={styles.locateNotice}
+                  accessibilityLiveRegion="polite"
+                >
+                  <AppText style={styles.locateNoticeText}>
+                    {locationNotice}
+                  </AppText>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </SafeAreaView>
@@ -617,6 +699,20 @@ const styles = StyleSheet.create({
     color: stand.sub,
   },
   noResult: { padding: spacing.xl, textAlign: 'center' },
+  locateNotice: {
+    maxWidth: 280,
+    marginTop: 8,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: stand.page,
+  },
+  locateNoticeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.text,
+  },
   locate: {
     alignItems: 'flex-end',
     paddingHorizontal: spacing.screen,

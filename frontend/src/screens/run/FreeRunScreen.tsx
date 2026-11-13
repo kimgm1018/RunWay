@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { BackButton } from '../../components/BackButton';
 import { useResource, type Repositories } from '../../data';
@@ -9,7 +9,7 @@ import { RunMap } from '../../components/RunMap';
 import { RunGoalSheet } from './goal/RunGoalSheet';
 import { goalConfig, goalLabel } from './goal/runGoal';
 import { useRunGoalDraft } from './goal/RunGoalDraft';
-import { gpsLabels, PlaceCard, RunStartBar } from './parts';
+import { gpsLabels, PlaceCard, PlaceRetryCard, RunStartBar } from './parts';
 import { navigateTo } from '../../navigation/navigateTo';
 
 const loadPlace = (repositories: Repositories) =>
@@ -52,15 +52,15 @@ function MapStart({ bottom }: { bottom: React.ReactNode }) {
             <BackButton onPress={navigation.goBack} />
             <View style={styles.flex}>
               {/* Found, the place moves into the bubble over me on the map. */}
-              {place.status === 'ready' ? null : place.status === 'error' ? (
+              {place.status === 'ready' ? (
+                // A lookup that finished without a position (no permission, location off, no fix) is not "found":
+                // it says so and a tap tries again (S15P31E105-798, TEAM QA T22).
+                place.data.position ? null : (
+                  <PlaceRetryCard onPress={place.reload} />
+                )
+              ) : place.status === 'error' ? (
                 // A failed lookup stops saying it is still searching; a tap tries again.
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="현재 위치 다시 찾기"
-                  onPress={place.reload}
-                >
-                  <PlaceCard name="못 찾았어요 · 다시 찾기" gps="none" />
-                </Pressable>
+                <PlaceRetryCard onPress={place.reload} />
               ) : (
                 <PlaceCard name="현재 위치를 찾는 중이에요" gps="none" />
               )}

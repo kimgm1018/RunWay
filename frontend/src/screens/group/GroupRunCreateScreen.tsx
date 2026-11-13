@@ -42,6 +42,15 @@ import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { groupTone, NightBackground, NumText } from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
+import {
+  dayAfter,
+  kstOffsetMs,
+  scheduleDays,
+  scheduleProblem,
+  scheduleProblemText,
+  scheduleRefusedText,
+  timesOn as timesOnDay,
+} from './groupRunSchedule';
 import { BackButton } from '../../components/BackButton';
 import {
   ColorBar,
@@ -69,10 +78,6 @@ const fallbackShape: [number, number][] = [
   [0.5, 0.3],
   [0.9, 0.5],
 ];
-// Start times offered on 6.8, every 30 minutes from 05:00 to 22:00.
-const times = Array.from({ length: 35 }, (_, index) => 5 * 60 + index * 30);
-const kstOffsetMs = 9 * 3600 * 1000;
-
 const pad = (value: number) => String(value).padStart(2, '0');
 const timeLabel = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
@@ -91,12 +96,6 @@ function outlineOf(route: [number, number][]): [number, number][] {
     0.9 - ((y - minY) / span) * 0.8,
   ]);
 }
-
-// YYYY-MM-DD in Korea, `days` after `from`.
-const dayAfter = (from: Date, days: number) =>
-  new Date(from.getTime() + kstOffsetMs + days * 86400000)
-    .toISOString()
-    .slice(0, 10);
 
 const loadOptions = (repositories: Repositories) =>
   Promise.all([
@@ -453,17 +452,25 @@ export function GroupRunCreateScreen() {
   const crew =
     mine?.crews.find(item => item.crew.id === route.params?.crewId)?.crew ??
     mine?.crews.find(item => item.crew.membership === 'MEMBER')?.crew;
+  // The clock is read again every half minute, so a start time that passes while the form is open, or a new day,
+  // is noticed instead of being sent to the server (S15P31E105-798).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(value => value + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
   const now = clock.now();
-  // Today (KST) is offered too, but only the start times still ahead of now.
-  const todayDay = dayAfter(now, 0);
-  const kstNow = new Date(now.getTime() + kstOffsetMs);
-  const nowMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
-  const timesOn = (value: string | null) =>
-    value === todayDay ? times.filter(item => item > nowMinutes) : times;
-  const days = Array.from({ length: 14 }, (_, index) =>
-    dayAfter(now, index),
-  ).filter(value => timesOn(value).length > 0);
-  const passed = day === todayDay && time <= nowMinutes;
+  const timesOn = (value: string | null) => timesOnDay(value, now);
+  const days = scheduleDays(now);
+  // An edited run keeps its own time as it is: the server checks the schedule only when it changes (779).
+  const keptFromEdit =
+    edited !== null &&
+    Date.parse(edited.scheduledAt) ===
+      Date.parse(
+        `${day}T${pad(Math.floor(time / 60))}:${pad(time % 60)}:00+09:00`,
+      );
+  const problem = keptFromEdit ? null : scheduleProblem(day, time, now);
+  const passed = problem !== null;
   // The goal's distance: the course's, or the free run's ruler.
   const goalDistanceM =
     mode === 'COURSE' ? course?.distanceM ?? null : Math.round(freeKm * 1000);
@@ -633,6 +640,13 @@ export function GroupRunCreateScreen() {
     if ((!crew && !edited) || !draft.place || !day) {
       return;
     }
+    // The clock again at the tap: a start time can pass between two ticks (S15P31E105-798).
+    const late = keptFromEdit ? null : scheduleProblem(day, time, clock.now());
+    if (late) {
+      toast(scheduleProblemText[late]);
+      setTick(value => value + 1);
+      return;
+    }
     setSaving(true);
     const run = {
       courseId: mode === 'COURSE' ? course?.id ?? null : null,
@@ -673,6 +687,9 @@ export function GroupRunCreateScreen() {
           // answered alike, so the notice does not guess which (S15P31E105-696 review B-1).
           errorCode(error) === 'COURSE_INACCESSIBLE'
           ? '이 코스는 그룹런에 쓸 수 없어요. 다른 코스를 골라 주세요'
+          : // The server's schedule window (S15P31E105-779), for a day and time the form let through.
+          errorCode(error) === 'VALIDATION_ERROR'
+          ? scheduleRefusedText
           : !edited
           ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
           : errorCode(error) === 'EDIT_NOT_ALLOWED'
@@ -870,6 +887,17 @@ export function GroupRunCreateScreen() {
             onPress={() => setSheet('time')}
           />
         </View>
+        {problem ? (
+          // A day and time the server would refuse (a start that has passed since it was picked, say) says why the
+          // button is off, rather than leaving it dim (S15P31E105-798).
+          <AppText
+            style={styles.scheduleProblem}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            {scheduleProblemText[problem]}
+          </AppText>
+        ) : null}
         {/* 공동 페이스 is shown in the waiting room, not here (S15P31E105-696 담당자 결정). */}
       </ScrollView>
       {/* 6.8-CreateCTA: the white main button (GroupCta navy) over the navy page's foot. */}
@@ -1156,6 +1184,7 @@ const styles = StyleSheet.create({
   locked: { opacity: 0.45 },
   // 날짜 · 시간: two fields over a heavier line each.
   picks: { flexDirection: 'row', gap: 16 },
+  scheduleProblem: { marginTop: 10, fontSize: 13, color: stand.danger },
   pick: {
     flexDirection: 'row',
     alignItems: 'center',
