@@ -21,6 +21,7 @@ import {
   type RunConfig,
 } from './RunSession';
 import type { ControlProblem } from './runControl';
+import type { SessionStatus } from '../../data/types';
 import {
   fontFamily,
   k1,
@@ -207,10 +208,17 @@ export function RunStartBar({
   // 이 화면에서 시작을 요청했고 아직 확정되지 않았다. 워치가 실제로 시작해 서버가 확정해야 4.2로 넘어간다.
   const [requested, setRequested] = useState(false);
   // 시작이 확정되면(재확인 성공·늦은 결과·워치에서 시작 포함) 이 화면에 있을 때 4.2로 넘어간다.
-  const previousStatus = useRef(control?.status ?? null);
+  // previousStatus는 항상 null로 시작한다: 응답 유실·앱 재시작으로 이미 RUNNING/PAUSED인 세션에
+  // 막 붙은 경우도(S01 409) "처음 관찰한 활성 상태"로 다뤄 바로 4.2로 넘어가야 한다. control?.status를
+  // 초기값으로 쓰면 그 경우 전이가 감지되지 않아 이 화면에 멈춰 있었다(S15P31E105-777).
+  const previousStatus = useRef<SessionStatus | null>(null);
   useEffect(() => {
     const status = control?.status ?? null;
-    if (focused && status === 'RUNNING' && previousStatus.current !== 'RUNNING') {
+    if (
+      focused &&
+      (status === 'RUNNING' || status === 'PAUSED') &&
+      previousStatus.current !== status
+    ) {
       pendingRunScreen.current = true;
     }
     previousStatus.current = status;
