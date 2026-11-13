@@ -1,0 +1,92 @@
+/* 767 시연용 워치 화면. 실제 워치 앱 토큰(RunwayTheme.kt, tokens.md)을 그대로 쓴다.
+   디자인은 454px 원 기준(1dp = 2px). --u = 창 안 원 크기 / 454 */
+@font-face { font-family: "Rajdhani"; font-weight: 400; font-display: block; src: url("fonts/rajdhani_regular.ttf") format("truetype"); }
+@font-face { font-family: "Rajdhani"; font-weight: 500; font-display: block; src: url("fonts/rajdhani_medium.ttf") format("truetype"); }
+@font-face { font-family: "Rajdhani"; font-weight: 600; font-display: block; src: url("fonts/rajdhani_semibold.ttf") format("truetype"); }
+@font-face { font-family: "Rajdhani"; font-weight: 700; font-display: block; src: url("fonts/rajdhani_bold.ttf") format("truetype"); }
+
+:root {
+  --bg: #050D14;           /* Background */
+  --surface: #111D27;      /* Surface */
+  --content: #FFFFFF;
+  --secondary: rgb(255 255 255 / 62%);
+  --dim: rgb(255 255 255 / 45%);
+  --line: rgb(255 255 255 / 18%);
+  --primary: #4DFFD2;      /* 민트: 핵심 숫자 하나 */
+  --warning: #FF5C7A;      /* 분홍: 경고·심박 */
+  --gauge: #4DC4FF;        /* 파랑: 테두리 호·점 */
+  --num: "Rajdhani", "Noto Sans KR", sans-serif;
+  --ui: "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --size: min(100vw, 100vh);
+  --u: calc(var(--size) / 454);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; color: var(--content); overflow: hidden; }
+.stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+.hidden { display: none !important; }
+
+.face { position: relative; width: var(--size); height: var(--size); border-radius: 50%; overflow: hidden; background: var(--bg); }
+.face-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.content { position: absolute; top: calc(72 * var(--u)); bottom: calc(84 * var(--u)); left: calc(70 * var(--u)); right: calc(70 * var(--u));
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(8 * var(--u)); text-align: center; }
+.face.has-button .content { bottom: calc(104 * var(--u)); }
+
+/* 글자(RunwayType) */
+.cap, .body { font-family: var(--ui); font-weight: 400; font-size: calc(20 * var(--u)); line-height: 1.3; color: var(--secondary); }
+.status-text { font-family: var(--ui); font-weight: 700; font-size: calc(22 * var(--u)); line-height: 1.3; }
+.title { font-family: var(--ui); font-weight: 700; font-size: calc(32 * var(--u)); line-height: 1.3; color: var(--content); }
+.num { font-family: var(--num); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; line-height: 1; white-space: nowrap; }
+.hero { display: flex; align-items: flex-end; }
+.hero .num { font-weight: 500; color: var(--primary); }
+.hero.dim .num, .num.dim { color: var(--dim); }
+.hero .unit { font-family: var(--num); font-weight: 600; font-size: calc(36 * var(--u)); line-height: 1; color: var(--secondary); margin-left: calc(4 * var(--u)); }
+.inline { display: flex; align-items: flex-end; }
+.inline .num { font-weight: 600; color: var(--content); }
+.inline .sym { font-family: var(--num); font-weight: 600; color: var(--secondary); margin-right: calc(4 * var(--u)); line-height: 1; }
+.inline .sym.heart { color: var(--warning); }
+.inline .unit { font-family: var(--num); font-weight: 500; color: var(--secondary); margin-left: calc(4 * var(--u)); line-height: 1; }
+.labeled { display: flex; align-items: flex-end; gap: calc(10 * var(--u)); }
+.line { font-family: var(--num); line-height: 1.15; }
+.line.strong { font-weight: 700; font-size: calc(32 * var(--u)); color: var(--content); }
+.line.soft { font-weight: 600; font-size: calc(28 * var(--u)); color: var(--secondary); }
+.divider { width: calc(220 * var(--u)); height: calc(2 * var(--u)); background: var(--line); flex: none; }
+.cells { display: flex; gap: calc(44 * var(--u)); align-items: flex-end; }
+.cell { display: flex; flex-direction: column; align-items: center; }
+.cell .num { font-weight: 600; font-size: calc(44 * var(--u)); color: var(--content); }
+.cell .label { font-family: var(--ui); font-size: calc(20 * var(--u)); line-height: 1.3; color: var(--secondary); }
+.chip { border: calc(2 * var(--u)) solid var(--content); border-radius: 999px; padding: calc(4 * var(--u)) calc(18 * var(--u));
+  font-family: var(--ui); font-weight: 700; font-size: calc(22 * var(--u)); line-height: 1.3; }
+.rank { display: flex; align-items: flex-end; }
+.rank .rest { font-family: var(--num); font-weight: 600; font-size: calc(36 * var(--u)); color: var(--secondary); margin: 0 0 calc(16 * var(--u)) calc(6 * var(--u)); line-height: 1; }
+
+/* 아래 버튼(EdgeButton ExtraSmall, SECONDARY)과 오른쪽 손잡이(❚❚). 시연 화면이라 누르지 않는다 */
+.bottom-button { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: calc(240 * var(--u)); height: calc(96 * var(--u));
+  border-radius: calc(46 * var(--u)) calc(46 * var(--u)) 0 0; background: var(--surface);
+  display: grid; place-items: start center; padding-top: calc(26 * var(--u));
+  font-family: var(--ui); font-weight: 700; font-size: calc(24 * var(--u)); color: var(--content); }
+/* 손잡이: 에뮬레이터 캡처(9.2·9.5·9.7)처럼 오른쪽 끝에 붙은 둥근 사각형 */
+.handle { position: absolute; right: calc(2 * var(--u)); top: 50%; transform: translateY(-50%); width: calc(42 * var(--u)); height: calc(86 * var(--u));
+  border-radius: calc(12 * var(--u)); background: var(--surface); border: calc(2 * var(--u)) solid rgb(255 255 255 / 22%);
+  display: flex; align-items: center; justify-content: center; gap: calc(3.7 * var(--u)); padding-left: calc(4 * var(--u)); }
+.handle i { width: calc(3.7 * var(--u)); height: calc(12.8 * var(--u)); border-radius: calc(1.1 * var(--u)); background: var(--content); }
+
+/* 리듬 BPM 박자: 켜진 점이 박자마다 한 번 옅어진다(초당 3번 이하, watch-logic beatIntervalMs) */
+.ticks.beat .on { animation: beat var(--beat, 1000ms) linear infinite; }
+@keyframes beat { 0% { opacity: 1; } 18% { opacity: .35; } 100% { opacity: 1; } }
+
+/* 진동 안내: 실제 워치는 페이스가 바뀌면 0.4초 한 번 진동(GroupPaceAlert). 원 테두리가 한 번 빛나고 짧게 흔들린다 */
+.face.buzz { animation: buzz-shake .4s ease-in-out 1; }
+.face.buzz::after { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  box-shadow: inset 0 0 0 calc(6 * var(--u)) var(--primary); animation: buzz-ring .9s ease-out 1 both; }
+@keyframes buzz-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(calc(-5 * var(--u))); }
+  50% { transform: translateX(calc(5 * var(--u))); } 75% { transform: translateX(calc(-3 * var(--u))); } }
+@keyframes buzz-ring { 0% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .face.buzz { animation: none; } .ticks.beat .on { animation: none; } }
+
+/* 원 밖(사각 창 모서리)의 작은 연결 상태·토큰 입력 */
+.conn { position: absolute; left: .6rem; bottom: .4rem; margin: 0; font: 400 .72rem/1.3 var(--ui); color: rgb(255 255 255 / 45%); }
+.conn.bad { color: var(--warning); }
+.auth { position: absolute; inset: auto 1rem 1.6rem 1rem; display: flex; gap: .4rem; align-items: center; justify-content: center;
+  font: 400 .8rem var(--ui); color: var(--secondary); }
+.auth input { width: 12rem; padding: .35rem .6rem; border-radius: .5rem; border: 1px solid rgb(255 255 255 / 25%); background: #0B141C; color: #fff; }
+.auth button { padding: .35rem .9rem; border-radius: 999px; border: 0; background: var(--primary); color: #000; font-weight: 700; }
