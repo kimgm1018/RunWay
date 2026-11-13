@@ -88,6 +88,7 @@ public enum ErrorCode {
     VALIDATION_ERROR_COMMUNITY_REQUIRE_LIKE_TYPE(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "reactionType은 LIKE만 지원합니다."),
     INVALID_POST(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_POST", "공유할 수 있는 완료 러닝 기록이 아닙니다."),
+    INVALID_REGION(HttpStatus.BAD_REQUEST, "INVALID_REGION", "존재하지 않는 지역 코드입니다."),
     POST_NOT_FOUND(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다."),
     POST_SCOPE_INVALID(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "scope는 ALL 또는 FOLLOWING만 허용됩니다."),
     ACCOUNT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCOUNT_ACCESS_DENIED", "비공개 계정 게시물에 접근할 수 없습니다."),

@@ -25,6 +25,9 @@ import com.runway.backend.domain.community.repository.PostRepository;
 import com.runway.backend.domain.community.repository.RunningSessionLookupRepository;
 import com.runway.backend.domain.community.repository.RunningSessionLookupRepository.SessionShareInfo;
 import com.runway.backend.domain.community.service.PostPageCursor.ActivityCursor;
+import com.runway.backend.domain.crew.repository.RegionExistsRepository;
+import com.runway.backend.domain.image.ImagePurpose;
+import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.domain.course.service.RunCourseService;
@@ -64,6 +67,8 @@ public class PostService {
     private final PostPageQueryRepository postPageQueryRepository;
     private final EntityManager entityManager;
     private final RunCourseService runCourseService;
+    private final RegionExistsRepository regionExistsRepository;
+    private final ImageService images;
 
     @Transactional
     public PostCreateResponse create(long userId, CreatePostRequest request) {
@@ -78,6 +83,17 @@ public class PostService {
         }
         if (session.isDeleted() || !session.isCompleted()) {
             throw invalidPost();
+        }
+
+        // S15P31E105-778: 없는 지역은 외래키 오류(500) 전에, 이미지 키는 크루 사진과 같은 규칙(본인 POST 폴더·uuid·jpg/png·파일
+        // 존재)으로 먼저 거절한다. 코스 변환보다 앞에 두어 거절된 요청이 코스를 만들지 않게 한다.
+        String regionCode = blankToNull(request.regionCode());
+        if (regionCode != null && !regionExistsRepository.existsByRegionCode(regionCode)) {
+            throw new ApiException(ErrorCode.INVALID_REGION);
+        }
+        String imageKey = blankToNull(request.imageKey());
+        if (imageKey != null) {
+            imageKey = images.requireOwnedImageKey(userId, ImagePurpose.POST, imageKey);
         }
 
         Long courseId = session.courseId();
@@ -96,8 +112,8 @@ public class PostService {
                         userId,
                         request.sessionId(),
                         blankToNull(request.body()),
-                        blankToNull(request.imageKey()),
-                        blankToNull(request.regionCode()),
+                        imageKey,
+                        regionCode,
                         courseShared);
         postRepository.save(post);
         postRepository.flush();
