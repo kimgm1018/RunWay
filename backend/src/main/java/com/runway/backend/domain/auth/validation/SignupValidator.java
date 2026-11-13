@@ -41,7 +41,7 @@ public class SignupValidator {
         String loginId = (String) request.loginId();
         validateLoginId(loginId);
         String password = (String) request.password();
-        if (!PasswordPolicy.accepts(password))
+        if (!PasswordPolicy.acceptsNew(password) || PasswordPolicy.sameAsLoginId(password, loginId))
             throw new ApiException(ErrorCode.INVALID_PASSWORD_POLICY);
         String nickname = (String) request.nickname();
         if (!text(nickname, 2, 10, false)) throw new ApiException(ErrorCode.INVALID_PROFILE);

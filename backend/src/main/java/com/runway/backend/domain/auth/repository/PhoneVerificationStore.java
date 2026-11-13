@@ -90,6 +90,24 @@ public class PhoneVerificationStore {
         } catch (RuntimeException exception) {
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
+        return proof(value);
+    }
+
+    /**
+     * 증명을 소비하지 않고 읽는다(U30 아이디 대조, S15P31E105-773). 결과는 참고용이며 실제 사용 가능 여부는 {@link #consume}이
+     * 다시 정한다.
+     */
+    public Optional<Proof> peek(String token) {
+        String value;
+        try {
+            value = redis.opsForValue().get(proofKey(token));
+        } catch (RuntimeException exception) {
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
+        return proof(value);
+    }
+
+    private static Optional<Proof> proof(String value) {
         if (value == null) return Optional.empty();
         int separator = value.indexOf(':');
         var purpose = PhoneVerificationPurpose.parse(separator < 0 ? null : value.substring(0, separator));

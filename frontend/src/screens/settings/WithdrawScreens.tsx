@@ -36,7 +36,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1 } from '../../theme';
 import { settingsLook } from './SettingsScreen';
-import { isValidPassword } from '../onboarding/validation';
+import { isValidCurrentPassword } from '../onboarding/validation';
 
 // The glass of the 8.4 · 8.5 cards and the 취소 button (runway-settings).
 const glassFill = {
@@ -371,8 +371,9 @@ export function WithdrawPasswordScreen() {
       footer={
         <Actions
           next="탈퇴하기"
-          // The same rule as sign-up and login (8–20 characters, no spaces); others the server turns down anyway.
-          disabled={!isValidPassword(password) || busy}
+          // The server's format for a password already set (8–20 characters, no spaces), so an account whose password
+          // predates the ASCII-only rule can still leave (S15P31E105-773 review A-1).
+          disabled={!isValidCurrentPassword(password) || busy}
           onCancel={() => navigateTo(navigation, 'Settings')}
           onNext={withdraw}
         />

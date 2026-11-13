@@ -7,6 +7,26 @@ export function isValidLoginId(value: string) {
   return /^[A-Za-z0-9]{4,16}$/.test(value);
 }
 
+// S15P31E105-773: 아이디·비밀번호 칸은 쓸 수 없는 문자(한글·이모지·공백 등)를 입력하는 즉시 지운다. 아이디는 영문·숫자만, 비밀번호는
+// 영문·숫자·키보드 특수문자(ASCII 0x21~0x7E)만 받는다(users.md U15·U30). 지운 문자가 있으면 칸 아래에 이 안내를 보인다.
+export const loginIdCharsNotice = '영문·숫자만 입력할 수 있어요';
+export const passwordCharsNotice = '영문·숫자·특수문자만 입력할 수 있어요';
+
+export function cleanLoginId(value: string) {
+  return value.replace(/[^A-Za-z0-9]/g, '');
+}
+
+export function cleanPassword(value: string) {
+  return value.replace(/[^\x21-\x7E]/g, '');
+}
+
+// 아이디와 같은 비밀번호는 대소문자와 상관없이 쓸 수 없다(users.md U15·U30, S15P31E105-773).
+export const passwordSameAsIdRule = '아이디와 다른 비밀번호를 입력해 주세요';
+
+export function sameAsLoginId(password: string, loginId?: string) {
+  return !!loginId && password.toLowerCase() === loginId.toLowerCase();
+}
+
 // 1.3 shows each password condition as its own chip.
 export function passwordChecks(value: string) {
   return {
@@ -24,10 +44,18 @@ export function passwordWithinLimit(value: string) {
   return [...value].length <= 20 && !/\s/.test(value);
 }
 
-export function isValidPassword(value: string) {
+// 이미 정한 비밀번호를 확인할 때(탈퇴 등): 서버 공통 형식(8~20자·공백 없음)만 본다. 773 이전에 가입한 계정의 한글 등
+// 비밀번호도 막지 않는다(users.md, S15P31E105-773 리뷰 A-1).
+export function isValidCurrentPassword(value: string) {
+  return [...value].length >= 8 && passwordWithinLimit(value);
+}
+
+export function isValidPassword(value: string, loginId?: string) {
   return (
     Object.values(passwordChecks(value)).every(Boolean) &&
-    passwordWithinLimit(value)
+    passwordWithinLimit(value) &&
+    cleanPassword(value) === value &&
+    !sameAsLoginId(value, loginId)
   );
 }
 
@@ -38,7 +66,10 @@ export const passwordRule = '영문, 숫자 포함 8자 이상';
 // 아이디 칸 규칙(영문/숫자 4~16자)과 같은 순서로 보인다(S15P31E105-646).
 const passwordLabels = { letter: '영문', digit: '숫자', length: '8자 이상' };
 
-export function passwordGuide(value: string): {
+export function passwordGuide(
+  value: string,
+  loginId?: string,
+): {
   status: 'default' | 'success' | 'error';
   helper: string | undefined;
 } {
@@ -49,7 +80,13 @@ export function passwordGuide(value: string): {
   if (value && !passwordWithinLimit(value)) {
     return { status: 'error', helper: passwordLimitRule };
   }
-  if (value && isValidPassword(value)) {
+  if (cleanPassword(value) !== value) {
+    return { status: 'error', helper: passwordCharsNotice };
+  }
+  if (sameAsLoginId(value, loginId)) {
+    return { status: 'error', helper: passwordSameAsIdRule };
+  }
+  if (value && isValidPassword(value, loginId)) {
     return { status: 'success', helper: '사용할 수 있는 비밀번호예요' };
   }
   // 아이디 칸처럼 조건을 다 채우기 전에는 빨간 테두리·글씨로 알리고, 만족한 조건에는 ✓를 붙인다(S15P31E105-646).
@@ -247,6 +284,16 @@ export function formatPace(secondsPerKm: number) {
     2,
     '0',
   )}″/km`;
+}
+
+// 거리 칸은 숫자와 소수점 하나만 남긴다. 붙여넣은 '5.5km'는 5.5가 되고, 소수점 키가 쉼표인 기기의 '5,5'도 5.5다.
+// 두 번째 소수점부터는 버려 '1.2.3'이 다른 거리(1.23)로 바뀌지 않게 한다(S15P31E105-773 리뷰 A-3·B-2).
+export function cleanDistance(value: string) {
+  const [whole, fraction] = value
+    .replace(/,/g, '.')
+    .replace(/[^0-9.]/g, '')
+    .split('.');
+  return fraction === undefined ? whole : `${whole}.${fraction}`;
 }
 
 export function parseDistanceKm(value: string) {

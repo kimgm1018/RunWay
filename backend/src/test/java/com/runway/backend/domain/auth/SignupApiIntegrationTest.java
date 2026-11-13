@@ -177,6 +177,13 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
         invalid.put("password", "short");
         assertThat(mapper.readTree(signup(invalid, 422)).get("code").asString())
                 .isEqualTo("INVALID_PASSWORD_POLICY");
+        // S15P31E105-773: 앱을 거치지 않은 요청도 한글·아이디와 같은 비밀번호를 거절한다.
+        for (String password : java.util.List.of("비밀번호12345", "RUNNER02")) {
+            invalid = SignupValidationTest.payload("runner02", "새러너", false);
+            invalid.put("password", password);
+            assertThat(mapper.readTree(signup(invalid, 422)).get("code").asString())
+                    .isEqualTo("INVALID_PASSWORD_POLICY");
+        }
         mvc.perform(get("/api/v1/users/me/crews")).andExpect(status().isUnauthorized());
         for (int required = 0; required < 3; required++) {
             var rejected = SignupValidationTest.payload("runner02", "새러너", false);

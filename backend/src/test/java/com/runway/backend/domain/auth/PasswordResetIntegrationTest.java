@@ -103,6 +103,58 @@ class PasswordResetIntegrationTest extends AuthIntegrationSupport {
     }
 
     @Test
+    void 영문_숫자_특수문자_밖의_문자는_증명을_쓰지_않고_거절한다() throws Exception {
+        String token = proof(PhoneVerificationPurpose.PASSWORD_RESET, "synthetic-reset-8");
+        for (String password : java.util.List.of("비밀번호12345", "😀".repeat(8), "abcdefgé1")) {
+            reset(token, password)
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("INVALID_PASSWORD_POLICY"));
+        }
+        assertThat(redis.hasKey(PhoneVerificationStore.proofKey(token))).isTrue();
+        login("Runner9!").andExpect(status().isOk());
+        reset(token, NEW_PASSWORD).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void 그_번호_회원의_아이디와_같은_비밀번호는_증명을_쓰지_않고_거절한다(CapturedOutput output) throws Exception {
+        String token = proof(PhoneVerificationPurpose.PASSWORD_RESET, "synthetic-reset-9");
+        String hash = jdbc.queryForObject("SELECT password FROM users WHERE id=?", String.class, user);
+        for (String password : java.util.List.of("runner01", "RUNNER01", "Runner01")) {
+            reset(token, password)
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("INVALID_PASSWORD_POLICY"));
+        }
+        assertThat(redis.hasKey(PhoneVerificationStore.proofKey(token))).isTrue();
+        assertThat(jdbc.queryForObject("SELECT password FROM users WHERE id=?", String.class, user))
+                .isEqualTo(hash);
+        login("Runner9!").andExpect(status().isOk());
+        // 아이디가 포함됐을 뿐 같지 않으면 허용한다.
+        reset(token, "runner01!").andExpect(status().isNoContent());
+        login("runner01!").andExpect(status().isOk());
+        assertThat(output.getAll()).doesNotContain(PHONE).doesNotContain(token).doesNotContain("RUNNER01");
+    }
+
+    @Test
+    void 아이디와_같아도_증명이_없거나_회원이_둘이면_기존_오류를_따른다() throws Exception {
+        reset("never-issued", "runner01")
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("VERIFICATION_EXPIRED"));
+        String signUp = proof(PhoneVerificationPurpose.SIGN_UP, "synthetic-reset-10");
+        reset(signUp, "runner01").andExpect(status().isGone());
+
+        String twice = proof(PhoneVerificationPurpose.PASSWORD_RESET, "synthetic-reset-11");
+        jdbc.update("""
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('runner02',?,'러너2','2000-01-01','MALE',?,'DISAGREE')
+                """, encoded, PHONE);
+        reset(twice, "runner01")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PHONE_ACCOUNT_AMBIGUOUS"));
+        jdbc.update("DELETE FROM users WHERE login_id='runner02'");
+        login("Runner9!").andExpect(status().isOk());
+    }
+
+    @Test
     void 형식이_틀리면_400이다() throws Exception {
         String token = proof(PhoneVerificationPurpose.PASSWORD_RESET, "synthetic-reset-4");
         reset(null, NEW_PASSWORD).andExpect(status().isBadRequest());
