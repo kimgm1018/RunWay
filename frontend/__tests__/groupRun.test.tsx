@@ -588,7 +588,9 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
         screen,
         '목표 완주 시간',
         'onAccessibilityAction',
-      ).props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } });
+      ).props.onAccessibilityAction({
+        nativeEvent: { actionName: 'increment' },
+      });
     });
   }
   // The ruler gives 6.8 its value once it rests (150ms).
@@ -677,17 +679,39 @@ test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   await type(screen, '지역 검색', '광안리');
   await waitForAction(screen, '광안리해수욕장 입구');
   await press(screen, '광안리해수욕장 입구');
+  const capacity = () => labelled(screen, '모집 인원', 'onChangeText');
   await press(screen, '모집 인원 늘리기');
-  expect(texts(screen)).toContain('21');
+  expect(capacity().props.value).toBe('21');
+  expect(create().props.disabled).toBe(false);
+  // S15P31E105-774: the count can be typed straight in; out of 1–200 or empty, 크루 만들기 waits.
+  await type(screen, '모집 인원', '201');
+  expect(create().props.disabled).toBe(true);
+  await type(screen, '모집 인원', '');
+  expect(create().props.disabled).toBe(true);
+  await press(screen, '모집 인원 늘리기');
+  expect(capacity().props.value).toBe('21');
+  await type(screen, '모집 인원', '15o');
+  expect(capacity().props.value).toBe('15');
+  await type(screen, '모집 인원', '150');
   expect(create().props.disabled).toBe(false);
   await press(screen, '크루 만들기');
   await settle(100);
   let page = texts(screen);
   expect(page).toContain('광안리 주말 러너스');
+  // The 크루 모집 page loads again too, so the new crew is there without leaving the tab.
+  expect(
+    screen.root
+      .findByType(CrewRecruitPage)
+      .findAll(node =>
+        String(node.props.accessibilityLabel ?? '').startsWith(
+          '광안리 주말 러너스,',
+        ),
+      ).length,
+  ).toBeGreaterThan(0);
 
   await press(screen, '광안리 주말 러너스 크루 상세');
   page = texts(screen);
-  expect(page).toContain('1 / 21명');
+  expect(page).toContain('1 / 150명');
   expect(page).toContain('· 승인제');
   expect(page).toContain('민준 (나)');
   expect(page).toContain('가입 신청 0건');

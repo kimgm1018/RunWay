@@ -40,7 +40,8 @@ import math
 import os
 
 from app.ai_logging import log_ai_error
-from app.speed_calibration import SPEED_REF_MAX_DURATION_SEC, SPEED_REF_VALID_RANGE_MPS
+from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_MIN_DISTANCE_M, SPEED_REF_MIN_MOVING_SEC,
+                                   SPEED_REF_VALID_RANGE_MPS)
 
 log = logging.getLogger("runway.ai")
 
@@ -77,7 +78,9 @@ WHERE user_id = %(user_id)s
   AND total_distance > 0
   AND moving_duration > 0
   AND GREATEST(moving_duration, COALESCE(elapsed_duration, 0)) <= %(max_duration_sec)s
-  AND total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s"""
+  AND total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s
+  AND moving_duration >= %(min_moving_sec)s
+  AND total_distance >= %(min_distance_m)s"""
 
 
 @dataclass(frozen=True)
@@ -278,7 +281,8 @@ class DbRunnerProfileLookup:
         """402와 같은 조건의 지난 러닝 수(상한 없음). 실패하면 0과 경고(기준 100%)."""
         low, high = PAST_RUN_SPEED_RANGE_MPS
         params = {"user_id": int(user_id), "cutoff": cutoff, "max_duration_sec": PAST_RUN_MAX_DURATION_SEC,
-                  "min_speed_mps": low, "max_speed_mps": high}
+                  "min_speed_mps": low, "max_speed_mps": high,
+                  "min_moving_sec": SPEED_REF_MIN_MOVING_SEC, "min_distance_m": SPEED_REF_MIN_DISTANCE_M}
         try:
             row = self._fetch_one(PAST_RUN_COUNT_SQL, params)
         except Exception as exc:

@@ -21,6 +21,7 @@ import {
   type RunConfig,
 } from './RunSession';
 import type { ControlProblem } from './runControl';
+import type { SessionStatus } from '../../data/types';
 import {
   fontFamily,
   k1,
@@ -157,7 +158,13 @@ export function RunStartBar({
   const pendingGroupScreen = useRef(false);
   const pendingRunScreen = useRef(false);
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
-  const latest = useRef({ config, navigation, start: startRun, prepare, foreground });
+  const latest = useRef({
+    config,
+    navigation,
+    start: startRun,
+    prepare,
+    foreground,
+  });
   latest.current = { config, navigation, start: startRun, prepare, foreground };
   // 미리 준비(S15P31E105-533): 목표가 정해진 채 이 화면에 있으면 세션 생성·AI 계획·워치 준비를 미리 끝내 둔다.
   // 3초 카운트다운은 그대로이고, 카운트다운 뒤에는 시작 승인·워치 실행·저장 확인만 남는다. 목표를 바꾸는 동안에는
@@ -207,10 +214,17 @@ export function RunStartBar({
   // 이 화면에서 시작을 요청했고 아직 확정되지 않았다. 워치가 실제로 시작해 서버가 확정해야 4.2로 넘어간다.
   const [requested, setRequested] = useState(false);
   // 시작이 확정되면(재확인 성공·늦은 결과·워치에서 시작 포함) 이 화면에 있을 때 4.2로 넘어간다.
-  const previousStatus = useRef(control?.status ?? null);
+  // previousStatus는 항상 null로 시작한다: 응답 유실·앱 재시작으로 이미 RUNNING/PAUSED인 세션에
+  // 막 붙은 경우도(S01 409) "처음 관찰한 활성 상태"로 다뤄 바로 4.2로 넘어가야 한다. control?.status를
+  // 초기값으로 쓰면 그 경우 전이가 감지되지 않아 이 화면에 멈춰 있었다(S15P31E105-777).
+  const previousStatus = useRef<SessionStatus | null>(null);
   useEffect(() => {
     const status = control?.status ?? null;
-    if (focused && status === 'RUNNING' && previousStatus.current !== 'RUNNING') {
+    if (
+      focused &&
+      (status === 'RUNNING' || status === 'PAUSED') &&
+      previousStatus.current !== status
+    ) {
       pendingRunScreen.current = true;
     }
     previousStatus.current = status;
@@ -226,13 +240,19 @@ export function RunStartBar({
     }
     if (
       focused &&
-      ((pendingRunScreen.current && (status === 'RUNNING' || status === 'PAUSED' || status === 'COMPLETED')) ||
+      ((pendingRunScreen.current &&
+        (status === 'RUNNING' ||
+          status === 'PAUSED' ||
+          status === 'COMPLETED')) ||
         (pendingGroupScreen.current && status !== 'COMPLETED'))
     ) {
       pendingRunScreen.current = false;
       pendingGroupScreen.current = false;
       setRequested(false);
-      navigateTo(navigation, status === 'COMPLETED' ? 'RunResult' : 'RunProgress');
+      navigateTo(
+        navigation,
+        status === 'COMPLETED' ? 'RunResult' : 'RunProgress',
+      );
     }
     // 문제 표시, 또는 시작하려다 이미 진행·일시정지 중인 본인 세션에 붙어 그 화면으로 돌아간 경우(S01 409).
     if (control?.problem || (status !== null && status !== 'READY')) {
@@ -495,9 +515,17 @@ function startNotice(problem: ControlProblem | null): {
   }
   switch (problem.kind) {
     case 'locationRequired':
-      return { text: '휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.', restart: true };
+      return {
+        text: '휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.',
+        restart: true,
+      };
     case 'watchRequired':
       return { text: '워치를 연결해 주세요' };
+    case 'watchUnregistered':
+      return {
+        text: '워치가 계정에 등록되지 않아 폰으로 기록해요. 워치로 기록하려면 설정 > 기기에서 워치를 등록해 주세요. 폰으로 하려면 다시 시작해 주세요.',
+        restart: true,
+      };
     case 'watchNotReady':
       return { text: '워치가 준비되지 않았어요', restart: true };
     case 'rejected':
@@ -517,6 +545,20 @@ function startNotice(problem: ControlProblem | null): {
     case 'error':
       return { text: '러닝을 시작하지 못했어요', restart: true };
   }
+}
+
+// The place card when the phone could not give where I am (no permission, location off, no fix): it says so and a
+// tap looks again, instead of the map staying silent (S15P31E105-798, TEAM QA T22).
+export function PlaceRetryCard({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="현재 위치 다시 찾기"
+      onPress={onPress}
+    >
+      <PlaceCard name="못 찾았어요 · 다시 찾기" gps="none" />
+    </Pressable>
+  );
 }
 
 export const gpsLabels: Record<GpsQuality, string> = {

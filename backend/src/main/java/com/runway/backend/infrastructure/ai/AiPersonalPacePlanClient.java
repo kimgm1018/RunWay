@@ -199,7 +199,10 @@ public final class AiPersonalPacePlanClient implements PersonalPacePlanPort {
                             number(
                                     root,
                                     population ? "recommendedPaceSecPerKm" : "targetPaceSecPerKm"),
-                            values));
+                            values,
+                            !population
+                                    && root.path("paceSearchBoundaryHit").isBoolean()
+                                    && root.path("paceSearchBoundaryHit").booleanValue()));
         } catch (RuntimeException e) {
             return Optional.empty();
         }

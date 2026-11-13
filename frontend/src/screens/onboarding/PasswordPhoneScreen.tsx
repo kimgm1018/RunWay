@@ -19,13 +19,16 @@ import {
 } from './parts';
 import { PhoneCodeStep } from './PhoneCodeStep';
 import { usePhoneVerification } from './usePhoneVerification';
+import { useCleanText } from './useCleanText';
 import {
+  cleanPassword,
   confirmGuide,
   formatPhoneNumber,
   isValidPassword,
+  passwordCharsNotice,
   passwordGuide,
-  passwordLimitRule,
   passwordRule,
+  passwordSameAsIdRule,
 } from './validation';
 
 // U30 failures that used up the proof or leave it in doubt: verify the number again (users.md U30). A 5xx such as
@@ -66,8 +69,15 @@ export function PasswordPhoneScreen() {
   const { auth } = useRepositories();
   const toast = useToast();
   const phone = usePhoneVerification('PASSWORD_RESET');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  // 쓸 수 없는 문자는 입력 즉시 지우고 이유를 알린다(S15P31E105-773).
+  const [password, setPassword, passwordDropped] = useCleanText(
+    '',
+    cleanPassword,
+  );
+  const [confirm, setConfirm, confirmDropped] = useCleanText(
+    '',
+    cleanPassword,
+  );
   const [saving, setSaving] = useState(false);
   // 'policy': the server turned the password down and the proof still holds; 'retry': the answer was lost.
   const [failed, setFailed] = useState<'policy' | 'retry' | null>(null);
@@ -77,11 +87,15 @@ export function PasswordPhoneScreen() {
   const phoneError = phone.error?.field === 'phone' ? phone.error : null;
   const passwordOk = isValidPassword(password) && confirm === password;
   // 회원가입과 같은 안내(S15P31E105-627). 서버가 정책 위반(422)으로 돌려보내면 증명은 그대로 두고 규칙을 알린다.
-  const passwordState =
-    failed === 'policy'
-      ? { status: 'error' as const, helper: passwordLimitRule }
-      : passwordGuide(password);
-  const confirmState = confirmGuide(password, confirm);
+  // 길이·문자는 앱이 먼저 막으므로 남는 원인은 그 번호 회원의 아이디와 같은 비밀번호다(users.md U30, S15P31E105-773).
+  const passwordState = passwordDropped
+    ? { status: 'error' as const, helper: passwordCharsNotice }
+    : failed === 'policy'
+    ? { status: 'error' as const, helper: passwordSameAsIdRule }
+    : passwordGuide(password);
+  const confirmState = confirmDropped
+    ? { status: 'error' as const, helper: passwordCharsNotice }
+    : confirmGuide(password, confirm);
 
   const changePassword = (text: string) => {
     setPassword(text);

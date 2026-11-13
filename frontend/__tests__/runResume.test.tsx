@@ -190,7 +190,7 @@ test('a session that was never started is restored to the start screen', async (
   expect(seen.run.run).toBeNull();
 });
 
-test('another account’s session is not restored', async () => {
+test('another account’s session is not restored and the run service forgets it (S15P31E105-814)', async () => {
   const repositories = repositoriesFor();
   await startedSession(repositories);
   const other: Repositories = {
@@ -207,6 +207,7 @@ test('another account’s session is not restored', async () => {
   expect(seen.control).toBeNull();
   expect(seen.target).toBeNull();
   expect(seen.run.run).toBeNull();
+  expect(await repositories.watchSession.getActiveSessionId()).toBeNull();
 });
 
 test('a deleted session is not restored and the run service forgets it', async () => {
@@ -218,6 +219,28 @@ test('a deleted session is not restored and the run service forgets it', async (
   expect(seen.control).toBeNull();
   expect(seen.target).toBeNull();
   expect(await repositories.watchSession.getActiveSessionId()).toBeNull();
+});
+
+// S15P31E105-814: 기억한 진행 세션이 없으면 앱을 다시 열 때 남아 있던 '러닝 중' 알림(러닝 서비스)을 정리한다.
+test('with no remembered session, opening the app stops a leftover run service', async () => {
+  const repositories = repositoriesFor();
+  const setRunActive = jest.spyOn(repositories.watchSession, 'setRunActive');
+  await mount(repositories, true);
+  await settle(300);
+
+  expect(seen.control).toBeNull();
+  expect(setRunActive).toHaveBeenCalledWith(false);
+  expect(setRunActive).not.toHaveBeenCalledWith(true, expect.anything());
+});
+
+test('a restored running session keeps the run service on', async () => {
+  const repositories = repositoriesFor();
+  await startedSession(repositories);
+  const setRunActive = jest.spyOn(repositories.watchSession, 'setRunActive');
+  await mount(repositories, true);
+  await waitUntil(() => seen.target !== null, 'resume target');
+
+  expect(setRunActive.mock.calls.map(call => call[0])).toEqual([true]);
 });
 
 test('a finished session is not restored', async () => {

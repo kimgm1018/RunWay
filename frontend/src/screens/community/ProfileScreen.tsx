@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -22,11 +28,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PagerView from 'react-native-pager-view';
 import Svg, {
+  Circle,
   Defs,
   LinearGradient,
+  Path,
   Rect,
   Stop,
-  Text as SvgText,
 } from 'react-native-svg';
 import {
   AppText,
@@ -39,6 +46,7 @@ import {
 } from '../../components';
 import {
   DataError,
+  ownImageSource,
   useRepositories,
   type CourseMapData,
   type FollowListKind,
@@ -61,19 +69,23 @@ import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
 import {
+  CardViewportContext,
   CourseMapThumb,
+  createCardViewport,
   useOpenSavedCourse,
 } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
 import { BackButton } from '../../components/BackButton';
+import { runRouteOf } from '../../components/mapRoute';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import { usePostPages } from './usePostPages';
+import { PhotoZoom, zoomablePhoto } from './PhotoZoom';
 
 // 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into the mist (홈 · 러닝과
 // 같은 배경, S15P31E105-483), the name sits over its foot, then one wide navy button, a row of three numbers, a
 // glass card and the runs
 // as two-column photo tiles. The picture is the runner's profile photo; without one it is a mist-to-teal
-// gradient with the nickname's first letter large on it (담당자 결정). Only what the screen already showed is drawn.
+// gradient with the default profile picture's figure large on it (S15P31E105-775). Only what the screen already showed is drawn.
 const look = {
   // The picture without a photo: pale mist at the top, through steel and teal; the mist covers its foot.
   hero: [
@@ -154,36 +166,52 @@ const panelLead = 130;
 const blurAmount = 26;
 // The photo's blur once the page has scrolled (Image blurRadius).
 const photoBlur = 24;
-// The nickname's first letter, drawn huge so its lower half reaches behind the info area.
-const letterSize = 330;
-const letterTop = 70;
-// Where the sharp letter fades, as parts of its height: whole down to fadeFrom, gone by fadeTo.
+// The default profile picture's figure (S15P31E105-775), drawn huge so its shoulders reach behind the info area.
+const figureSize = 300;
+const figureTop = 90;
+// Where the sharp figure fades, as parts of its height: whole down to fadeFrom, gone by fadeTo.
 const fadeFrom = 0.5;
 const fadeTo = 0.86;
 
-// The letter as Svg text, so its fill can fade toward the foot. Both copies are drawn the same way, so
+// The figure as Svg lines, so its stroke can fade toward the foot. Both copies are drawn the same way, so
 // the sharp one lies exactly over the blurred one.
-function Letter({
-  initial,
+function Figure({
   id,
   width,
   fade,
 }: {
-  initial: string;
   id: string;
   width: number;
   fade: boolean;
 }) {
-  const height = letterSize * 1.25;
+  const stroke = fade ? `url(#${id})` : '#FFFFFF';
+  const line = {
+    fill: 'none',
+    stroke,
+    strokeOpacity: fade ? 1 : 0.92,
+    strokeWidth: 1.2,
+    strokeLinecap: 'round' as const,
+  };
   return (
     <Svg
+      testID="default-avatar"
       width={width}
-      height={height}
-      style={[styles.letter, { top: letterTop }]}
+      height={figureSize}
+      viewBox={`${12 - (12 * width) / figureSize} 0 ${
+        (24 * width) / figureSize
+      } 24`}
+      style={[styles.letter, { top: figureTop }]}
     >
       {fade ? (
         <Defs>
-          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <LinearGradient
+            id={id}
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="24"
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.92} />
             <Stop offset={fadeFrom} stopColor="#FFFFFF" stopOpacity={0.92} />
             <Stop offset={fadeTo} stopColor="#FFFFFF" stopOpacity={0} />
@@ -191,17 +219,8 @@ function Letter({
           </LinearGradient>
         </Defs>
       ) : null}
-      <SvgText
-        x={width / 2}
-        y={letterSize * 0.98}
-        textAnchor="middle"
-        fontFamily={fontFamily.bold}
-        fontSize={letterSize}
-        fill={fade ? `url(#${id})` : '#FFFFFF'}
-        fillOpacity={fade ? 1 : 0.92}
-      >
-        {initial}
-      </SvgText>
+      <Circle {...line} cx={12} cy={8.6} r={3.9} />
+      <Path {...line} d="M4.6 20.4c1.4-3.6 4.2-5.5 7.4-5.5s6 1.9 7.4 5.5" />
     </Svg>
   );
 }
@@ -210,21 +229,19 @@ function Letter({
 // the information scrolls up over it; the further it scrolls, the blurrier and darker the picture gets
 // (담당자 요청: 스크롤 내릴수록 흐려지게). React Native cannot blur what lies behind a view, so a blurred copy of the
 // picture (filter: blur, Android only; iOS stays sharp) fades in over the sharp one as the page scrolls.
-// The sharp letter's foot fades out so the info area starts calm, with a dark tint deepening below it.
+// The sharp figure's foot fades out so the info area starts calm, with a dark tint deepening below it.
 function HeroBackdrop({
-  initial,
   photo: address,
   heroHeight,
   scrollY,
 }: {
-  initial: string;
-  // The runner's photo (U21 profileImageUrl); without one the gradient and the letter stand in.
+  // The runner's photo (U21 profileImageUrl); without one the gradient and the default figure stand in.
   photo: string | null;
   heroHeight: number;
   scrollY: Animated.Value;
 }) {
   const { width, height } = useWindowDimensions();
-  // A photo that does not load leaves the gradient and the letter, as without one.
+  // A photo that does not load leaves the gradient and the figure, as without one.
   const [failed, setFailed] = useState<string | null>(null);
   const photo = address && address !== failed ? address : null;
   // Wider than the screen so the blur does not fade in at the sides.
@@ -292,20 +309,10 @@ function HeroBackdrop({
               },
             ]}
           >
-            <Letter
-              initial={initial}
-              id="profileLetterBlur"
-              width={blurWidth}
-              fade={false}
-            />
+            <Figure id="profileFigureBlur" width={blurWidth} fade={false} />
           </Animated.View>
           <Animated.View style={[styles.fill, { opacity: sharp }]}>
-            <Letter
-              initial={initial}
-              id="profileLetterSharp"
-              width={width}
-              fade
-            />
+            <Figure id="profileFigureSharp" width={width} fade />
           </Animated.View>
         </>
       )}
@@ -394,11 +401,17 @@ function RunTile({
   record,
   width,
   loadRoute,
+  noRouteLabel,
+  ownThumbnail = false,
   onPress,
 }: {
   record: RunRecordSummary;
   width: number;
   loadRoute?: () => Promise<CourseMapData | null>;
+  // 내 기록: the server's OSM thumbnail of the run, asked with my token, and never a live Naver map (S15P31E105-756).
+  ownThumbnail?: boolean;
+  // 내 기록 only: a run with no route says so (S15P31E105-756); a post may just not share its course.
+  noRouteLabel?: string;
   onPress: () => void;
 }) {
   const detail = record.group
@@ -428,6 +441,14 @@ function RunTile({
         km={record.distanceM / 1000}
         area={{ top: 0.08, bottom: 0.5 }}
         shadeFrom={0.42}
+        emptyLabel={noRouteLabel}
+        basemap={
+          ownThumbnail && record.routePreviewImageUrl
+            ? { imageUrl: record.routePreviewImageUrl, osmDataTimestamp: null }
+            : undefined
+        }
+        imageSource={ownThumbnail ? ownImageSource : undefined}
+        liveMap={!ownThumbnail}
       />
       <View style={styles.tileText}>
         {record.runType === 'GROUP' ? (
@@ -597,7 +618,9 @@ function ListStatus({
 function useMyRecords(active: boolean) {
   const { records } = useRepositories();
   const [items, setItems] = useState<RunRecordSummary[]>([]);
-  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>(
+    'loading',
+  );
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState(false);
@@ -782,15 +805,15 @@ function MyProfileLists({
                     key={record.id}
                     record={record}
                     width={tileWidth}
+                    // S11 measured route (S15P31E105-756): H02 detail leaves route null, so read the parts.
                     loadRoute={() =>
-                      recordsRepo
-                        .getDetail(record.id)
-                        .then(detail =>
-                          detail.route
-                            ? { route: detail.route, basemap: null }
-                            : null,
-                        )
+                      recordsRepo.getRoute(record.id).then(parts => {
+                        const run = runRouteOf(parts);
+                        return run ? { route: run.route, basemap: null } : null;
+                      })
                     }
+                    noRouteLabel="경로 기록 없음"
+                    ownThumbnail
                     onPress={() => openRecord(navigation, record.id)}
                   />
                 ))}
@@ -812,9 +835,7 @@ function MyProfileLists({
               onRetry={records.retry}
               loadingMore={records.loadingMore}
               moreError={
-                records.moreError
-                  ? '더 불러오지 못했어요 · 다시 시도'
-                  : null
+                records.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
               }
               onRetryMore={records.retryMore}
             />
@@ -849,15 +870,11 @@ function MyProfileLists({
                   : null
               }
               retryLabel="스크랩 다시 불러오기"
-              empty={
-                scraps.empty ? '아직 스크랩한 게시물이 없어요' : null
-              }
+              empty={scraps.empty ? '아직 스크랩한 게시물이 없어요' : null}
               onRetry={scraps.retry}
               loadingMore={scraps.loadingMore}
               moreError={
-                scraps.moreError
-                  ? '더 불러오지 못했어요 · 다시 시도'
-                  : null
+                scraps.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
               }
               onRetryMore={scraps.retry}
             />
@@ -922,19 +939,9 @@ function SharedRunsList({
   const pages = usePostPages(load);
   useEffect(() => {
     onNearEnd(
-      pages.moreError
-        ? pages.retry
-        : pages.hasMore
-        ? pages.loadMore
-        : null,
+      pages.moreError ? pages.retry : pages.hasMore ? pages.loadMore : null,
     );
-  }, [
-    pages.hasMore,
-    pages.loadMore,
-    pages.moreError,
-    pages.retry,
-    onNearEnd,
-  ]);
+  }, [pages.hasMore, pages.loadMore, pages.moreError, pages.retry, onNearEnd]);
   return (
     <>
       <AppText style={styles.section} accessibilityRole="header">
@@ -965,9 +972,7 @@ function SharedRunsList({
         empty={pages.empty ? '아직 기록이 없어요' : null}
         onRetry={pages.retry}
         loadingMore={pages.loadingMore}
-        moreError={
-          pages.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
-        }
+        moreError={pages.moreError ? '더 불러오지 못했어요 · 다시 시도' : null}
         onRetryMore={pages.retry}
       />
     </>
@@ -1001,8 +1006,30 @@ function Profile({
   const onNearEnd = useCallback((loadMore: (() => void) | null) => {
     loadMoreRef.current = loadMore;
   }, []);
+  // The run tiles' small maps go to the tiles on screen (S15P31E105-756), told at most every 120 ms while the page
+  // moves and once more after it stops.
+  const viewport = useMemo(() => createCardViewport(), []);
+  const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tellViewport = useCallback(() => {
+    if (viewportTimer.current) {
+      return;
+    }
+    viewportTimer.current = setTimeout(() => {
+      viewportTimer.current = null;
+      viewport.changed();
+    }, 120);
+  }, [viewport]);
+  useEffect(
+    () => () => {
+      if (viewportTimer.current) {
+        clearTimeout(viewportTimer.current);
+      }
+    },
+    [],
+  );
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      tellViewport();
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
       if (
@@ -1012,9 +1039,11 @@ function Profile({
         loadMoreRef.current?.();
       }
     },
-    [],
+    [tellViewport],
   );
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const zoomable = zoomablePhoto(profile);
   // 팔로우 요청 N건, or N건+ when U24 has more pages.
   const requestText = profile.followRequests
     ? `${profile.followRequests.count}건${
@@ -1041,9 +1070,8 @@ function Profile({
       ? '요청됨'
       : '팔로우';
   return (
-    <>
+    <CardViewportContext.Provider value={viewport}>
       <HeroBackdrop
-        initial={profile.nickname.slice(0, 1)}
         photo={profile.profileImageUrl}
         heroHeight={heroHeight}
         scrollY={scrollY}
@@ -1059,9 +1087,20 @@ function Profile({
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true, listener: onScroll },
         )}
+        onMomentumScrollEnd={tellViewport}
+        onScrollEndDrag={tellViewport}
         scrollEventThrottle={16}
       >
         <View style={[styles.hero, { height: heroHeight }]}>
+          {/* S15P31E105-797 (T13): pressing another runner's photo enlarges it; without a photo it stays plain. */}
+          {zoomable ? (
+            <Pressable
+              accessibilityRole="imagebutton"
+              accessibilityLabel="프로필 사진 크게 보기"
+              onPress={() => setZoomed(true)}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
           <View style={[styles.topBar, { top: insets.top + 8 }]}>
             {inTab ? (
               <View />
@@ -1168,10 +1207,7 @@ function Profile({
                 </AppText>
               </View>
               {profile.isMe ? (
-                <MyProfileLists
-                  tileWidth={tileWidth}
-                  onNearEnd={onNearEnd}
-                />
+                <MyProfileLists tileWidth={tileWidth} onNearEnd={onNearEnd} />
               ) : (
                 <SharedRunsList
                   userId={profile.userId}
@@ -1190,7 +1226,11 @@ function Profile({
           onDecided={onRequestsChanged}
         />
       ) : null}
-    </>
+      <PhotoZoom
+        photo={zoomed ? zoomable : null}
+        onClose={() => setZoomed(false)}
+      />
+    </CardViewportContext.Provider>
   );
 }
 

@@ -1,13 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, PressableScale } from '../../components';
 import { useResource, type CrewListItem, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing } from '../../theme';
 import { groupLook, NumText, Raised, SearchField, groupTone } from './look';
-import { CrewPhoto } from './parts';
+import { CrewPhoto, useGroupRunDraft } from './parts';
 
 // 6.1 crew card (runway-group-screen-designs 01, S15P31E105-594 담당자 시안): a dark navy card with 모집 중 (mint) or
 // 정원 마감 (red pink) on the left, the name and the member count beside it, and a chevron. The area and the intro
@@ -79,6 +79,12 @@ function CreateBox() {
   );
 }
 
+const searchCrews = (
+  repositories: Repositories,
+  query: string,
+  _version: number,
+) => repositories.crews.search({ query, nearby: false });
+
 // 6.1 크루 모집: search by name or area over every crew. The 내 근처 switch is gone: M01 has no location
 // filter, so it changed nothing on the server (담당자 결정, S15P31E105-414).
 // One page of the group tab pager (GroupTabScreen).
@@ -97,12 +103,26 @@ export function CrewRecruitPage({
     onCloseSearch();
     setQuery('');
   };
+  // version goes up when a crew is made, joined, left or dissolved, so a new crew shows and a dissolved one
+  // drops out without leaving the tab (S15P31E105-774).
+  const { version } = useGroupRunDraft();
   const found = useResource(
     useCallback(
-      (repositories: Repositories) =>
-        repositories.crews.search({ query, nearby: false }),
-      [query],
+      (repositories: Repositories) => searchCrews(repositories, query, version),
+      [query, version],
     ),
+  );
+  // S15P31E105-800 (TEAM QA T29): someone else's join, approval or leave changes the member count too, so the list
+  // is read again each time the tab comes back into view (back from a crew's detail), keeping the old list meanwhile.
+  const refreshFound = found.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshFound();
+      }
+      focused.current = true;
+    }, [refreshFound]),
   );
   // While the next search loads, the last list stays so typing does not flash a spinner.
   const [last, setLast] = useState<CrewListItem[] | null>(null);

@@ -243,6 +243,37 @@ class CommentApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("ACCOUNT_ACCESS_DENIED"));
     }
 
+    // S15P31E105-779: 댓글 본문은 앱 입력창과 같은 500자까지(작성·수정).
+    @Test
+    void 댓글본문_500자까지_501자는_400() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts/{postId}/comments", publicPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"%s\"}".formatted("가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        mockMvc.perform(
+                        post("/api/v1/posts/{postId}/comments", publicPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"%s\"}".formatted("가".repeat(500))))
+                .andExpect(status().isCreated());
+
+        long commentId = insertComment(publicPostId, viewerId, "원본 본문", null);
+        mockMvc.perform(
+                        patch("/api/v1/comments/{commentId}", commentId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"%s\"}".formatted("가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject(
+                                "SELECT body FROM comments WHERE id=?", String.class, commentId))
+                .isEqualTo("원본 본문");
+    }
+
     @Test
     void 본인댓글수정_200_타인수정_403_NOT_AUTHOR_공백_422_EMPTY_COMMENT() throws Exception {
         long commentId = insertComment(publicPostId, viewerId, "원본 본문", null);

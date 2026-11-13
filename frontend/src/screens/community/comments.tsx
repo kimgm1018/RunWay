@@ -1,4 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import {
+  NavigationContext,
+  type NavigationProp,
+} from '@react-navigation/native';
 import {
   ActivityIndicator,
   Animated,
@@ -32,7 +42,11 @@ import {
   type Repositories,
 } from '../../data';
 import { fontFamily, typography } from '../../theme';
+import { navigateTo } from '../../navigation/navigateTo';
+import type { RootStackParamList } from '../../navigation/types';
 import { communityLook, sheetLook } from './look';
+
+type Navigate = NavigationProp<RootStackParamList>;
 import { Avatar, PostMenu, postedAt } from './parts';
 
 // What a failed 댓글 수정·삭제 says; the list stays as it was (CMT08 · CMT09).
@@ -50,6 +64,17 @@ export function commentFailure(error: unknown, action: '수정' | '삭제') {
   return `댓글을 ${action}하지 못했어요. 잠시 후 다시 시도해 주세요`;
 }
 
+// The longest comment the bar takes (S15P31E105-780), like a post body (PostWriteScreen bodyLimit). The server keeps
+// its own check (S15P31E105-779).
+export const COMMENT_LIMIT = 500;
+// From this many characters the bar shows how many are used.
+export const COMMENT_COUNT_FROM = COMMENT_LIMIT - 50;
+// A long comment shows this many lines until 더 보기 opens it, so one comment cannot fill the sheet.
+export const COMMENT_FOLD_LINES = 6;
+// About six lines on a phone: comments past it (or with more line breaks) fold.
+export const longComment = (body: string) =>
+  body.length > 140 || body.split('\n').length > COMMENT_FOLD_LINES;
+
 // One comment: avatar, handle and text, the time · likes · 답글 달기, and its heart (7.2 and the 댓글 sheet). A reply
 // sits indented under its root; a deleted root kept for its replies shows only '삭제된 댓글입니다'.
 export function CommentRow({
@@ -58,9 +83,12 @@ export function CommentRow({
   onReply,
   onMenu,
   onLike,
+  onProfile = null,
 }: {
   comment: PostComment;
   reply?: boolean;
+  // S15P31E105-797 (T25): the author's photo and handle open their profile (mine opens 내 프로필).
+  onProfile?: (() => void) | null;
   // Null under a deleted root: its thread takes no new replies (CMT07 INVALID_PARENT_COMMENT).
   onReply: (() => void) | null;
   // My own comments open the 댓글 수정·삭제 sheet.
@@ -69,6 +97,7 @@ export function CommentRow({
   onLike: () => void;
 }) {
   const { clock } = useRepositories();
+  const [unfolded, setUnfolded] = useState(false);
   if (comment.deleted || !comment.author) {
     return (
       <View style={[styles.comment, reply && styles.reply]}>
@@ -86,21 +115,50 @@ export function CommentRow({
   ]
     .filter(Boolean)
     .join(' · ');
+  const folds = longComment(comment.body);
   return (
     <View style={[styles.comment, reply && styles.reply]}>
-      <Avatar
-        nickname={author.nickname}
-        userId={author.userId}
-        photo={author.profileImageUrl}
-        size={reply ? 26 : 32}
-      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${author.handle} 프로필 보기`}
+        disabled={!onProfile}
+        onPress={onProfile ?? undefined}
+        hitSlop={4}
+      >
+        <Avatar
+          nickname={author.nickname}
+          userId={author.userId}
+          photo={author.profileImageUrl}
+          size={reply ? 26 : 32}
+        />
+      </Pressable>
       <View style={styles.flex}>
-        <AppText style={styles.commentText}>
-          <AppText style={[styles.commentText, styles.strong]}>
+        <AppText
+          style={styles.commentText}
+          numberOfLines={folds && !unfolded ? COMMENT_FOLD_LINES : undefined}
+        >
+          <AppText
+            accessibilityRole={onProfile ? 'link' : undefined}
+            onPress={onProfile ?? undefined}
+            style={[styles.commentText, styles.strong]}
+          >
             {author.handle}{' '}
           </AppText>
           {comment.body}
         </AppText>
+        {folds ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={unfolded ? '댓글 접기' : '댓글 더 보기'}
+            onPress={() => setUnfolded(open => !open)}
+            hitSlop={6}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <AppText style={[styles.commentMetaText, styles.replyText]}>
+              {unfolded ? '접기' : '더 보기'}
+            </AppText>
+          </Pressable>
+        ) : null}
         <View style={styles.commentMeta}>
           <AppText style={styles.commentMetaText}>
             {onReply ? `${meta} · ` : meta}
@@ -244,6 +302,8 @@ export function CommentSheet({
   onCountChange: (postId: string, count: number) => void;
 }) {
   const { community } = useRepositories();
+  // Absent outside a navigator (tests); the author's profile link is then off.
+  const navigation = useContext(NavigationContext) as Navigate | undefined;
   const me = useResource(loadMe);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -252,6 +312,9 @@ export function CommentSheet({
   const [failed, setFailed] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Set as soon as a 게시 or 저장 starts, before the re-render that disables the button: quick taps in between
+  // would otherwise send the same comment twice (S15P31E105-780).
+  const sendingNow = useRef(false);
   // The comment whose sheet is open, and the one being edited in the comment bar.
   const [commentMenu, setCommentMenu] = useState<PostComment | null>(null);
   const [editing, setEditing] = useState<PostComment | null>(null);
@@ -436,6 +499,10 @@ export function CommentSheet({
       setNotice('댓글 내용을 입력해 주세요');
       return;
     }
+    if (sendingNow.current) {
+      return;
+    }
+    sendingNow.current = true;
     setSending(true);
     try {
       const saved = await community.updateComment(comment.id, body);
@@ -449,6 +516,7 @@ export function CommentSheet({
     } catch (error) {
       setNotice(commentFailure(error, '수정'));
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   };
@@ -478,9 +546,10 @@ export function CommentSheet({
       return;
     }
     const body = draft.trim();
-    if (!postId || !comments || !body) {
+    if (!postId || !comments || !body || sendingNow.current) {
       return;
     }
+    sendingNow.current = true;
     setSending(true);
     try {
       const comment = await community.addComment(
@@ -505,10 +574,24 @@ export function CommentSheet({
       }
       setNotice('댓글을 남기지 못했어요. 잠시 후 다시 시도해 주세요');
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   };
 
+  // S15P31E105-797 (T25): the sheet closes, then the author's profile opens (mine: 내 프로필).
+  const openAuthor = (comment: PostComment) => {
+    if (!navigation || !comment.author) {
+      return;
+    }
+    Keyboard.dismiss();
+    onClose();
+    if (comment.isMine) {
+      navigateTo(navigation, 'MyProfile');
+    } else {
+      navigation.navigate('RunnerProfile', { userId: comment.author.userId });
+    }
+  };
   const sendable = Boolean(editing) || Boolean(draft.trim());
   // The sheet's own window decides its insets (S15P31E105-619): on Android the Modal window may or may not
   // reach under the navigation bar, so the app window's bottom inset could leave the comment bar under the
@@ -630,6 +713,11 @@ export function CommentSheet({
                               : null
                           }
                           onLike={() => like(comment)}
+                          onProfile={
+                            navigation && comment.author
+                              ? () => openAuthor(comment)
+                              : null
+                          }
                         />
                       ))
                     )}
@@ -690,11 +778,21 @@ export function CommentSheet({
                             : `${post?.author.handle ?? ''}님에게 댓글 달기…`
                         }
                         placeholderTextColor={communityLook.meta}
-                        selectionColor={communityLook.ink}
+                        selectionColor={communityLook.selection}
+                        cursorColor={communityLook.ink}
                         value={draft}
                         onChangeText={setDraft}
+                        maxLength={COMMENT_LIMIT}
                         style={styles.inputText}
                       />
+                      {draft.length >= COMMENT_COUNT_FROM ? (
+                        <AppText
+                          style={styles.count}
+                          accessibilityLabel={`${COMMENT_LIMIT}자 중 ${draft.length}자`}
+                        >
+                          {`${draft.length}/${COMMENT_LIMIT}`}
+                        </AppText>
+                      ) : null}
                     </View>
                     {/* 저장 stays pressable on an emptied comment so it can say why it does not save. */}
                     <Pressable
@@ -841,6 +939,19 @@ const styles = StyleSheet.create({
     color: communityLook.ink,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
+    // Android otherwise sizes the caret from the 44px control instead of the text.
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  // Used/limit in the field's corner once the comment nears COMMENT_LIMIT.
+  count: {
+    position: 'absolute',
+    right: 10,
+    bottom: 2,
+    fontFamily: fontFamily.medium,
+    fontSize: 10.5,
+    color: communityLook.meta,
   },
   send: { height: 44, paddingHorizontal: 4, justifyContent: 'center' },
   sendText: {

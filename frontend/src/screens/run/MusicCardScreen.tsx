@@ -631,7 +631,7 @@ export function MusicCardScreen() {
     }
   };
   const say = (message: string | null) => message && toast(message);
-  const reconnect = async () => {
+  const reconnect = async ({ installing = false } = {}) => {
     setReconnecting(true);
     try {
       setState(await music.reconnect());
@@ -639,7 +639,14 @@ export function MusicCardScreen() {
       if (error instanceof SpotifyStateError) {
         setState(error.state);
       }
-      say(spotifyFailureMessage(error, '다시 연결하지 못했어요'));
+      // Installing opens the store; the card already says Spotify must be installed, so no toast repeats it.
+      const repeated =
+        installing &&
+        error instanceof SpotifyError &&
+        error.reason === 'INSTALL_REQUIRED';
+      if (!repeated) {
+        say(spotifyFailureMessage(error, '다시 연결하지 못했어요'));
+      }
     }
     setReconnecting(false);
   };
@@ -819,6 +826,21 @@ export function MusicCardScreen() {
                 멜론이나 Spotify를 연결하면 여기서 들을 수 있어요
               </AppText>
               <WideButton label="음원 선택" onPress={openSource} />
+            </>
+          ) : !state.linked &&
+            service === 'SPOTIFY' &&
+            state.services.SPOTIFY === 'INSTALL_REQUIRED' ? (
+            // S15P31E105-776: no Spotify app on this phone, so there is nothing to reconnect to yet.
+            <>
+              <AppText style={styles.title}>Spotify 앱이 없어요</AppText>
+              <AppText style={styles.subtitle}>
+                Play 스토어에서 Spotify를 설치한 뒤 다시 연결해 주세요
+              </AppText>
+              <WideButton
+                label={reconnecting ? '여는 중' : 'Spotify 설치하기'}
+                disabled={reconnecting}
+                onPress={() => reconnect({ installing: true })}
+              />
             </>
           ) : !state.linked ? (
             // 2.7b: the link to the music app dropped.

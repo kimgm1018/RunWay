@@ -4,6 +4,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 import { MyCrewsPage } from '../src/screens/group/GroupScreen';
+import { CrewRecruitPage } from '../src/screens/group/CrewRecruitScreen';
 
 // 6.0 내 크루, 6.1 크루 모집, 6.2 크루 상세·나가기, 6.2a 가입 신청, 6.3 크루 만들기 against the server (dataSource 'api').
 
@@ -39,6 +40,8 @@ type ServerCrew = {
   joinPolicy?: 'APPROVAL' | 'INSTANT';
   members: Person[];
   pending: Person[];
+  // users whose last request was turned down (myMembershipStatus REJECTED, S15P31E105-800).
+  rejected?: number[];
   // F02 path of the crew photo (M01·M02·M10 imageUrl, S15P31E105-636).
   imageUrl?: string;
 };
@@ -55,6 +58,8 @@ const statusOf = (crew: ServerCrew) =>
     ? 'APPROVED'
     : crew.pending.some(member => member.userId === meId)
     ? 'PENDING'
+    : crew.rejected?.includes(meId)
+    ? 'REJECTED'
     : null;
 
 const summary = (crew: ServerCrew) => ({
@@ -420,9 +425,15 @@ test('crew and member photos show, and a broken photo falls back to the letter',
       .findAllByType(Image)
       .map(node => (node.props.source as { uri?: string })?.uri ?? '');
   const shows = (screen: Screen, id: string) =>
-    photos(screen).filter(uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)));
-  const letter = (screen: Screen, text: string) =>
-    screen.root.findAllByType(Text).some(node => node.props.children === text);
+    photos(screen).filter(
+      uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)),
+    );
+  // The default profile picture (S15P31E105-775) stands in for a missing or broken member photo.
+  const defaults = (screen: Screen) =>
+    screen.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'default-avatar',
+    ).length;
 
   const screen = await openGroup();
   const crewPhotos = (view: Screen) =>
@@ -450,16 +461,16 @@ test('crew and member photos show, and a broken photo falls back to the letter',
       node.props.source?.uri?.endsWith(photo(crewImageId)),
     ).length,
   ).toBeLessThan(hero.length);
-  // 6.2: the crew photo by the name and 도윤's photo; 민준 has none, so the letter stays.
+  // 6.2: the crew photo by the name and 도윤's photo; 민준 has none, so the default picture stands in.
   expect(shows(screen, memberImageId)).toHaveLength(1);
-  expect(letter(screen, '민')).toBe(true);
-  expect(letter(screen, '도')).toBe(false);
+  const before = defaults(screen);
+  expect(before).toBeGreaterThan(0);
   const memberPhoto = screen.root
     .findAllByType(Image)
     .find(node => node.props.source?.uri?.endsWith(photo(memberImageId)))!;
   await act(async () => memberPhoto.props.onError());
   expect(shows(screen, memberImageId)).toHaveLength(0);
-  expect(letter(screen, '도')).toBe(true);
+  expect(defaults(screen)).toBe(before + 1);
 
   // The leader's 6.2 lists the waiting request with its photo (S15P31E105-678); 6.2a opens on top of it, so
   // the applicant's photo is drawn once there and once more by the 6.2 underneath.
@@ -485,6 +496,110 @@ test('6.1 → 6.2 sends a join request, and a full crew shows the full sheet', a
   await press(screen, '가입 신청 · 정원 마감');
   expect(texts(screen)).toContain('정원이 가득 찼어요');
   await act(async () => screen.unmount());
+});
+
+// S15P31E105-774: the recruit page and my crews both load again after a dissolve, so the crew is gone from both.
+test('a dissolved crew drops out of 크루 모집 and 내 크루 without leaving the tab', async () => {
+  const screen = await openGroup();
+  const pageText = (page: typeof CrewRecruitPage | typeof MyCrewsPage) =>
+    screen.root
+      .findByType(page)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string')
+      .join(' ');
+  try {
+    await press(screen, '크루 모집');
+    expect(pageText(CrewRecruitPage)).toContain('민락 야경 러너스');
+    expect(pageText(MyCrewsPage)).toContain('민락 야경 러너스');
+    await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+    await press(screen, '크루 해산');
+    await press(screen, '해산');
+    expect(sent('DELETE')).toEqual(['/crews/42']);
+    await settle(100);
+    expect(pageText(MyCrewsPage)).not.toContain('민락 야경 러너스');
+    await press(screen, '크루 모집');
+    expect(pageText(CrewRecruitPage)).not.toContain('민락 야경 러너스');
+    expect(pageText(CrewRecruitPage)).toContain('광안리 새벽 크루');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+// S15P31E105-800 (TEAM QA T29): another member joining while I look at a crew shows in 크루 모집 on the way back.
+test('크루 모집 reads the member count again after coming back from a crew', async () => {
+  const screen = await openGroup();
+  const recruitText = () =>
+    screen.root
+      .findByType(CrewRecruitPage)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number')
+      .join(' ');
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 3/30명');
+    const crew = crews.find(item => item.name === '광안리 새벽 크루')!;
+    crew.members.push({ userId: 990, nickname: '새 멤버' });
+    await press(screen, '뒤로');
+    await settle(50);
+    expect(recruitText()).toMatch(/4\s*\/\s*30/);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+// S15P31E105-800 (TEAM QA T19): a request the leader turned down shows on the crew, and asking again works.
+test('a turned-down request says so and can be sent again', async () => {
+  const crew = crews.find(item => item.name === '광안리 새벽 크루')!;
+  crew.members = crew.members.filter(member => member.userId !== meId);
+  crew.rejected = [meId];
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 2/30명');
+    expect(texts(screen)).toContain('신청이 거절됐어요 · 다시 신청');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+// S15P31E105-774: M04 answers 404 CREW_NOT_FOUND for a crew dissolved after its page opened.
+test('a join request to a dissolved crew says it is already dissolved', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '수영강 아침 크루, 모집 중 5/20명');
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((address, init) => {
+      if (
+        init.method === 'POST' &&
+        address.endsWith('/crews/44/join-requests')
+      ) {
+        crews = crews.filter(crew => crew.id !== 44);
+        return Promise.resolve(
+          respond(404, { code: 'CREW_NOT_FOUND', message: '', details: {} }),
+        );
+      }
+      return original(address, init);
+    });
+    await press(screen, '가입 신청');
+    await settle(100);
+    const page = texts(screen);
+    expect(page).toContain('이미 해산된 크루입니다');
+    expect(page).not.toContain('가입 신청을 보내지 못했어요');
+    expect(
+      screen.root
+        .findByType(CrewRecruitPage)
+        .findAll(
+          node =>
+            node.props.accessibilityLabel ===
+            '수영강 아침 크루, 모집 중 5/20명',
+        ),
+    ).toHaveLength(0);
+  } finally {
+    await act(async () => screen.unmount());
+  }
 });
 
 test('6.2 lets a member leave with M08', async () => {
@@ -561,6 +676,20 @@ test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with t
   pickNext({ uri: 'file:///cache/run.gif', type: 'image/gif', fileSize: 1000 });
   await press(screen, '대표 사진 추가');
   expect(texts(screen)).toContain('JPG나 PNG 사진만 쓸 수 있어요');
+
+  // S15P31E105-796: a 6MB photo is told at once too, and a picker error is not read as 취소.
+  pickNext({
+    uri: 'file:///cache/big.jpg',
+    type: 'image/jpeg',
+    fileSize: 6 * 1024 * 1024,
+  });
+  await press(screen, '대표 사진 추가');
+  expect(texts(screen)).toContain('5MB 이하의 사진을 골라 주세요');
+  (
+    require('react-native-image-picker').launchImageLibrary as jest.Mock
+  ).mockResolvedValueOnce({ errorCode: 'others' });
+  await press(screen, '대표 사진 추가');
+  expect(texts(screen)).toContain('사진을 불러오지 못했어요');
 
   pickNext({
     uri: 'file:///cache/crew.jpg',
@@ -741,7 +870,9 @@ test('혼자인 크루장은 해산 확인 전까지 요청하지 않는다', as
     await press(screen, '크루 모집');
     await press(screen, '민락 야경 러너스, 모집 중 1/30명');
     await press(screen, '크루 나가기');
-    expect(texts(screen)).toContain('크루를 해산할까요?');
+    // S15P31E105-800 (TEAM QA T23): leaving alone says why the crew ends.
+    expect(texts(screen)).toContain('멤버가 없어 나가면 크루가 해산돼요');
+    expect(texts(screen)).not.toContain('크루를 해산할까요?');
     expect(sent('DELETE')).toEqual([]);
     await press(screen, '취소');
     expect(sent('DELETE')).toEqual([]);

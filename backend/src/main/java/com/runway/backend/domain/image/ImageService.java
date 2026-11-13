@@ -89,6 +89,17 @@ public class ImageService {
                 }
             }
         }
+        // Own run thumbnails (S15P31E105-756): the session owner only, checked in the same query.
+        if (viewerId != null) {
+            for (String key : access.findOwnRunRouteKeys(viewerId, basemapFile)) {
+                if (isCanonicalKey(key, basemapFile)) {
+                    Optional<StoredImage> image = imageStorage.findByKey(key);
+                    if (image.isPresent()) {
+                        return image.get();
+                    }
+                }
+            }
+        }
         boolean ownUploadsVisible = viewerId != null && access.activeUserExists(viewerId);
         for (String extension : new String[] {"jpg", "png"}) {
             String fileName = imageId + "." + extension;
@@ -121,10 +132,16 @@ public class ImageService {
                 && image.imageKey().startsWith(ImageStorage.COURSE_BASEMAP_KEY_PREFIX);
     }
 
+    /** 서버가 그린 본인 기록 경로 썸네일인지(S15P31E105-756). 본인에게만 주므로 공유 캐시를 막는다. */
+    public static boolean isRunRouteBasemap(StoredImage image) {
+        return image.imageKey() != null
+                && image.imageKey().startsWith(ImageStorage.RUN_ROUTE_KEY_PREFIX);
+    }
+
     private static boolean isCanonicalKey(String key, String fileName) {
         String[] parts = key.split("/", -1);
         if (parts.length != 4 || !"images".equals(parts[0])
-                || !Set.of("profile", "crew", "post", "course-basemap").contains(parts[1])
+                || !Set.of("profile", "crew", "post", "course-basemap", "run-route").contains(parts[1])
                 || !fileName.equals(parts[3])) {
             return false;
         }

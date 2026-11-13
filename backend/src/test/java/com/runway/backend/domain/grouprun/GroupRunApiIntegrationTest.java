@@ -260,6 +260,35 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("NOT_HOST"));
     }
 
+    // S15P31E105-778: G04 PATCH도 G01과 같은 길이 규칙을 DTO에서 검사해 DB 오류(500) 대신 400을 준다.
+    @Test
+    void patch_overLongTextFields_badRequest_andKeepsRow() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        String[] bodies = {
+            "{\"title\":\"%s\"}".formatted("가".repeat(101)),
+            "{\"description\":\"%s\"}".formatted("a".repeat(10001)),
+            "{\"meetingPlaceName\":\"%s\"}".formatted("가".repeat(201)),
+            "{\"meetingAddress\":\"%s\"}".formatted("가".repeat(256))
+        };
+        for (String body : bodies) {
+            mockMvc.perform(
+                            patch("/api/v1/group-runs/{id}", groupRunId)
+                                    .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        String title100 = "가".repeat(100);
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"title\":\"%s\"}".formatted(title100)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value(title100));
+    }
+
     // S15P31E105-636 AC-2: G07 참가자 프로필 사진 주소. 사진 없는 참가자는 null 키.
     @Test
     void participants_includeProfileImageUrl() throws Exception {
@@ -526,6 +555,137 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
         assertThat(participantSessionId(groupRunId, noDeviceUser)).isNull();
     }
 
+    // S15P31E105-779: 출발 시각은 앱과 같이 지금 이후 13일 안(KST 날짜), 05:00~22:00(KST)만 받는다. 생성·PATCH 모두.
+    @Test
+    void scheduledAt_outsideAppWindow_badRequest_onCreateAndPatch() throws Exception {
+        String[] invalid = {
+            java.time.Instant.now().minusSeconds(3 * 24 * 3600).toString(),
+            "2099-01-01T00:00:00Z",
+            GroupRunTestTimes.atKst(14, java.time.LocalTime.of(10, 0)),
+            GroupRunTestTimes.atKst(1, java.time.LocalTime.of(4, 30)),
+            GroupRunTestTimes.atKst(1, java.time.LocalTime.of(22, 30))
+        };
+        for (String at : invalid) {
+            mockMvc.perform(
+                            post("/api/v1/group-runs")
+                                    .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            createBody(crewId)
+                                                    .replace(
+                                                            GroupRunTestTimes.validScheduledAt(),
+                                                            at)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        long groupRunId = createGroupRun(hostId);
+        for (String at : invalid) {
+            mockMvc.perform(
+                            patch("/api/v1/group-runs/{id}", groupRunId)
+                                    .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"scheduledAt\":\"%s\"}".formatted(at)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        // 경계값은 받는다: 내일 05:00 생성, 300초 목표(아래 테스트), 13일 뒤 22:00 PATCH.
+        mockMvc.perform(
+                        post("/api/v1/group-runs")
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        createBody(crewId)
+                                                .replace(
+                                                        GroupRunTestTimes.validScheduledAt(),
+                                                        GroupRunTestTimes.atKst(
+                                                                1, java.time.LocalTime.of(5, 0)))))
+                .andExpect(status().isCreated());
+        String lastDay = GroupRunTestTimes.atKst(13, java.time.LocalTime.of(22, 0));
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"scheduledAt\":\"%s\"}".formatted(lastDay)))
+                .andExpect(status().isOk());
+    }
+
+    // S15P31E105-779: G04는 출발 시각을 바꿀 때만 범위를 본다. 앱 수정 화면은 장소만 고쳐도 scheduledAt을 다시 보내므로,
+    // 이미 지난 출발 시각을 그대로 보내면 통과하고 1분이라도 바꾸면 400이다.
+    @Test
+    void patch_sameScheduledAtOutsideWindow_isAccepted_changedIsRejected() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        jdbc.update(
+                "UPDATE group_runs SET scheduled_at = '2026-01-01T01:00:00Z' WHERE id = ?",
+                groupRunId);
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"scheduledAt":"2026-01-01T01:00:00Z","meetingPlaceName":"새 집결지"}
+                                        """))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"scheduledAt":"2026-01-01T01:01:00Z"}
+                                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    // S15P31E105-779: TIME 목표 시간은 앱 눈금과 같이 5~180분.
+    @Test
+    void targetDuration_outsideAppRange_unprocessable() throws Exception {
+        for (int seconds : new int[] {299, 10801, 1_000_000_000}) {
+            mockMvc.perform(
+                            post("/api/v1/group-runs")
+                                    .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            createBody(crewId)
+                                                    .replace(
+                                                            "\"targetDurationSec\":1800",
+                                                            "\"targetDurationSec\":" + seconds)))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
+        }
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"targetDistanceM":5000,"goalInputType":"TIME","targetDurationSec":10801}
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"targetDistanceM":5000,"goalInputType":"TIME","targetDurationSec":10800}
+                                        """))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/group-runs")
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        createBody(crewId)
+                                                .replace(
+                                                        "\"targetDurationSec\":1800",
+                                                        "\"targetDurationSec\":300")))
+                .andExpect(status().isCreated());
+    }
+
     @Test
     void invalidGoal_unprocessable() throws Exception {
         mockMvc.perform(
@@ -537,7 +697,7 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                                         {
                                           "title":"잘못된 목표",
                                           "crewId":%d,
-                                          "scheduledAt":"2030-01-15T01:00:00Z",
+                                          "scheduledAt":"%s",
                                           "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                                           "meetingPlaceName":"집결지",
                                           "goalInputType":"TIME",
@@ -545,7 +705,7 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                                           "targetDurationSec":-1
                                         }
                                         """
-                                                .formatted(crewId)))
+                                                .formatted(crewId, GroupRunTestTimes.validScheduledAt())))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
     }
@@ -569,7 +729,7 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                 {
                   "title":"모집 그룹런",
                   "crewId":%d,
-                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "scheduledAt":"%s",
                   "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                   "meetingPlaceName":"집결지",
                   "meetingAddress":"부산",
@@ -578,7 +738,7 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                   "targetDurationSec":1800
                 }
                 """
-                .formatted(crewId);
+                .formatted(crewId, GroupRunTestTimes.validScheduledAt());
     }
 
     private long insertUser(String loginId, String nickname, String phone) {

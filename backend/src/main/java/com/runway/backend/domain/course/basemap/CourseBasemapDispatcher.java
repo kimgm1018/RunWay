@@ -10,6 +10,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,6 +25,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>같은 코스가 이미 대기·실행 중이면 새 작업을 만들지 않는다. 단 일괄 채우기로 대기 중인 코스에 저장 이벤트가 오면 저장 대기열로 앞당긴다.
  * 대기열이 가득 차거나 종료 중이면 버린다(재전달 없음). 버린 코스는 다음 기동 때 일괄 채우기가 다시 넣는다. 재기동하면 대기 작업은 사라진다(허용).
+ *
+ * <p>S15P31E105-756: 러닝 기록 경로 썸네일({@link RunRouteBasemapRunService})도 같은 스레드·대기열·규칙으로 실행한다(Route 바탕 지도
+ * 호출을 한 번에 하나로 유지). 작업은 종류(코스/기록)와 ID로 구분한다.
  */
 @Component
 public class CourseBasemapDispatcher implements DisposableBean {
@@ -45,17 +49,36 @@ public class CourseBasemapDispatcher implements DisposableBean {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition changed = lock.newCondition();
 
-    /** 저장 이벤트로 대기 중인 코스(넣은 순서). */
-    private final LinkedHashSet<Long> saves = new LinkedHashSet<>();
+    /** 대기·실행 단위. {@code run}이면 러닝 기록(세션) ID, 아니면 코스 ID. */
+    record Job(boolean run, long id) {
 
-    /** 일괄 채우기로 대기 중인 코스(넣은 순서) → 다시 시도 여부. */
-    private final Map<Long, Boolean> backfill = new java.util.LinkedHashMap<>();
+        static Job course(long courseId) {
+            return new Job(false, courseId);
+        }
 
-    /** 일괄 채우기에서 다시 시도할 수 있게 실패해 대기열이 빈 뒤 한 번 더 넣을 코스. */
-    private final LinkedHashSet<Long> retries = new LinkedHashSet<>();
+        static Job session(long sessionId) {
+            return new Job(true, sessionId);
+        }
 
-    /** 실행 중인 코스. 없으면 null. */
-    private Long running;
+        @Override
+        public String toString() {
+            return (run ? "sessionId=" : "courseId=") + id;
+        }
+    }
+
+    private final RunRouteBasemapRunService runRouteService;
+
+    /** 저장 이벤트로 대기 중인 작업(넣은 순서). */
+    private final LinkedHashSet<Job> saves = new LinkedHashSet<>();
+
+    /** 일괄 채우기로 대기 중인 작업(넣은 순서) → 다시 시도 여부. */
+    private final Map<Job, Boolean> backfill = new java.util.LinkedHashMap<>();
+
+    /** 일괄 채우기에서 다시 시도할 수 있게 실패해 대기열이 빈 뒤 한 번 더 넣을 작업. */
+    private final LinkedHashSet<Job> retries = new LinkedHashSet<>();
+
+    /** 실행 중인 작업. 없으면 null. */
+    private Job running;
 
     /** 이 시각(nanoTime) 전에는 일괄 채우기 작업을 시작하지 않는다. */
     private long backfillNotBefore;
@@ -64,10 +87,22 @@ public class CourseBasemapDispatcher implements DisposableBean {
 
     private final Thread worker;
 
+    /** 코스 썸네일만 실행한다(기록 작업은 넣어도 실행하지 않고 실패로 끝난다). 테스트용. */
     public CourseBasemapDispatcher(
             CourseBasemapRunService runService, CourseBasemapProperties properties) {
+        this(runService, null, properties);
+    }
+
+    @Autowired
+    public CourseBasemapDispatcher(
+            CourseBasemapRunService runService,
+            RunRouteBasemapRunService runRouteService,
+            CourseBasemapProperties properties) {
         this.runService = runService;
-        this.backfillCapacity = Math.max(0, properties.getBackfillLimit());
+        this.runRouteService = runRouteService;
+        this.backfillCapacity =
+                Math.max(0, properties.getBackfillLimit())
+                        + Math.max(0, properties.getRunBackfillLimit());
         this.backfillIntervalNanos = nonNegativeNanos(properties.getBackfillInterval());
         this.retryDelayNanos = nonNegativeNanos(properties.getBackfillRetryDelay());
         this.backfillNotBefore = System.nanoTime();
@@ -86,22 +121,31 @@ public class CourseBasemapDispatcher implements DisposableBean {
      * @return 새로 넣었거나 일괄 채우기 대기에서 앞당겼으면 true(이미 대기·실행 중이거나 대기열이 가득 차거나 종료 중이면 false)
      */
     public boolean dispatch(long courseId) {
+        return dispatch(Job.course(courseId));
+    }
+
+    /** 러닝 기록 종료 이벤트 작업을 넣는다(S15P31E105-756). 규칙은 {@link #dispatch(long)}와 같다. */
+    public boolean dispatchRun(long sessionId) {
+        return dispatch(Job.session(sessionId));
+    }
+
+    private boolean dispatch(Job job) {
         lock.lock();
         try {
             if (stopped) {
-                log.warn("바탕 지도 실행기가 종료 중이라 건너뜀 (courseId={})", courseId);
+                log.warn("바탕 지도 실행기가 종료 중이라 건너뜀 ({})", job);
                 return false;
             }
-            if (Long.valueOf(courseId).equals(running) || saves.contains(courseId)) {
-                log.debug("바탕 지도 생성이 이미 대기·실행 중이라 건너뜀 (courseId={})", courseId);
+            if (job.equals(running) || saves.contains(job)) {
+                log.debug("바탕 지도 생성이 이미 대기·실행 중이라 건너뜀 ({})", job);
                 return false;
             }
-            boolean promoted = backfill.remove(courseId) != null | retries.remove(courseId);
+            boolean promoted = backfill.remove(job) != null | retries.remove(job);
             if (!promoted && saves.size() >= EVENT_QUEUE_CAPACITY) {
-                log.warn("바탕 지도 대기열 초과라 건너뜀 (courseId={})", courseId);
+                log.warn("바탕 지도 대기열 초과라 건너뜀 ({})", job);
                 return false;
             }
-            saves.add(courseId);
+            saves.add(job);
             changed.signalAll();
             return true;
         } finally {
@@ -115,22 +159,31 @@ public class CourseBasemapDispatcher implements DisposableBean {
      * @return 새로 넣었으면 true(이미 대기·실행 중이거나 대기열이 가득 차거나 종료 중이면 false)
      */
     public boolean dispatchBackfill(long courseId) {
+        return dispatchBackfill(Job.course(courseId));
+    }
+
+    /** 러닝 기록 일괄 채우기 작업을 넣는다(S15P31E105-756). 규칙은 {@link #dispatchBackfill(long)}와 같다. */
+    public boolean dispatchRunBackfill(long sessionId) {
+        return dispatchBackfill(Job.session(sessionId));
+    }
+
+    private boolean dispatchBackfill(Job job) {
         lock.lock();
         try {
             if (stopped) {
                 return false;
             }
-            if (Long.valueOf(courseId).equals(running)
-                    || saves.contains(courseId)
-                    || backfill.containsKey(courseId)
-                    || retries.contains(courseId)) {
+            if (job.equals(running)
+                    || saves.contains(job)
+                    || backfill.containsKey(job)
+                    || retries.contains(job)) {
                 return false;
             }
             if (backfill.size() >= backfillCapacity) {
-                log.warn("바탕 지도 일괄 채우기 대기열 초과라 건너뜀 (courseId={})", courseId);
+                log.warn("바탕 지도 일괄 채우기 대기열 초과라 건너뜀 ({})", job);
                 return false;
             }
-            backfill.put(courseId, Boolean.FALSE);
+            backfill.put(job, Boolean.FALSE);
             changed.signalAll();
             return true;
         } finally {
@@ -140,7 +193,7 @@ public class CourseBasemapDispatcher implements DisposableBean {
 
     private void work() {
         while (true) {
-            long courseId;
+            Job job;
             boolean fromBackfill;
             boolean retry;
             lock.lock();
@@ -150,7 +203,7 @@ public class CourseBasemapDispatcher implements DisposableBean {
                         return;
                     }
                     if (!saves.isEmpty()) {
-                        courseId = saves.removeFirst();
+                        job = saves.removeFirst();
                         fromBackfill = false;
                         retry = false;
                         break;
@@ -158,7 +211,7 @@ public class CourseBasemapDispatcher implements DisposableBean {
                     if (backfill.isEmpty() && !retries.isEmpty()) {
                         // 처음 시도가 모두 끝났다. Route가 회복할 시간을 둔 뒤 실패한 코스를 한 번만 다시 넣는다.
                         log.info("바탕 지도 일괄 채우기 다시 시도 예약 (courses={})", retries.size());
-                        for (long id : retries) {
+                        for (Job id : retries) {
                             backfill.put(id, Boolean.TRUE);
                         }
                         retries.clear();
@@ -170,9 +223,9 @@ public class CourseBasemapDispatcher implements DisposableBean {
                         long wait = backfillNotBefore - System.nanoTime();
                         if (wait <= 0) {
                             var first = backfill.entrySet().iterator().next();
-                            courseId = first.getKey();
+                            job = first.getKey();
                             retry = first.getValue();
-                            backfill.remove(courseId);
+                            backfill.remove(job);
                             fromBackfill = true;
                             break;
                         }
@@ -181,20 +234,20 @@ public class CourseBasemapDispatcher implements DisposableBean {
                     }
                     changed.await();
                 }
-                running = courseId;
+                running = job;
             } catch (InterruptedException e) {
                 return;
             } finally {
                 lock.unlock();
             }
 
-            Outcome outcome = run(courseId);
+            Outcome outcome = run(job);
 
             lock.lock();
             try {
                 running = null;
                 if (fromBackfill && !retry && outcome == Outcome.FAILED_RETRYABLE && !stopped) {
-                    retries.add(courseId);
+                    retries.add(job);
                 }
                 backfillNotBefore = System.nanoTime() + backfillIntervalNanos;
                 changed.signalAll();
@@ -204,12 +257,15 @@ public class CourseBasemapDispatcher implements DisposableBean {
         }
     }
 
-    private Outcome run(long courseId) {
+    private Outcome run(Job job) {
         try {
-            return runService.run(courseId);
+            if (job.run()) {
+                return runRouteService == null ? Outcome.FAILED : runRouteService.run(job.id());
+            }
+            return runService.run(job.id());
         } catch (RuntimeException e) {
             // DB 예외 메시지에 값이 들어 있을 수 있어 클래스 이름만 남긴다.
-            log.error("바탕 지도 생성 오류 (courseId={}, {})", courseId, e.getClass().getSimpleName());
+            log.error("바탕 지도 생성 오류 ({}, {})", job, e.getClass().getSimpleName());
             return Outcome.FAILED;
         }
     }

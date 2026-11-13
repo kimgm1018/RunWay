@@ -736,7 +736,9 @@ const styles = StyleSheet.create({
   },
   // 시안: the run's numbers big at the bottom left, the title with a runner beside it, then the words.
   words: { position: 'absolute', left: 16, right: 76 },
-  stats: { flexDirection: 'row', gap: 20 },
+  // 거리·시간·평균 페이스 값이 길어지면 한 줄에 다 안 들어가 오른쪽 댓글 등 아이콘 아래로
+  // 겹쳐 들어갔다(QA 발견). flexWrap으로 넘치는 항목을 다음 줄로 내린다.
+  stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 2 },
   statValue: {
     fontFamily: fontFamily.bold,
     letterSpacing: -0.6,

@@ -173,7 +173,7 @@ test.each([
     // The number step works again: a new code can be requested and verified.
     expect(isDisabled(screen, '인증번호 받기')).toBe(false);
     await press(screen, '인증번호 받기');
-    expect(texts(screen)).toContain('03:00');
+    expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
     await type(screen, '인증번호 6자리', fixtures.verificationCode);
     await type(screen, '새 비밀번호', 'newpass123');
     await type(screen, '새 비밀번호 확인', 'newpass123');
@@ -202,10 +202,11 @@ test('a password the server turns down keeps the verification and asks for a new
   await press(screen, '변경하고 로그인하기');
 
   expect(texts(screen)).toContain('인증 완료');
-  expect(texts(screen)).toContain('공백 없이 8~20자로 입력해 주세요');
+  // 길이·문자는 앱이 먼저 막으므로 남는 원인은 아이디와 같은 비밀번호다(S15P31E105-773).
+  expect(texts(screen)).toContain('아이디와 다른 비밀번호를 입력해 주세요');
   expect(texts(screen)).not.toContain('인증번호를 다시 받아 주세요');
   await type(screen, '새 비밀번호', 'otherpass123');
-  expect(texts(screen)).not.toContain('공백 없이 8~20자로 입력해 주세요');
+  expect(texts(screen)).not.toContain('아이디와 다른 비밀번호를 입력해 주세요');
   await type(screen, '새 비밀번호 확인', 'otherpass123');
   await press(screen, '변경하고 로그인하기');
   expect(resetCalls()).toBe(2);
@@ -227,15 +228,27 @@ test('a lost U30 answer keeps the verification so the change can be sent again',
   await act(async () => screen.unmount());
 });
 
-test('a password over 20 characters or with a space cannot be sent', async () => {
+test('a password over 20 characters cannot be sent', async () => {
   serve([]);
   const screen = await launch();
   await reachNewPassword(screen, 'abcdefghij1234567890x');
   expect(texts(screen)).toContain('공백 없이 8~20자로 입력해 주세요');
   expect(isDisabled(screen, '변경하고 로그인하기')).toBe(true);
-  await type(screen, '새 비밀번호', 'new pass123');
-  await type(screen, '새 비밀번호 확인', 'new pass123');
-  expect(isDisabled(screen, '변경하고 로그인하기')).toBe(true);
   expect(resetCalls()).toBe(0);
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-773: 공백·한글·이모지는 입력하는 즉시 지우고 이유를 알린다.
+test('spaces, Hangul and emoji are dropped from the new password with a notice', async () => {
+  serve([]);
+  const screen = await launch();
+  await reachNewPassword(screen);
+  await type(screen, '새 비밀번호', 'new pass비번😀123');
+  expect(last(screen, '새 비밀번호', 'onChangeText').props.value).toBe(
+    'newpass123',
+  );
+  expect(texts(screen)).toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await type(screen, '새 비밀번호', 'newpass1234');
+  expect(texts(screen)).not.toContain('영문·숫자·특수문자만 입력할 수 있어요');
   await act(async () => screen.unmount());
 });

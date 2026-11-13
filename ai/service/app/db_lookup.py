@@ -25,7 +25,8 @@ from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.personal_plan import CoursePlanSnapshot, UserPersonalizationSnapshot
 from app.planner import prerun_planner
-from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_RECENT_RUNS, SPEED_REF_VALID_RANGE_MPS,
+from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_MIN_DISTANCE_M, SPEED_REF_MIN_MOVING_SEC,
+                                   SPEED_REF_RECENT_RUNS, SPEED_REF_VALID_RANGE_MPS,
                                    speed_ref_from_runs)
 from app.target_calibration import HISTORY_UNAVAILABLE_WARNING, history_from_rows, history_query_params
 
@@ -62,6 +63,8 @@ WHERE user_id = %(user_id)s
   AND moving_duration > 0
   AND GREATEST(moving_duration, COALESCE(elapsed_duration, 0)) <= %(max_duration_sec)s
   AND total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s
+  AND moving_duration >= %(min_moving_sec)s
+  AND total_distance >= %(min_distance_m)s
 ORDER BY ended_at DESC, id DESC
 LIMIT %(limit)s"""
 SPEED_REF_UNAVAILABLE_WARNING = "SPEED_REF_LOOKUP_UNAVAILABLE"
@@ -411,7 +414,8 @@ class DbUserPersonalizationLookup:
         """(v_ref, 러닝 수, 경고). 조회 실패(권한 없음·테이블 없음 포함)는 계획을 막지 않고 Train 기본값으로 둔다."""
         low, high = SPEED_REF_VALID_RANGE_MPS
         params = {"user_id": int(user_id), "cutoff": cutoff, "max_duration_sec": SPEED_REF_MAX_DURATION_SEC,
-                  "min_speed_mps": low, "max_speed_mps": high, "limit": SPEED_REF_RECENT_RUNS}
+                  "min_speed_mps": low, "max_speed_mps": high, "limit": SPEED_REF_RECENT_RUNS,
+                  "min_moving_sec": SPEED_REF_MIN_MOVING_SEC, "min_distance_m": SPEED_REF_MIN_DISTANCE_M}
         try:
             rows = self.db.fetch_all(SPEED_REF_SQL, params)
         except DatabaseUnavailable:

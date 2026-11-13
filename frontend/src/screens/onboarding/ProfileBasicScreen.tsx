@@ -46,7 +46,7 @@ function describeSignUpError(error: unknown) {
     case 'LOGIN_ID_DUPLICATED':
       return '그사이 다른 사람이 이 아이디로 가입했어요. 회원가입에서 아이디를 바꿔 주세요.';
     case 'INVALID_PASSWORD_POLICY':
-      return '비밀번호가 규칙에 맞지 않아요. 회원가입에서 공백 없이 8~20자로 바꿔 주세요.';
+      return '비밀번호가 규칙에 맞지 않아요. 회원가입에서 아이디와 다른 영문·숫자·특수문자 8~20자로 바꿔 주세요.';
     case 'INVALID_CONSENT':
       return '필수 약관 동의가 확인되지 않았어요. 약관 동의를 다시 해 주세요.';
     // U15 휴대전화 인증 (users.md, S15P31E105-560): the 10-minute proof ran out, or the number got taken meanwhile.

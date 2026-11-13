@@ -8,6 +8,7 @@ import type {
   RunSplit,
 } from '../types';
 import { DataError } from '../errors';
+import { basemapImageAddress } from './basemap';
 import { apiRequest } from './http';
 import { listItems } from './listItems';
 
@@ -33,6 +34,8 @@ type ListItem = {
     crewName: string;
     finisherCount: number;
   } | null;
+  // S15P31E105-756: the run's own OSM thumbnail (/api/v1/images/{id}), left out until the server has drawn it.
+  routePreviewImageUrl?: string | null;
 };
 
 // `page` is the next page's cursor, left out on the last page.
@@ -80,18 +83,26 @@ type RouteResponse = {
   segments: { source: 'WATCH' | 'PHONE'; coordinates: [number, number][] }[];
 };
 
-// 경로가 없거나 읽지 못하면 null이다. 경로 하나 때문에 기록 상세 전체를 실패로 보이지 않는다.
-async function routePartsOf(sessionId: string): Promise<[number, number][][] | null> {
+// 경로가 없으면(404·빈 조각) null이고, 그 밖에 읽지 못하면 오류다(S15P31E105-756: 잠깐의 실패를 '경로 없음'으로 보이지 않는다).
+async function routePartsOrFail(sessionId: string): Promise<[number, number][][] | null> {
+  let response: RouteResponse;
   try {
-    const response = await apiRequest<RouteResponse>(`/running-sessions/${sessionId}/route`);
-    const parts = (response?.segments ?? [])
-      .map(segment => segment.coordinates)
-      .filter(part => Array.isArray(part) && part.length > 0);
-    return parts.length > 0 ? parts : null;
-  } catch {
-    return null;
+    response = await apiRequest<RouteResponse>(`/running-sessions/${sessionId}/route`);
+  } catch (error) {
+    if (error instanceof DataError && error.status === 404) {
+      return null;
+    }
+    throw error;
   }
+  const parts = (response?.segments ?? [])
+    .map(segment => segment.coordinates)
+    .filter(part => Array.isArray(part) && part.length > 0);
+  return parts.length > 0 ? parts : null;
 }
+
+// 기록 상세용: 경로가 없거나 읽지 못하면 null이다. 경로 하나 때문에 기록 상세 전체를 실패로 보이지 않는다.
+const routePartsOf = (sessionId: string) =>
+  routePartsOrFail(sessionId).catch(() => null);
 // H08 제목은 1~40자이고 제어·서식 문자를 받지 않는다. 화면 제목(코스 이름·별칭)이 더 길어도 링크가 만들어지게
 // 문자를 쪼개지 않고 40자 안으로 줄인다(S15P31E105-704).
 const shareTitleLimit = 40;
@@ -177,6 +188,7 @@ function toSummary(
         }
       : null,
     goalAchieved: item.goalAchieved,
+    routePreviewImageUrl: basemapImageAddress(item.routePreviewImageUrl),
   };
 }
 
@@ -273,15 +285,27 @@ export function createRecordsApi() {
 
   const records: Repositories['records'] = {
     // Newest runs across solo and group (first-run tip and 5.1 start day; S15P31E105-638).
+    // H01 answers at most 50 a page, so more than that (7.4b 더 불러오기) follows the cursor (S15P31E105-756).
     getRecent: async (sort, limit) => {
+      const firstOf = async (runType: RunType) => {
+        const items: ListItem[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await apiRequest<ListResponse>(path, {
+            query: {
+              runType,
+              sort: sortParam[sort],
+              limit: Math.min(limit - items.length, pageLimit),
+              cursor,
+            },
+          });
+          items.push(...listItems(page));
+          cursor = page?.page;
+        } while (cursor && items.length < limit);
+        return started(items).map(item => toSummary(item, runType));
+      };
       const lists = await Promise.all(
-        (['SOLO', 'GROUP'] as const).map(runType =>
-          apiRequest<ListResponse>(path, {
-            query: { runType, sort: sortParam[sort], limit },
-          }).then(page =>
-            started(listItems(page)).map(item => toSummary(item, runType)),
-          ),
-        ),
+        (['SOLO', 'GROUP'] as const).map(firstOf),
       );
       const order = (a: RunRecordSummary, b: RunRecordSummary) =>
         sort === 'distance'
@@ -315,7 +339,7 @@ export function createRecordsApi() {
         goalAchieved: detail.goalAchieved,
       };
     },
-    getRoute: recordId => routePartsOf(recordId),
+    getRoute: recordId => routePartsOrFail(recordId),
     // 공유 링크 발급(S15P31E105-704). 같은 기록은 같은 링크를 돌려받는다.
     shareLink: async (recordId, title) => {
       const response = await apiRequest<{ token: string; url: string }>(

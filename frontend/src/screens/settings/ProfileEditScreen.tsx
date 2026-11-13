@@ -15,6 +15,7 @@ import {
   Backdrop,
   EmptyState,
   Icon,
+  Toggle,
   useToast,
 } from '../../components';
 import { BackButton } from '../../components/BackButton';
@@ -43,6 +44,7 @@ import {
 } from '../onboarding/validation';
 import { ProfilePhoto, settingsLook } from './SettingsScreen';
 import { photoFailure, pickPhoto } from '../photoPicker';
+import { useTapLock } from '../useTapLock';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 // The same years as 1.5b (S15P31E105-520), newest first, so a date picked at sign-up always shows here.
@@ -81,6 +83,103 @@ function baselineLine(baseline: RunningBaseline) {
 // F01 and U05 failures for the photo; the rest of the form is not sent after one.
 const describePhotoError = (error: unknown) =>
   photoFailure(error) ?? '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요';
+
+// 계정 공개 범위 (U13·U14), moved here from 8.1 설정 (S15P31E105-775). It saves at once like the 8.1 switch
+// did, apart from 저장: the switch flips right away and rolls back if U14 fails, one save at a time.
+function PrivacyField() {
+  const toast = useToast();
+  const { settings } = useRepositories();
+  const [isPrivate, setIsPrivate] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState(false);
+  const saving = useRef(false);
+  const load = useCallback(() => {
+    let active = true;
+    setFailed(false);
+    settings.get().then(
+      loaded => {
+        if (active) setIsPrivate(loaded.isPrivate);
+      },
+      () => {
+        if (active) setFailed(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [settings]);
+  useEffect(load, [load]);
+
+  const change = async (open: boolean) => {
+    if (isPrivate === null || saving.current) {
+      return;
+    }
+    saving.current = true;
+    const before = isPrivate;
+    setIsPrivate(!open);
+    try {
+      setIsPrivate((await settings.update({ isPrivate: !open })).isPrivate);
+    } catch (error) {
+      // U14 landed but the companion U19 read failed: the change is saved, so it stays (S15P31E105-638).
+      if (errorCode(error) === 'SAVE_UNCONFIRMED') {
+        toast('저장했어요. 최신 설정을 불러오지 못했어요');
+      } else {
+        setIsPrivate(before);
+        toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      saving.current = false;
+    }
+  };
+
+  if (failed) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="계정 공개 범위를 불러오지 못했어요. 다시 시도"
+        onPress={load}
+        style={({ pressed }) => [styles.field, pressed && styles.pressed]}
+      >
+        <Icon
+          name="globe"
+          color={settingsLook.label}
+          size={20}
+          strokeWidth={1.8}
+        />
+        <View style={styles.flex}>
+          <AppText style={styles.fieldLabel}>계정 공개 범위</AppText>
+          <AppText style={styles.fieldValue}>불러오지 못했어요</AppText>
+        </View>
+        <AppText style={styles.retry}>다시 시도</AppText>
+      </Pressable>
+    );
+  }
+  return (
+    <View style={styles.field}>
+      <Icon
+        name="globe"
+        color={settingsLook.label}
+        size={20}
+        strokeWidth={1.8}
+      />
+      <View style={styles.flex}>
+        <AppText style={styles.fieldLabel}>계정 공개 범위</AppText>
+        <AppText style={styles.fieldValue}>
+          {isPrivate === null ? ' ' : isPrivate ? '비공개' : '공개'}
+        </AppText>
+      </View>
+      {isPrivate === null ? (
+        <ActivityIndicator size="small" color={settingsLook.label} />
+      ) : (
+        <Toggle
+          label="계정 공개 범위"
+          value={!isPrivate}
+          onChange={change}
+          onColors={{ track: settingsLook.ink, knob: '#FFFFFF' }}
+        />
+      )}
+    </View>
+  );
+}
 
 function Form({
   detail,
@@ -155,15 +254,24 @@ function Form({
   const [shownPhoto, setShownPhoto] = useState(photo);
   const [pendingPhoto, setPendingPhoto] = useState<PhotoFile | null>(null);
 
+  // S15P31E105-796: a big original takes a while to shrink after it is chosen; the camera badge spins meanwhile, so
+  // the first pick no longer looks dead, and a refusal (over 5MB, wrong type, picker error) is always told.
+  const [picking, setPicking] = useState(false);
   const choosePhoto = async () => {
-    const picked = await pickPhoto('profile');
-    if (picked.kind === 'refused') {
-      toast(picked.message);
-    } else if (picked.kind === 'picked') {
-      setShownPhoto(picked.photo.uri);
-      setPendingPhoto(picked.photo);
+    setPicking(true);
+    try {
+      const picked = await pickPhoto('profile');
+      if (picked.kind === 'refused') {
+        toast(picked.message);
+      } else if (picked.kind === 'picked') {
+        setShownPhoto(picked.photo.uri);
+        setPendingPhoto(picked.photo);
+      }
+    } finally {
+      setPicking(false);
     }
   };
+  const once = useTapLock();
 
   const save = async () => {
     if (!valid) {
@@ -221,7 +329,16 @@ function Form({
         contentContainerStyle={styles.content}
       >
         <View style={styles.photoRow}>
-          <View>
+          {/* The circle and its camera badge are one button: a tap on either picks a photo (S15P31E105-775). */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="프로필 사진 바꾸기"
+            accessibilityState={{ busy: picking }}
+            disabled={picking}
+            onPress={choosePhoto}
+            hitSlop={6}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
             <View style={styles.photoRing}>
               <ProfilePhoto
                 nickname={nickname || detail.nickname}
@@ -229,16 +346,14 @@ function Form({
                 size={76}
               />
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="프로필 사진 바꾸기"
-              onPress={choosePhoto}
-              hitSlop={6}
-              style={styles.camera}
-            >
-              <Icon name="camera" color="#FFFFFF" size={14} />
-            </Pressable>
-          </View>
+            <View style={styles.camera}>
+              {picking ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Icon name="camera" color="#FFFFFF" size={14} />
+              )}
+            </View>
+          </Pressable>
           <View style={styles.photoText}>
             <AppText style={styles.photoTitle}>프로필 사진</AppText>
             <AppText style={styles.photoNote}>
@@ -372,6 +487,8 @@ function Form({
           </View>
           <Icon name="forward" color={settingsLook.label} size={16} />
         </Pressable>
+
+        <PrivacyField />
       </ScrollView>
       {/* 저장 at the foot (담당자 결정: 시안대로); the keyboard lifts it. */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
@@ -380,7 +497,7 @@ function Form({
           accessibilityLabel="저장"
           accessibilityState={{ disabled: !valid || busy }}
           disabled={!valid || busy}
-          onPress={save}
+          onPress={once(save)}
           style={({ pressed }) => [
             styles.save,
             (!valid || busy) && styles.dim,
@@ -439,7 +556,7 @@ function Choices<T extends string>({
 const loadAll = (repositories: Repositories) =>
   Promise.all([repositories.profile.getDetail(), repositories.profile.getMe()]);
 
-// 8.2 프로필 수정 (U05, the running level of U07 and the way into 8.2b) on the mist (runway-settings, 담당자 결정: 시안대로).
+// 8.2 프로필 수정 (U05, the running level of U07, the way into 8.2b and 계정 공개 범위 U13·U14) on the mist (runway-settings, 담당자 결정: 시안대로).
 export function ProfileEditScreen() {
   const loaded = useResource(loadAll);
   // The form keeps its own answers once shown, so it mounts only after the profile loads.
@@ -571,6 +688,12 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontFamily: fontFamily.medium,
     fontSize: 15.5,
+    color: settingsLook.ink,
+  },
+  retry: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13.5,
+    lineHeight: 18,
     color: settingsLook.ink,
   },
   error: {

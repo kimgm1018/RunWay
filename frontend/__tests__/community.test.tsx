@@ -1,5 +1,5 @@
 import React from 'react';
-import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
@@ -8,11 +8,16 @@ import {
   DataError,
   type CommentLike,
   type Repositories,
+  tokenStore,
 } from '../src/data';
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
-import { NaverMapPathOverlay, NaverMapView, NaverMapMarkerOverlay } from '@mj-studio/react-native-naver-map';
+import {
+  NaverMapPathOverlay,
+  NaverMapView,
+  NaverMapMarkerOverlay,
+} from '@mj-studio/react-native-naver-map';
 import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
 import {
@@ -218,11 +223,8 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
   // The runs have no points to ask for either (S15P31E105-612: points that do come are drawn as the real outline,
   // where S15P31E105-562 showed a Naver map instead).
   repositories.community.getRoute = async () => null;
-  const getDetail = repositories.records.getDetail;
-  repositories.records.getDetail = async recordId => ({
-    ...(await getDetail(recordId)),
-    route: null,
-  });
+  // 7.4b 기록 tiles read the S11 route (S15P31E105-756).
+  repositories.records.getRoute = async () => null;
   // Every run tile gets its card (S15P31E105-562); with no shape and no points it draws no made-up outline.
   const outlines = () => {
     expect(screen.root.findAllByType(CourseMapThumb).length).toBeGreaterThan(0);
@@ -459,7 +461,7 @@ test('7.1 falls back to the drawn map when the shared course cannot be read', as
 // card and 달성, and a comment bar that opens the same comments sheet as 7.1.
 test('7.2 shows the run over its map, likes it and opens the comments from the card and the bar', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await press(screen, 'seoyun.run의 5.02km 러닝');
   await settle(50);
@@ -494,7 +496,7 @@ test('7.2 shows the run over its map, likes it and opens the comments from the c
 // (115 over a 48 three-button bar), so the 댓글 card scrolls clear of it.
 test('7.2 keeps the end of the sheet clear of a comment bar that grew', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await press(screen, 'seoyun.run의 5.02km 러닝');
   await settle(50);
@@ -506,13 +508,14 @@ test('7.2 keeps the end of the sheet clear of a comment bar that grew', async ()
   await act(async () => {
     commentBar.props.onLayout({ nativeEvent: { layout: { height: 115 } } });
   });
+  // Sheet is a nested ScrollView (S15P31E105-789); foot room lives on contentContainerStyle.
   const sheet = detail.findAll(
     node =>
-      node.type === View &&
+      node.type === ScrollView &&
       StyleSheet.flatten(node.props.style)?.borderTopLeftRadius === 28,
   )[0];
   expect(
-    StyleSheet.flatten(sheet.props.style).paddingBottom,
+    StyleSheet.flatten(sheet.props.contentContainerStyle).paddingBottom,
   ).toBeGreaterThanOrEqual(115 + 16);
 });
 
@@ -729,7 +732,9 @@ test('the detail holds the whole replay route with the author at its finish', as
   }
   expect(map().props.camera).toEqual(camera);
   expect(core().props.progress).toBe(1);
-  expect(map().findByType(NaverMapMarkerOverlay).props.latitude).toBe(end.latitude);
+  expect(map().findByType(NaverMapMarkerOverlay).props.latitude).toBe(
+    end.latitude,
+  );
 });
 
 // The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
@@ -1220,7 +1225,7 @@ test('7.4b falls back to the letter when my profile photo fails to load', async 
 test('7.4 of a private runner shows only the name until the request is approved, and takes it back', async () => {
   const screen = await openCommunity();
   // Their posts stay out of the feed, so the profile opens from 7.5 검색.
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   await type(screen, '러너·크루 검색 검색', 'jiwoo');
   await settle(400);
@@ -1288,6 +1293,14 @@ test('7.4b answers follow requests in the sheet and the counts follow', async ()
   expect(page).toContain('승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.');
   expect(page).toContain('dohyun_r');
   expect(page).toContain('jiwoo.runs');
+  const approve = StyleSheet.flatten(
+    labelled(screen, 'dohyun_r 승인').props.style,
+  );
+  const reject = StyleSheet.flatten(
+    labelled(screen, 'dohyun_r 거절').props.style,
+  );
+  expect(approve).toMatchObject({ width: 64, flexShrink: 0 });
+  expect(reject).toMatchObject({ width: 64, flexShrink: 0 });
 
   await press(screen, 'dohyun_r 승인');
   await settle(50);
@@ -1418,6 +1431,145 @@ test('7.4 run tiles show a shared course on its map image', async () => {
   }
 });
 
+// S15P31E105-756: the server's H02 detail leaves route null and keeps the measured run in S11 parts, so 7.4b 기록
+// tiles read the run from records.getRoute, not from the detail.
+test('7.4b 기록 tiles draw the measured run from the S11 route, not the detail route', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getDetail = repositories.records.getDetail;
+  repositories.records.getDetail = async recordId => ({
+    ...(await getDetail(recordId)),
+    route: null,
+  });
+  // Only 기록 tiles can answer: 스크랩 tiles stay mounted in the pager and ask the post route.
+  repositories.community.getRoute = async () => null;
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  const tiles = screen.root
+    .findAllByType(CourseMapThumb)
+    .filter(tile => typeof tile.props.load === 'function');
+  expect(tiles.length).toBeGreaterThan(0);
+  const pending = Promise.all(tiles.map(tile => tile.props.load()));
+  await settle(50);
+  const answers = await pending;
+  const drawn = answers.filter(answer => (answer?.route.length ?? 0) >= 2);
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(drawn[0]?.basemap).toBeNull();
+});
+
+// S15P31E105-756 (ADR-0024): 7.4b 기록 tiles show the server's OSM thumbnail of the run, asked with my token, and
+// never a live Naver map; a run without a thumbnail keeps its outline from the S11 points.
+test('7.4b 기록 tiles load their own OSM thumbnail with my token and no live map', async () => {
+  tokenStore.hold({ accessToken: 'access-756', refreshToken: 'refresh-756' });
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getRecent = repositories.records.getRecent;
+  let withPicture = '';
+  repositories.records.getRecent = async (sort, limit) =>
+    (await getRecent(sort, limit)).map((item, index) => {
+      if (index === 0) {
+        withPicture = item.id;
+        return {
+          ...item,
+          shape: [],
+          routePreviewImageUrl:
+            'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
+        };
+      }
+      return { ...item, shape: [] };
+    });
+  repositories.community.getRoute = async () => null;
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  const runTiles = screen.root
+    .findAllByType(CourseMapThumb)
+    .filter(tile => tile.props.emptyLabel);
+  expect(runTiles.length).toBeGreaterThan(1);
+  for (const tile of runTiles) {
+    const [thumb] = tile.findAll(
+      node =>
+        node.props.testID === 'course-thumb' &&
+        typeof node.props.onLayout === 'function',
+    );
+    await act(async () =>
+      thumb.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 170, height: 200 } },
+      }),
+    );
+  }
+  await settle(50);
+  const pictured = runTiles.filter(tile => tile.props.basemap);
+  expect(pictured).toHaveLength(1);
+  const [image] = pictured[0].findAll(
+    node =>
+      typeof node.type !== 'string' &&
+      node.props.testID === 'course-basemap' &&
+      typeof node.props.onLoad === 'function',
+  );
+  expect(image.props.source).toEqual({
+    uri: 'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
+    headers: { Authorization: 'Bearer access-756' },
+  });
+  // No run tile ever holds a live Naver map, with or without a picture.
+  expect(runTiles.flatMap(tile => tile.findAllByType(RunMap))).toHaveLength(0);
+  // The tile without a picture keeps its outline drawn from the S11 points.
+  const plain = runTiles.find(tile => !tile.props.basemap)!;
+  expect(
+    plain
+      .findAllByType(CourseGlyph)
+      .filter(glyph => glyph.props.shape.length > 1),
+  ).toHaveLength(1);
+  expect(withPicture).not.toBe('');
+  await tokenStore.clear().catch(() => undefined);
+});
+
+// S15P31E105-756 (사용자 확정): a 7.4b 기록 tile whose run has no route says so with the route icon and words, once
+// the route has been asked for; 스크랩 tiles (a post may just not share its course) stay quiet.
+test('7.4b 기록 tiles without a route say 경로 기록 없음 after asking, scraps do not', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getRecent = repositories.records.getRecent;
+  repositories.records.getRecent = async (sort, limit) =>
+    (await getRecent(sort, limit)).map(item => ({ ...item, shape: [] }));
+  const waiting: ((parts: null) => void)[] = [];
+  repositories.records.getRoute = () =>
+    new Promise(resolve => {
+      waiting.push(resolve);
+    });
+  repositories.community.getRoute = async () => null;
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  const empties = () =>
+    screen.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.testID === 'course-thumb-empty',
+    );
+  // Still asking: the plain map ground, as before.
+  expect(empties()).toHaveLength(0);
+  expect(waiting.length).toBeGreaterThan(0);
+  await act(async () => waiting.forEach(resolve => resolve(null)));
+  await settle(50);
+  const runTileCount = screen.root
+    .findAllByType(CourseMapThumb)
+    .filter(tile => tile.props.emptyLabel).length;
+  expect(runTileCount).toBeGreaterThan(0);
+  expect(empties().length).toBeGreaterThan(0);
+  expect(texts(screen)).toContain('경로 기록 없음');
+  expect(
+    screen.root
+      .findAllByType(CourseMapThumb)
+      .filter(tile => !tile.props.emptyLabel)
+      .flatMap(tile =>
+        tile.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.testID === 'course-thumb-empty',
+        ),
+      ),
+  ).toHaveLength(0);
+});
+
 test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run on 러닝 분석', async () => {
   const screen = await openCommunity();
   await press(screen, 'seoyun.run 프로필');
@@ -1538,8 +1690,9 @@ test('7.4b says when there are no saved courses or they did not load', async () 
   expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
 });
 
-// S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
-test('Avatar shows the photo and falls back to the letter', async () => {
+// S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails shows the default
+// profile picture (S15P31E105-775) instead of the first letter.
+test('Avatar shows the photo and falls back to the default picture', async () => {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
@@ -1552,15 +1705,21 @@ test('Avatar shows the photo and falls back to the letter', async () => {
   const rendered = screen!;
   mounted = rendered;
   const photos = () => rendered.root.findAllByType(Image);
+  const defaults = () =>
+    rendered.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'default-avatar',
+    );
   expect(photos()).toHaveLength(1);
   expect(photos()[0].props.source).toEqual({ uri: 'https://img.test/9.jpg' });
-  expect(texts(rendered)).toBe('하');
+  expect(defaults()).toHaveLength(1);
+  expect(texts(rendered)).toBe('');
 
   await act(async () => {
     photos()[0].props.onError?.({ nativeEvent: { error: 'not found' } });
   });
   expect(photos()).toHaveLength(0);
-  expect(texts(rendered)).toContain('서');
+  expect(defaults()).toHaveLength(2);
 });
 
 // 7.4b → 2.1 기록 상세 → 7.3 기록 공유 with my 10.15 run.

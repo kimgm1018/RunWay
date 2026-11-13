@@ -22,7 +22,7 @@ redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now - day)
 local over = nil
 if redis.call('ZCARD', KEYS[3]) > 5 then
     over = KEYS[3]
-elseif redis.call('ZCARD', KEYS[4]) > 20 then
+elseif redis.call('ZCARD', KEYS[4]) > 100 then
     over = KEYS[4]
 end
 if over then

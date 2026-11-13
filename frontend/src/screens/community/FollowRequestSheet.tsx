@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
-import { AppText, BottomSheet, Button } from '../../components';
+import { AppText, BottomSheet, Button, DefaultAvatar } from '../../components';
 import {
   errorCode,
   useRepositories,
   type FollowDecision,
   type FollowRequest,
 } from '../../data';
-import { radius, spacing, useTheme } from '../../theme';
+import { spacing, useTheme } from '../../theme';
 
 // 7.4b 팔로우 요청 (runway-flow v15 reqSheet, U24 · U25, S15P31E105-525): the requests waiting for my answer,
 // each with 승인 and 거절. An answered row leaves the list. Results show inside the sheet, as a toast would sit
@@ -185,16 +185,8 @@ export function FollowRequestSheet({
             const busy = deciding === request.requestId;
             return (
               <View key={request.requestId} style={styles.row}>
-                <View
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: colors.surfaceMuted },
-                  ]}
-                >
-                  <AppText variant="bodyStrong">
-                    {request.nickname.slice(0, 1)}
-                  </AppText>
-                </View>
+                {/* The request carries no photo, so the default profile picture (S15P31E105-775). */}
+                <DefaultAvatar size={36} />
                 <AppText
                   variant="bodyStrong"
                   numberOfLines={1}
@@ -205,6 +197,7 @@ export function FollowRequestSheet({
                 <Button
                   title="승인"
                   size="small"
+                  style={styles.action}
                   accessibilityLabel={`${request.nickname} 승인`}
                   loading={busy}
                   disabled={deciding !== null && !busy}
@@ -214,6 +207,7 @@ export function FollowRequestSheet({
                   title="거절"
                   variant="secondary"
                   size="small"
+                  style={styles.action}
                   accessibilityLabel={`${request.nickname} 거절`}
                   disabled={deciding !== null}
                   onPress={() => decide(request, 'REJECT')}
@@ -252,12 +246,10 @@ const styles = StyleSheet.create({
   list: { maxHeight: 360 },
   rows: { gap: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   name: { flex: 1 },
+  // Keep both decisions the same compact size. Without an explicit flex boundary,
+  // Android can stretch the animated button while the row resolves a long name or loading spinner.
+  // Keep the compact decision controls visually stable while the approval request is in flight.
+  // Button's generic loading opacity otherwise makes the control flash on Android.
+  action: { width: 64, flexShrink: 0, opacity: 1 },
 });

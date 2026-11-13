@@ -475,3 +475,104 @@ test('the same display values twice do not redraw the screen (review)', () => {
   expect(live.show({ ...values, measuredAt: '2026-11-07T01:00:06Z' }, 1_300)).toBeNull();
   expect(live.show({ ...values, measuredAt: '2026-11-07T01:00:07Z', paceSecPerKm: 320 }, 1_600)?.paceSecPerKm).toBe(320);
 });
+
+// S15P31E105-783: a phone GPS jump (speed over MAX_BRIDGE_SPEED_MPS) is not added to the bridged distance. Synthetic values.
+describe('phone GPS bridge ignores jumps', () => {
+  const base = Date.parse('2026-11-07T01:00:00Z');
+  const bridgeOf = (points: Array<[string, number]>) => {
+    const live = createLiveMetrics();
+    live.ingest(
+      body([
+        metric('2026-11-07T01:00:00Z', {
+          heartRateBpm: 120,
+          totalDistanceM: 0,
+        }),
+      ]),
+      'WATCH',
+      base + 1_000,
+    );
+    return live.ingest(
+      body(points.map(([at, lat]) => gps(at, [129.13, lat]))),
+      'PHONE',
+      base + 61_000,
+      'WATCH',
+    )?.distanceM;
+  };
+
+  test('one jump in the middle adds nothing and the reference moves to the new place', () => {
+    const metres = bridgeOf([
+      ['2026-11-07T01:00:20Z', 35.15],
+      ['2026-11-07T01:00:30Z', 35.15009], // ~10 m
+      ['2026-11-07T01:00:40Z', 35.25], // ~11 km in 10 s: ignored
+      ['2026-11-07T01:00:50Z', 35.25009], // ~10 m from the new place
+    ]);
+    expect(metres).toBeGreaterThan(18);
+    expect(metres).toBeLessThan(22);
+  });
+
+  test('normal consecutive segments all add up', () => {
+    const metres = bridgeOf([
+      ['2026-11-07T01:00:20Z', 35.15],
+      ['2026-11-07T01:00:30Z', 35.15027], // ~30 m, 3 m/s
+      ['2026-11-07T01:00:40Z', 35.15054],
+      ['2026-11-07T01:00:50Z', 35.15081],
+    ]);
+    expect(metres).toBeGreaterThan(88);
+    expect(metres).toBeLessThan(92);
+  });
+
+  test('a jump at the very first point does not count and later points do', () => {
+    const metres = bridgeOf([
+      ['2026-11-07T01:00:20Z', 35.5], // wrong first fix, ~39 km away
+      ['2026-11-07T01:00:30Z', 35.15],
+      ['2026-11-07T01:00:40Z', 35.15027], // ~30 m
+    ]);
+    expect(metres).toBeGreaterThan(28);
+    expect(metres).toBeLessThan(32);
+  });
+
+  test('the limit itself counts: 11.7 m in 1 s is added, 12.6 m in 1 s is not', () => {
+    const under = bridgeOf([
+      ['2026-11-07T01:00:20Z', 35.15],
+      ['2026-11-07T01:00:21Z', 35.150105],
+    ]);
+    expect(under).toBeGreaterThan(11);
+    const over = bridgeOf([
+      ['2026-11-07T01:00:20Z', 35.15],
+      ['2026-11-07T01:00:21Z', 35.150113],
+    ]);
+    expect(over).toBe(0);
+  });
+
+  test('a jump does not make the bridged pace absurd', () => {
+    const live = createLiveMetrics();
+    live.ingest(
+      body([
+        metric('2026-11-07T01:00:00Z', {
+          heartRateBpm: 120,
+          totalDistanceM: 0,
+        }),
+      ]),
+      'WATCH',
+      base + 1_000,
+    );
+    const out = live.ingest(
+      body(
+        (
+          [
+            ['2026-11-07T01:00:20Z', 35.15],
+            ['2026-11-07T01:00:30Z', 35.25],
+            ['2026-11-07T01:00:40Z', 35.25027],
+            ['2026-11-07T01:00:50Z', 35.25054],
+          ] as Array<[string, number]>
+        ).map(([at, lat]) => gps(at, [129.13, lat])),
+      ),
+      'PHONE',
+      base + 61_000,
+      'WATCH',
+    );
+    // 30 m per 10 s is about 5'33"/km, not the 0'01"/km a 11 km step would give.
+    expect(out?.paceSecPerKm).toBeGreaterThan(300);
+    expect(out?.paceSecPerKm).toBeLessThan(380);
+  });
+});

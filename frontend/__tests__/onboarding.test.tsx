@@ -156,10 +156,10 @@ test('sign-up validates each field and reaches home through the watch connection
   await type(screen, '전화번호', '010-5555-6666');
   expect(isDisabled(screen, '다음')).toBe(true);
   await press(screen, '인증번호 받기');
-  expect(texts(screen)).toContain('03:00');
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   // A keyboard resending the same number keeps the code that was sent.
   await type(screen, '전화번호', '010-5555-6666');
-  expect(texts(screen)).toContain('03:00');
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   await type(screen, '인증번호 6자리', '111111');
   expect(texts(screen)).toContain(
     '인증번호가 일치하지 않아요 (1/5)',

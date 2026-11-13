@@ -29,6 +29,9 @@ import type {
 
 export type ControlProblem =
   | { kind: 'watchRequired' }
+  // A watch is paired with this phone but not registered to the account (W01), so the run would quietly be recorded
+  // by the phone alone (S15P31E105-784). Said once; starting again goes on with the phone.
+  | { kind: 'watchUnregistered' }
   | { kind: 'locationRequired' }
   | { kind: 'watchNotReady'; reasonCode: string | null }
   | { kind: 'rejected'; action: ControlAction; reasonCode: string | null }
@@ -177,6 +180,17 @@ type ResultEvent = Extract<WatchSessionEvent, { type: 'COMMAND_RESULT' }>;
 type CoachingResultEvent = Extract<WatchSessionEvent, { type: 'COACHING_RESULT' }>;
 
 const noop = () => undefined;
+
+// The server sends a coaching only while it is valid (about 20 s, sessions.md coaching), and coaching comes much less
+// often, so the 코칭 tab was empty most of the run. Within the same session the last one stays, as on the watch, and the
+// tab marks it 지난 코칭 once expiresAt passes (S15P31E105-782). Another session starts with none.
+export function lastCoaching(
+  next: CoachingGuide | null | undefined,
+  previous: CoachingGuide | null,
+  sameSession: boolean,
+): CoachingGuide | null {
+  return next ?? (sameSession ? previous : null);
+}
 
 // 실기기 진단(S15P31E105-549): 제어 단계·명령 번호·오류 코드만 남긴다. 건강값·좌표·토큰은 남기지 않는다.
 // 릴리스 번들에서도 logcat ReactNativeJS 태그로 보인다.
@@ -635,7 +649,7 @@ export function createRunControl({
       startedAt: view.startedAt,
       endedAt: view.endedAt,
       comparison: view.comparison ?? null,
-      coaching: view.coaching ?? null,
+      coaching: lastCoaching(view.coaching, state.coaching, view.sessionId === state.sessionId),
       currentBpm: view.currentBpm ?? null,
       recordingMode: view.recordingMode,
       clock: runClockOf(view, Date.now()),
@@ -747,9 +761,16 @@ export function createRunControl({
     }
   };
 
+  // 폐기된 제어기는 러닝 서비스를 건드리지 않는다. 다음 제어기가 켠 서비스를 늦게 끝난 조작이 끄지 않게 한다(S15P31E105-814).
+  const stopService = async () => {
+    if (!disposed) {
+      await watch.setRunActive(false).catch(() => undefined);
+    }
+  };
+
   const settleActive = async () => {
     if (state.status && TERMINAL.includes(state.status)) {
-      await watch.setRunActive(false).catch(() => undefined);
+      await stopService();
       // 끝난 운동은 인계 때 막아 둔 워치 batch 수신을 다시 연다(늦게 온 batch는 서버가 거절한다).
       if (state.sessionId) {
         await watch.unblockBatches?.(state.sessionId).catch(noop);
@@ -1209,7 +1230,7 @@ export function createRunControl({
     if (view.stateVersion >= state.stateVersion) {
       setState({
         comparison: view.comparison ?? null,
-        coaching: view.coaching ?? null,
+        coaching: lastCoaching(view.coaching, state.coaching, view.sessionId === state.sessionId),
         currentBpm: view.currentBpm ?? null,
         clock: runClockOf(view, Date.now()),
       });
@@ -1423,10 +1444,20 @@ export function createRunControl({
   }
 
   // 새 세션을 만든다. 응답 유실·앱 재시작으로 이미 활성 세션이 있으면 그 세션에 다시 붙는다(S01 409 details.sessionId).
-  async function createSession(goal: SessionGoalDraft): Promise<boolean> {
+  // Whether the watchUnregistered notice was shown in this screen's life: the next start goes on with the phone.
+  let unregisteredNoticed = false;
+  async function createSession(goal: SessionGoalDraft, asked = false): Promise<boolean> {
     devices = await watch.getLinkedDevices();
     mark('devices');
     let phoneId: string;
+    // The early preparation does not make a phone session for a paired watch: the user's own start says why first.
+    if (!devices && !unregisteredNoticed && (await watch.isWatchConnected?.().catch(() => false))) {
+      if (asked) {
+        unregisteredNoticed = true;
+        setState({ problem: { kind: 'watchUnregistered' } });
+      }
+      return false;
+    }
     if (!devices) {
       // Phone-only personal runs require a usable fix before creating a server session.
       const granted = await location.requestPermission().catch(() => false);
@@ -1474,6 +1505,10 @@ export function createRunControl({
     // 준비 화면에서 경로용 위치 권한을 묻고 러닝 서비스에 위치 유형을 켠다. 거절해도 러닝은 이어가며 경로만 남지 않는다.
     // 폰 화면이 앞에 있을 때 켜 두어야 워치에서 시작해도 화면이 꺼진 채 폰 GPS를 받는다(백그라운드 위치 서비스 시작 제한).
     const granted = await location.requestPermission().catch(() => false);
+    if (disposed) {
+      // 폐기 뒤 끝난 준비는 dispose가 세션을 취소한다. 러닝 서비스를 다시 켜지 않는다(S15P31E105-814).
+      return false;
+    }
     await watch
       .setRunActive(true, state.sessionId ?? undefined, { location: true })
       .catch(() => undefined);
@@ -1489,11 +1524,13 @@ export function createRunControl({
     flushEarlyCoaching();
     // 재실행 후에도 러닝 중에는 서비스가 다시 떠 있어야 화면이 꺼져도 워치 메시지를 중계한다(AC-C4).
     const ended = state.status !== null && TERMINAL.includes(state.status);
-    await watch
-      .setRunActive(!ended, ended ? undefined : sessionId, {
-        location: !ended,
-      })
-      .catch(() => undefined);
+    if (!disposed) {
+      await watch
+        .setRunActive(!ended, ended ? undefined : sessionId, {
+          location: !ended,
+        })
+        .catch(() => undefined);
+    }
     if (ended) {
       await watch.unblockBatches?.(sessionId).catch(noop);
     }
@@ -1545,7 +1582,7 @@ export function createRunControl({
     await attachTo(sessionId);
     lastGoal = goal;
     // 대기방에서 준비 완료한 그룹 러닝도 경로용 위치 권한을 묻는다(S15P31E105-549). 거절해도 러닝은 이어간다.
-    if (await location.requestPermission().catch(() => false)) {
+    if ((await location.requestPermission().catch(() => false)) && !disposed) {
       await watch.setRunActive(true, sessionId, { location: true }).catch(noop);
       if (recorder) {
         startGps(recorder);
@@ -1726,7 +1763,7 @@ export function createRunControl({
       return;
     }
     if (!state.sessionId) {
-      if (!target || !(await createSession(target))) {
+      if (!target || !(await createSession(target, true))) {
         return;
       }
       if (state.status !== 'READY') {
@@ -1993,14 +2030,26 @@ export function createRunControl({
     // S01 응답 전(세션 없음)이어도 진행 중인 준비가 끝난 뒤 판단한다.
     releasePrepared: () =>
       runAfter(async () => {
-        // 이 제어기가 미리 만든 세션만 취소한다. 앱 재실행으로 다시 붙은 세션(그룹일 수 있음)은 건드리지 않는다.
-        if (state.status !== 'READY' || inflight || state.pending || createdAt === null) {
+        if (state.status !== 'READY' || inflight || state.pending) {
           return;
         }
-        diag('prepared session released');
-        await doCancel(true, false);
-        preparedFor = null;
-        createdAt = null;
+        // 이 제어기가 미리 만든 세션만 취소한다. 앱 재실행·S01 409로 다시 붙은 세션(그룹일 수 있음)은 취소하지 않는다.
+        if (createdAt !== null) {
+          diag('prepared session released');
+          await doCancel(true, false);
+          preparedFor = null;
+          createdAt = null;
+          if (state.status === 'READY') {
+            // 취소하지 못했다(이미 만료·취소 등). 그 사이 워치에서 시작됐을 수 있어 서버 상태를 다시 확인한다.
+            await refresh().catch(noop);
+            await settleActive();
+          }
+        }
+        // 시작하지 않고 준비 화면을 떠났다. '러닝 중' 알림과 wake lock을 남기지 않는다(S15P31E105-814).
+        // 취소한 세션은 settleActive가 이미 껐다. 다시 붙은 세션은 사용자가 시작할 때 새로 만들거나 S01 409로 다시 붙는다.
+        if (state.status === 'READY') {
+          await stopService();
+        }
       }),
     attach: sessionId => run(() => attachTo(sessionId)),
     joinGroup: (sessionId, goal, group) => run(() => joinGroupFlow(sessionId, goal, group)),
@@ -2060,6 +2109,11 @@ export function createRunControl({
         await settleActive();
       }),
     dispose: () => {
+      // 시작하지 않은 준비(그룹 대기방 이탈·로그아웃·그룹 전환 등)나 끝난 운동이면 러닝 서비스를 끈다(S15P31E105-814).
+      // 진행 중인 운동과 상태를 모르는 제어기(조회 실패 등)는 그대로 두어 다음 제어기가 이어받는다.
+      if (state.status === 'READY' || (state.status !== null && TERMINAL.includes(state.status))) {
+        watch.setRunActive(false).catch(noop);
+      }
       disposed = true;
       // 이 제어기가 미리 만든 READY 세션은 폐기(그룹 전환·로그아웃 등) 뒤에도 남기지 않는다. 진행 중인 준비(S01 대기 포함)가
       // 끝난 뒤 취소한다. 워치는 다음 제어기가 맡으므로 알리지 않는다.

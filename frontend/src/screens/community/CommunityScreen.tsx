@@ -91,20 +91,21 @@ export function CommunityScreen() {
   const [shownPage, setShownPage] = useState(0);
   useEffect(() => setShownPage(0), [scope, region.code]);
   // A new scope or region shows its list from the first post (S15P31E105-699). The list is mounted again for it
-  // (its key), but Android can hand the new list the old one's scroll offset, so the feed is also put back at
-  // the top when the choice is made and again once the new first page is on screen.
-  const toTop = useRef(false);
+  // (its key, and again once its first page is in), but Android can hand a list mounted again the old one's
+  // scroll offset. So each list put on screen is sent to its top the first time it draws its posts (its first
+  // content size), and only then: the next page read into the same list does not jump (S15P31E105-763).
+  const sentToTop = useRef<FlatList<Post> | null>(null);
+  const firstDrawn = useCallback((_width: number, height: number) => {
+    const shown = list.current;
+    if (shown && height > 0 && sentToTop.current !== shown) {
+      sentToTop.current = shown;
+      shown.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, []);
   const showFirst = useCallback(() => {
-    toTop.current = true;
     setShownPage(0);
     list.current?.scrollToOffset({ offset: 0, animated: false });
   }, []);
-  useEffect(() => {
-    if (toTop.current && feed.status === 'ready') {
-      toTop.current = false;
-      list.current?.scrollToOffset({ offset: 0, animated: false });
-    }
-  }, [feed.status, scope, region.code]);
   const pickScope = (next: FeedScope) => {
     if (next !== scope) {
       showFirst();
@@ -217,6 +218,7 @@ export function CommunityScreen() {
           key={`${scope}:${region.code ?? ''}`}
           ref={list}
           contentOffset={firstPost}
+          onContentSizeChange={firstDrawn}
           data={feed.posts}
           keyExtractor={post => post.id}
           // Two pages before the end the next 20 are read; nothing after the last page.
@@ -349,7 +351,7 @@ export function CommunityScreen() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="검색"
+          accessibilityLabel="탐색"
           onPress={() => navigateTo(navigation, 'CommunitySearch')}
           style={({ pressed }) => [
             styles.headerButton,

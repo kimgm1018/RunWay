@@ -97,3 +97,49 @@ test('3.1b first recommend failure shows 다시 시도 and recovers', async () =
   expect(texts(screen!)).toContain('이 코스로 달리기');
   await act(async () => screen!.unmount());
 });
+
+// S15P31E105-776: dragging past halfway and back no longer swaps the card's native map mid-drag.
+test('3.1b keeps the live map on the settled card while a drag is in progress', async () => {
+  const { RunMap } = require('../src/components/RunMap');
+  const { ScrollView } = require('react-native');
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <DataProvider repositories={repositories}>
+        <ToastProvider>
+          <CourseSearchProvider>
+            <RecommendedCoursesScreen />
+          </CourseSearchProvider>
+        </ToastProvider>
+      </DataProvider>,
+    );
+  });
+  await settle(50);
+  const row = screen!.root.find(
+    node => node.type === ScrollView && node.props.horizontal === true,
+  );
+  const liveRoutes = () =>
+    screen!.root.findAllByType(RunMap).map(node => node.props.route);
+  const first = liveRoutes();
+  expect(first).toHaveLength(1);
+  const step = (row.props.snapToInterval as number) ?? 0;
+  expect(step).toBeGreaterThan(0);
+
+  const at = (x: number) => ({ nativeEvent: { contentOffset: { x } } });
+  for (const x of [step * 0.7, step * 0.2, step * 0.8, step * 0.1]) {
+    await act(async () => {
+      row.props.onScroll?.(at(x));
+    });
+    // Still the same map at every frame: nothing remounts while dragging back and forth.
+    expect(liveRoutes()).toEqual(first);
+  }
+
+  await act(async () => {
+    row.props.onMomentumScrollEnd(at(step));
+  });
+  const second = liveRoutes();
+  expect(second).toHaveLength(1);
+  expect(second[0]).not.toBe(first[0]);
+  await act(async () => screen!.unmount());
+});

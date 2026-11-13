@@ -30,6 +30,10 @@ SPEED_REF_RECENT_RUNS = 20
 SPEED_REF_MAX_DURATION_SEC = 7200
 # 러닝 한 번의 이동 속도와 v_ref를 믿는 범위(m/s). 벗어난 러닝(기록 오류·보행)은 뺀다.
 SPEED_REF_VALID_RANGE_MPS = (0.5, 8.0)
+# S15P31E105-785: 이동 10분·1 km 미만 기록(앱 시험·잘못 시작한 기록)은 v_ref와 지난 러닝 수 n에 넣지 않는다.
+# 목표 심박 보정(377)의 15~90분·3 km보다 느슨하게 둔 것은 짧게 달리는 사용자의 기록을 너무 많이 버리지 않으려는 것이다.
+SPEED_REF_MIN_MOVING_SEC = 600
+SPEED_REF_MIN_DISTANCE_M = 1000
 _MAX_SCALE = 3.0
 
 
@@ -90,6 +94,8 @@ def run_moving_speed(total_distance, moving_duration, elapsed_duration=None) -> 
     distance, moving = _number(total_distance), _number(moving_duration)
     if distance is None or moving is None or distance <= 0 or moving <= 0:
         return None
+    if moving < SPEED_REF_MIN_MOVING_SEC or distance < SPEED_REF_MIN_DISTANCE_M:
+        return None
     elapsed = _number(elapsed_duration)
     if max(moving, elapsed or 0.0) > SPEED_REF_MAX_DURATION_SEC:
         return None
@@ -119,6 +125,6 @@ def resolve_speed_ref(speed_ref_mps: float | None, run_count: int, default: floa
     return float(default), 0, "train_default"
 
 
-__all__ = ["CALIBRATION_DEFINITION", "DEFAULT_SCALE", "DEFAULT_SPEED_REF_MPS", "SPEED_REF_RECENT_RUNS",
+__all__ = ["CALIBRATION_DEFINITION", "DEFAULT_SCALE", "DEFAULT_SPEED_REF_MPS", "SPEED_REF_MIN_DISTANCE_M", "SPEED_REF_MIN_MOVING_SEC", "SPEED_REF_RECENT_RUNS",
            "SpeedCalibration", "load_speed_calibration", "resolve_speed_ref", "run_moving_speed",
            "speed_ref_from_runs", "transform_speeds"]

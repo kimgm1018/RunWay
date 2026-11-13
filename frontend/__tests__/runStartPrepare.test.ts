@@ -36,6 +36,7 @@ function setup(
     reportPrepared: 0,
     request: [] as string[],
     serverState: 0,
+    active: [] as boolean[],
   };
   const session = {
     ...repositories.session,
@@ -68,6 +69,10 @@ function setup(
     sendServerState: (...args: Parameters<typeof repositories.watchSession.sendServerState>) => {
       calls.serverState += 1;
       return repositories.watchSession.sendServerState(...args);
+    },
+    setRunActive: (...args: Parameters<typeof repositories.watchSession.setRunActive>) => {
+      calls.active.push(args[0]);
+      return repositories.watchSession.setRunActive(...args);
     },
     sendReceived: async (...args: Parameters<typeof repositories.watchSession.sendReceived>) => {
       if (receivedHold) {
@@ -449,4 +454,128 @@ test('a failed clean-up cancel does not send the watch an error for a request it
   await control.releasePrepared();
   expect(sendError).not.toHaveBeenCalled();
   control.dispose();
+});
+
+// S15P31E105-814: 러닝을 시작하지 않고 준비를 떠나면 '러닝 중' 알림(러닝 서비스)을 남기지 않는다.
+test('leaving a prepared session stops the run service even when the cancel fails', async () => {
+  const { control, calls, session } = setup();
+  await control.prepare(fiveK);
+  expect(calls.active).toEqual([true]);
+  session.cancel = async () => {
+    throw new DataError('INVALID_SESSION_STATE', 'already ended');
+  };
+  await control.releasePrepared();
+  expect(calls.active[calls.active.length - 1]).toBe(false);
+  control.dispose();
+});
+
+test('leaving a READY session restored after relaunch stops the run service but keeps the session', async () => {
+  const first = setup();
+  await first.control.prepare(free);
+  const restoredId = first.control.getState().sessionId as string;
+  const active: boolean[] = [];
+  const control = createRunControl({
+    session: first.session,
+    watch: {
+      ...first.repositories.watchSession,
+      setRunActive: (...args: Parameters<typeof first.repositories.watchSession.setRunActive>) => {
+        active.push(args[0]);
+        return first.repositories.watchSession.setRunActive(...args);
+      },
+    },
+    timers: { resultWaitMs: 200, retryDelaysMs: [0, 5, 5], createRetryDelaysMs: [0, 5] },
+  });
+  await control.attach(restoredId);
+  expect(active).toEqual([true]);
+
+  await control.prepare(fiveK);
+  await control.releasePrepared();
+
+  expect(control.getState()).toMatchObject({ sessionId: restoredId, status: 'READY' });
+  expect(first.calls.cancel).toBe(0);
+  expect(active).toEqual([true, false]);
+  expect(await first.repositories.watchSession.getActiveSessionId()).toBeNull();
+  control.dispose();
+  first.control.dispose();
+});
+
+test('disposing a controller with a READY session stops the run service; a running one keeps it', async () => {
+  const ready = setup();
+  await ready.control.prepare(fiveK);
+  ready.control.dispose();
+  expect(ready.calls.active).toEqual([true, false]);
+
+  const running = setup();
+  await running.control.prepare(fiveK);
+  await running.control.start(fiveK);
+  running.control.dispose();
+  expect(running.calls.active).toEqual([true]);
+});
+
+test('a preparation that finishes after dispose does not turn the run service on', async () => {
+  const { control, calls, session } = setup();
+  slowCreate(session as never, 40);
+  control.prepare(fiveK);
+  await wait(5);
+  control.dispose();
+  for (let i = 0; i < 40 && calls.cancel === 0; i += 1) {
+    await wait(10);
+  }
+  await wait(20);
+  expect(calls.cancel).toBe(1);
+  expect(calls.active).not.toContain(true);
+});
+
+// S15P31E105-784: a watch paired with the phone but not registered to the account gets one notice before the run
+// quietly starts on the phone; starting again goes on with the phone. Without a paired watch there is no notice.
+describe('paired but unregistered watch', () => {
+  function phoneOnly(paired: boolean) {
+    const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0 });
+    let created = 0;
+    const control = createRunControl({
+      session: {
+        ...repositories.session,
+        create: (request: Parameters<typeof repositories.session.create>[0]) => {
+          created += 1;
+          return repositories.session.create(request);
+        },
+      },
+      watch: {
+        ...repositories.watchSession,
+        getLinkedDevices: async () => null,
+        getPhoneDeviceId: async () => '102',
+        isWatchConnected: async () => paired,
+      },
+      location: {
+        requestPermission: async () => true,
+        current: async () => ({ latitude: 35.15, longitude: 129.11, accuracyM: 5 }),
+        watch: () => () => undefined,
+        stop: async () => undefined,
+      } as never,
+      timers: { resultWaitMs: 200, endResultWaitMs: 300, retryDelaysMs: [0, 5, 5], createRetryDelaysMs: [0, 5] },
+    });
+    return { control, created: () => created };
+  }
+
+  test('the early preparation waits; the first start says it once, the next start makes the phone session', async () => {
+    const { control, created } = phoneOnly(true);
+    await control.prepare(free);
+    expect(created()).toBe(0);
+    expect(control.getState().problem).toBeNull();
+    await control.start(free);
+    expect(control.getState().problem).toEqual({ kind: 'watchUnregistered' });
+    expect(created()).toBe(0);
+    await control.start(free);
+    expect(created()).toBe(1);
+    expect(control.getState().recordingMode).toBe('PHONE_ONLY');
+    control.dispose();
+  });
+
+  test('no notice when no watch is paired', async () => {
+    const { control, created } = phoneOnly(false);
+    await control.start(free);
+    expect(control.getState().problem?.kind).not.toBe('watchUnregistered');
+    expect(created()).toBe(1);
+    control.dispose();
+  });
 });

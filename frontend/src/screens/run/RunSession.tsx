@@ -599,7 +599,12 @@ export function RunSessionProvider({
     watchSession
       .getActiveSessionId()
       .then(sessionId => {
-        if (!active || !sessionId || controlRef.current) {
+        if (!active || controlRef.current) {
+          return;
+        }
+        if (!sessionId) {
+          // 기억한 진행 세션이 없다. 지난 실행에서 정리되지 못한 '러닝 중' 알림·wake lock을 남기지 않는다(S15P31E105-814).
+          watchSession.setRunActive(false).catch(() => undefined);
           return;
         }
         pendingConfig.current = joinedConfig;
@@ -614,8 +619,12 @@ export function RunSessionProvider({
           if (!target) {
             drop(attached);
             pendingConfig.current = null;
-            // 서버에 없는 세션은 러닝 서비스가 더 기억하지 않게 한다. 종료 세션은 attach가 이미 정리한다.
-            if (state.problem?.kind === 'error' && state.problem.code === 'SESSION_NOT_FOUND') {
+            // 서버에 없는 세션과 다른 계정의 세션은 러닝 서비스가 더 기억하지 않게 한다('러닝 중' 알림 정리, S15P31E105-814).
+            // 원래 계정은 다시 로그인한 뒤 새 러닝 시작의 S01 409로 그 세션에 다시 붙는다. 종료 세션은 attach가 이미 정리한다.
+            if (
+              state.problem?.kind === 'error' &&
+              (state.problem.code === 'SESSION_NOT_FOUND' || state.problem.code === 'SESSION_FORBIDDEN')
+            ) {
               watchSession.setRunActive(false).catch(() => undefined);
             }
             return;
@@ -650,7 +659,8 @@ export function RunSessionProvider({
     const paceChange = createPaceChangeTracker();
     // 그룹장 폰만 선두–후미 간격 벌어짐을 알린다(S15P31E105-629, 같은 규칙). 기준은 groupStatus.ts GROUP_GAP_ALERT_M.
     const gapAlert = createGapAlertTracker();
-    // 그룹장·뒤처진 본인 음성 안내(S15P31E105-735). 음성 코칭 설정이 켜져 있을 때만, 코칭 문장을 끊지 않게 말한다.
+    // 후미보다 앞선 러너(그룹장 포함, S15P31E105-771)·뒤처진 본인 음성 안내(S15P31E105-735). 음성 코칭 설정이 켜져 있을 때만,
+    // 코칭 문장을 끊지 않게 말한다.
     const gapVoice = createGroupGapVoice({
       enabled: () => voiceOn.current,
       running: () => myRunning.current,

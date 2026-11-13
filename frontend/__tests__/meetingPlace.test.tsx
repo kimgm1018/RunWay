@@ -5,7 +5,9 @@ import { LightGlass } from '../src/components';
 import {
   DataProvider,
   createMockRepositories,
+  DataError,
   type MeetingPlace,
+  type PhoneLocation,
 } from '../src/data';
 import { MeetingPlaceScreen } from '../src/screens/group/MeetingPlaceScreen';
 import {
@@ -59,8 +61,11 @@ afterEach(async () => {
   jest.useRealTimers();
 });
 
-async function open() {
-  const repositories = createMockRepositories({ latencyMs: 0 });
+async function open(phoneLocation?: PhoneLocation) {
+  const repositories = {
+    ...createMockRepositories({ latencyMs: 0 }),
+    phoneLocation,
+  };
   repositories.groupRuns.searchPlaces = search;
   await act(async () => {
     screen = TestRenderer.create(
@@ -171,9 +176,10 @@ test('search results and their notices sit on an opaque background over the map'
   // The search box itself is the navy pill of 그룹런 시안 (S15P31E105-673), no longer glass.
   const glassSearch = screen.root
     .findAllByType(LightGlass)
-    .find(node =>
-      node.findAll(item => item.props.accessibilityLabel === '장소·주소 검색')
-        .length,
+    .find(
+      node =>
+        node.findAll(item => item.props.accessibilityLabel === '장소·주소 검색')
+          .length,
     );
   expect(glassSearch).toBeUndefined();
 });
@@ -197,3 +203,54 @@ test('selects the result on the map and confirms its coordinates into the group 
   expect(chosen).toMatchObject(place('공원 입구'));
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });
+
+// S15P31E105-798 (TEAM QA T22): 내 위치로 answers every outcome of the phone's fix.
+const phone = (current: PhoneLocation['current']): PhoneLocation => ({
+  start: async () => false,
+  stop: async () => undefined,
+  subscribe: () => () => undefined,
+  requestPermission: async () => true,
+  current,
+});
+
+test('내 위치로 puts the pin on the phone fix and takes its place', async () => {
+  await open(
+    phone(async () => ({
+      latitude: 35.1551,
+      longitude: 129.1301,
+      accuracyM: 5,
+      altitudeM: null,
+      time: 1,
+    })),
+  );
+  await press('내 위치로');
+  await advance(0);
+  expect(text()).not.toContain('위치 권한');
+  await press('이 위치로 정하기');
+  await press('확정');
+  const chosen = JSON.parse(
+    screen.root.findAll(node => node.props.testID === 'chosen').pop()!.props
+      .children,
+  );
+  expect(chosen.position).toEqual([129.1301, 35.1551]);
+});
+
+test.each([
+  ['LOCATION_PERMISSION_DENIED', '위치 권한이 없어 현재 위치를 쓸 수 없어요.'],
+  ['LOCATION_DISABLED', '휴대폰 위치가 꺼져 있어요.'],
+  ['LOCATION_TIMEOUT', '현재 위치를 찾지 못했어요.'],
+] as const)(
+  '내 위치로 says why when the phone gives %s',
+  async (code, said) => {
+    await open(
+      phone(async () => {
+        throw new DataError(code, '위치 실패');
+      }),
+    );
+    await press('내 위치로');
+    await advance(0);
+    expect(text()).toContain(said);
+    // The pin stays where it was and the button works again.
+    expect(labelled('내 위치로').props.disabled).toBeFalsy();
+  },
+);

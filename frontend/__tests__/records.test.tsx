@@ -2,7 +2,7 @@ import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories } from '../src/data';
+import { createMockRepositories, DataError } from '../src/data';
 import { PostWriteScreen } from '../src/screens/community/PostWriteScreen';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 
@@ -269,6 +269,54 @@ test('2.1 월별 기록 is the month’s runs, and a run there opens on 러닝 �
   expect(page).toContain('남천 해변 언덕길');
   expect(page).toContain('10월 8일 목요일');
   expect(page).not.toContain('기록으로 돌아가기');
-  expect(page).not.toContain('기록 삭제');
+  expect(page).toContain('기록 삭제');
+  await act(async () => screen.unmount());
+});
+
+test('my run can be deleted from its card after confirmation', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const remove = jest.spyOn(repositories.records, 'remove');
+  const screen = await render(repositories);
+  await press(screen, '월별 기록');
+  await waitForText(screen, '10월 기록');
+  await press(screen, '남천 해변 언덕길, 10.08 목');
+  await waitForText(screen, '2026.10.08 · 07:00');
+
+  await press(screen, '기록 삭제');
+  expect(texts(screen)).toContain('이 운동 기록을 삭제할까요?');
+  expect(texts(screen)).toContain('이 기록을 공유한 게시물도 함께 삭제됩니다.');
+  await press(screen, '삭제 취소');
+  expect(remove).not.toHaveBeenCalled();
+  expect(texts(screen)).toContain('2026.10.08 · 07:00');
+
+  await press(screen, '기록 삭제');
+  await press(screen, '삭제 확인');
+  expect(remove).toHaveBeenCalledTimes(1);
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
+  expect(texts(screen)).toContain('기록을 삭제했어요');
+  await act(async () => screen.unmount());
+});
+
+test('a run stays visible when deletion is temporarily unavailable', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  jest
+    .spyOn(repositories.records, 'remove')
+    .mockRejectedValueOnce(
+      new DataError('INVALID_STATE', '분석 중', null, 409),
+    );
+  const screen = await render(repositories);
+  await press(screen, '월별 기록');
+  await waitForText(screen, '10월 기록');
+  await press(screen, '남천 해변 언덕길, 10.08 목');
+  await waitForText(screen, '2026.10.08 · 07:00');
+
+  await press(screen, '기록 삭제');
+  await press(screen, '삭제 확인');
+  await waitForText(
+    screen,
+    '기록을 정리하는 중이라 지금은 삭제할 수 없어요. 잠시 후 다시 시도해 주세요',
+  );
+  expect(texts(screen)).toContain('2026.10.08 · 07:00');
+  expect(hasLabel(screen, '삭제 확인')).toBe(true);
   await act(async () => screen.unmount());
 });

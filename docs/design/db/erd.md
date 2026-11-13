@@ -202,6 +202,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name. 개인 코스의 저장 관계는 게시물 공유 해제·삭제 후에도 접근 권한으로 유지된다. |
 | `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
 | `course_basemaps` | 코스 썸네일 PNG(서버가 OSM 지도와 코스 선을 그림)의 이미지 볼륨 키와 OSM 자료 시점·그리기 버전. 코스당 1행 |
+| `running_session_basemaps` | 본인 러닝 기록 경로 썸네일 PNG의 이미지 볼륨 키와 OSM 자료 시점·그리기 버전. 세션당 1행, 기록 주인만 조회 |
 | `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태·가입 방식(`join_policy` APPROVAL/INSTANT, 기본 APPROVAL) |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
@@ -255,12 +256,28 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | image_key | VARCHAR(1024) NULL | 썸네일 PNG의 이미지 볼륨 키(`images/course-basemap/{course_id}/{uuid}.png`). 전국 자료 범위 밖이면 NULL(재시도 안 함) |
 | osm_data_timestamp | TIMESTAMPTZ NULL | 도로·면 전국 OSM 자료 시점 |
 | buildings_osm_data_timestamp | TIMESTAMPTZ NULL | 건물 자료 OSM 시점. 건물 자료가 없으면 NULL |
-| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v2`: S15P31E105-698 민트 코스 선·바다 면 수정). 다르면 기동 시 일괄 채우기가 다시 그린다 |
+| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v3`: S15P31E105-743 커뮤니티 기준 네 겹 선). 다르면 기동 시 일괄 채우기가 다시 그린다 |
 | created_at / updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장·수정 시각(`set_updated_at()` 트리거) |
 
 - 코스 저장 커밋 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 Route 상세 모드로 지형지물·건물을 받아 600×900 PNG를 그리고 이미지 볼륨([ADR-0016](../../adr/0016-image-volume-storage.md))에 저장한다. Route 실패·그리기·저장 실패는 행을 만들지 않는다.
 - C03 `basemap.imageUrl`은 이 키의 이미지 ID로 만든 `/api/v1/images/{id}`이며, 이미지 조회는 이 테이블이 참조하는 키만 허용한다. 결정 근거는 [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md).
 - 기준 SQL·Flyway V32를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
+
+#### running_session_basemaps — 본인 러닝 기록 경로 썸네일 PNG (S15P31E105-756, 2026-11-13)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 행 ID |
+| running_session_id | BIGINT NOT NULL UNIQUE, FK running_sessions.id ON DELETE CASCADE | 러닝 세션(기록). 세션당 1행 |
+| image_key | VARCHAR(1024) NULL | 썸네일 PNG의 이미지 볼륨 키(`images/run-route/{user_id}/{uuid}.png`). 표시용 경로가 50 m 미만·없음이거나 전국 자료 범위 밖이면 NULL(재시도 안 함) |
+| osm_data_timestamp | TIMESTAMPTZ NULL | 도로·면 전국 OSM 자료 시점 |
+| buildings_osm_data_timestamp | TIMESTAMPTZ NULL | 건물 자료 OSM 시점 |
+| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(코스 썸네일과 같은 값). 다르면 기동 시 일괄 채우기가 다시 그린다 |
+| created_at / updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장·수정 시각(`set_updated_at()` 트리거) |
+
+- 개인 세션 완료 커밋 뒤와 서버 기동 시 일괄 채우기에서 S11과 같은 표시용 경로로 그린다. Route 일시 실패·그리기·저장 실패는 행을 만들지 않는다.
+- H01·H02 `routePreviewImageUrl`은 이 키의 이미지 ID로 만든 `/api/v1/images/{id}`다. 이미지 조회는 이 테이블이 참조하는 키를 세션 주인(활성, 미삭제 기록)에게만 허용한다. 탈퇴 정리 때 행과 파일을 지운다. 결정 근거는 [ADR-0024](../../adr/0024-own-run-route-thumbnail.md).
+- 기준 SQL·Flyway V40를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 ### 지역·커뮤니티·알림
 
@@ -377,6 +394,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | course_bookmarks | user_id, course_id |
 | course_segment_difficulties | course_id |
 | course_basemaps | course_id |
+| running_session_basemaps | running_session_id |
 | post_likes | post_id, user_id |
 | comment_likes | comment_id, user_id |
 | post_bookmarks | post_id, user_id |

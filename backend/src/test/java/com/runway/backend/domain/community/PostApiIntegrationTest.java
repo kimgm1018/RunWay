@@ -10,9 +10,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.domain.image.ImageStorage;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedContextIntegrationSupport;
 import org.junit.jupiter.api.BeforeEach;
+import java.io.ByteArrayInputStream;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -22,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class PostApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private ImageStorage imageStorage;
 
     private long viewerId;
     private long publicAuthorId;
@@ -132,6 +136,98 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_OWNED"));
     }
 
+    // S15P31E105-778: 글 이미지 키는 크루 사진처럼 본인 POST 폴더에 실제로 올린 파일만 받는다.
+    @Test
+    void 글이미지키_외부URL과_남의경로와_없는파일은_403_본인업로드는_저장() throws Exception {
+        String otherUsersKey = "images/post/" + outsiderId + "/" + UUID.randomUUID() + ".jpg";
+        String missingOwnKey = "images/post/" + viewerId + "/" + UUID.randomUUID() + ".png";
+        for (String key :
+                new String[] {
+                    "https://evil.example/a.jpg",
+                    otherUsersKey,
+                    missingOwnKey,
+                    "images/crew/" + viewerId + "/" + UUID.randomUUID() + ".png",
+                    "images/post/" + viewerId + "/../" + outsiderId + "/x.png"
+                }) {
+            mockMvc.perform(
+                            post("/api/v1/posts")
+                                    .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            """
+                                            {"sessionId":%d,"imageKey":"%s"}
+                                            """
+                                                    .formatted(
+                                                            insertSession(viewerId, "COMPLETED"),
+                                                            key)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("RESOURCE_NOT_OWNED"));
+        }
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM posts WHERE image_key IS NOT NULL",
+                                Long.class))
+                .isZero();
+
+        String ownKey = "images/post/" + viewerId + "/" + UUID.randomUUID() + ".png";
+        byte[] png = new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47};
+        imageStorage.store(ownKey, new ByteArrayInputStream(png), png.length);
+        try {
+            mockMvc.perform(
+                            post("/api/v1/posts")
+                                    .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            """
+                                            {"sessionId":%d,"imageKey":"%s"}
+                                            """
+                                                    .formatted(
+                                                            insertSession(viewerId, "COMPLETED"),
+                                                            ownKey)))
+                    .andExpect(status().isCreated());
+            org.assertj.core.api.Assertions.assertThat(
+                            jdbc.queryForObject(
+                                    "SELECT image_key FROM posts WHERE image_key IS NOT NULL",
+                                    String.class))
+                    .isEqualTo(ownKey);
+        } finally {
+            imageStorage.deletePersonalImages(viewerId);
+        }
+    }
+
+    // S15P31E105-778: 없는 지역 코드는 DB 외래키 오류(500) 전에 400 INVALID_REGION으로 거절한다.
+    @Test
+    void 없는지역코드_게시물작성_400_INVALID_REGION_있는코드는_저장() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"regionCode":"ZZZ"}
+                                        """
+                                                .formatted(insertSession(viewerId, "COMPLETED"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REGION"));
+
+        String regionCode =
+                jdbc.queryForObject(
+                        "SELECT region_code FROM regions ORDER BY region_code LIMIT 1",
+                        String.class);
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"regionCode":"%s"}
+                                        """
+                                                .formatted(
+                                                        insertSession(viewerId, "COMPLETED"),
+                                                        regionCode)))
+                .andExpect(status().isCreated());
+    }
+
     @Test
     void 미완료세션_게시물작성_422_INVALID_POST() throws Exception {
         mockMvc.perform(
@@ -222,6 +318,39 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
                                         """))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_AUTHOR"));
+    }
+
+    // S15P31E105-779: 글 본문은 앱 작성 화면과 같은 500자까지(작성·수정).
+    @Test
+    void 글본문_500자까지_501자는_400() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"body\":\"%s\"}"
+                                                .formatted(
+                                                        insertSession(viewerId, "COMPLETED"),
+                                                        "가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"body\":\"%s\"}"
+                                                .formatted(
+                                                        insertSession(viewerId, "COMPLETED"),
+                                                        "가".repeat(500))))
+                .andExpect(status().isCreated());
+        mockMvc.perform(
+                        patch("/api/v1/posts/{postId}", viewerPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"%s\"}".formatted("가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test

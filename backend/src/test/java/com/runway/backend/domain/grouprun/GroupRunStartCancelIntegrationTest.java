@@ -549,7 +549,7 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
                 {
                   "title":"시작취소 그룹런",
                   "crewId":%d,
-                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "scheduledAt":"%s",
                   "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                   "meetingPlaceName":"집결지",
                   "meetingAddress":"부산",
@@ -558,7 +558,7 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
                   "targetDurationSec":1800
                 }
                 """
-                .formatted(crewId);
+                .formatted(crewId, GroupRunTestTimes.validScheduledAt());
     }
 
     private String groupStatus(long groupRunId) {

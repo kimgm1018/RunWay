@@ -21,4 +21,12 @@ public class PhoneAccountRepository {
                 Long.class,
                 phoneNumber);
     }
+
+    /** 그 번호의 ACTIVE 회원 아이디(U30 아이디 대조, S15P31E105-773). 최대 2개만 읽는다. */
+    public List<String> activeLoginIds(String phoneNumber) {
+        return jdbc.queryForList(
+                "SELECT login_id FROM users WHERE phone_number=? AND account_status='ACTIVE' ORDER BY id LIMIT 2",
+                String.class,
+                phoneNumber);
+    }
 }

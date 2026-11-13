@@ -18,7 +18,57 @@ import {
   parseDistanceKm,
   passwordChecks,
   toBirthDate,
+  cleanDistance,
+  cleanLoginId,
+  isValidCurrentPassword,
+  cleanPassword,
+  sameAsLoginId,
 } from '../src/screens/onboarding/validation';
+
+// S15P31E105-773: 아이디는 영문·숫자, 비밀번호는 영문·숫자·키보드 특수문자(ASCII 0x21~0x7E)만 남는다.
+test('ID and password fields keep only the characters they take', () => {
+  expect(cleanLoginId('러너runner_01 😀')).toBe('runner01');
+  expect(cleanPassword('run way비번😀１2!~')).toBe('runway2!~');
+  const symbols = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~';
+  expect(cleanPassword(symbols)).toBe(symbols);
+  expect(isValidPassword('runway12é')).toBe(false);
+});
+
+test('a password already set is checked against the server format only', () => {
+  expect(isValidCurrentPassword('runner비번12')).toBe(true);
+  expect(isValidCurrentPassword('비밀번호비밀번호')).toBe(true);
+  expect(isValidCurrentPassword('short1')).toBe(false);
+  expect(isValidCurrentPassword('has space1')).toBe(false);
+  expect(isValidCurrentPassword('a'.repeat(21))).toBe(false);
+});
+
+test('a password that is the ID in any case is not taken', () => {
+  expect(sameAsLoginId('Runner01', 'runner01')).toBe(true);
+  expect(sameAsLoginId('runner01!', 'runner01')).toBe(false);
+  expect(sameAsLoginId('runner01', undefined)).toBe(false);
+  expect(isValidPassword('RUNNER01', 'runner01')).toBe(false);
+  expect(isValidPassword('runner012', 'runner01')).toBe(true);
+  expect(passwordGuide('Runner01', 'runner01')).toEqual({
+    status: 'error',
+    helper: '아이디와 다른 비밀번호를 입력해 주세요',
+  });
+});
+
+// 페이스·완주 시간 칸은 숫자만, 거리 칸은 숫자와 소수점 하나만 남는다(S15P31E105-773).
+test('pace, time and distance fields keep digits only', () => {
+  expect(formatClockDigits('6분30초', 4)).toBe('6:30');
+  expect(formatClockDigits('6:3a0', 4)).toBe('6:30');
+  expect(formatClockDigits('６:30', 4)).toBe('30');
+  expect(editClock('', '30m00', 6).text).toBe('30:00');
+  expect(cleanDistance('5.5km')).toBe('5.5');
+  expect(cleanDistance('5,5')).toBe('5.5');
+  expect(cleanDistance('1..2')).toBe('1.');
+  expect(cleanDistance('1.2.3')).toBe('1.2');
+  expect(cleanDistance('.5')).toBe('.5');
+  expect(parseDistanceKm(cleanDistance('1..2'))).toBeNull();
+  expect(cleanDistance('-10')).toBe('10');
+  expect(parseDistanceKm(cleanDistance('5.5km'))).toBe(5.5);
+});
 
 test('login IDs take 4–16 letters or digits only', () => {
   expect(isValidLoginId('minjun01')).toBe(true);

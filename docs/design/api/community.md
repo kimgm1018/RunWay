@@ -76,11 +76,12 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 `posts`에 컬럼이 없어 저장하지 않음 |
-| `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용 |
+| `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용. 최대 500자(앱 작성 화면과 같음), 넘으면 `400 VALIDATION_ERROR`(S15P31E105-779) |
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
+| `imageKey` | string | X | 최대 1024자. 본인이 F01(`purpose=POST`)로 올린 파일 키 `images/post/{userId}/{uuid}.jpg|png`만 받는다(크루 사진과 같은 규칙). 다른 폴더·남의 경로·외부 URL·없는 파일은 `403 RESOURCE_NOT_OWNED`(S15P31E105-778). 앱은 현재 보내지 않는다 |
 | `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 완료 자유러닝에 코스가 없고 true이면 코스 생성을 시도한다. GPS·경사 자료 부족으로 실패하면 게시물은 생성하고 false로 저장 |
-| `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). `posts.region_code`는 `regions.region_code` 외래키라 없는 코드는 저장되지 않는다(현재 별도 오류 매핑 없음 — 앱은 CMT12에서 받은 코드만 보낸다). 앱은 코스 러닝이면 코스 출발점을, 자유 러닝이면 본인 측정 경로의 첫 유효 좌표를 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다(S15P31E105-725). 코스 공유 여부는 지역 저장 여부에 영향을 주지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
+| `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). 없는 코드는 `400 INVALID_REGION`으로 거절한다(S15P31E105-778, 앱은 CMT12에서 받은 코드만 보낸다). 앱은 코스 러닝이면 코스 출발점을, 자유 러닝이면 본인 측정 경로의 첫 유효 좌표를 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다(S15P31E105-725). 코스 공유 여부는 지역 저장 여부에 영향을 주지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
 
 ```json
 {
@@ -138,7 +139,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `403 RESOURCE_NOT_OWNED` | 소유권 | 공유 세션이 호출자 소유가 아님 |
+| `403 RESOURCE_NOT_OWNED` | 소유권 | 공유 세션이 호출자 소유가 아님. `imageKey`가 본인이 올린 POST 이미지가 아님 |
+| `400 INVALID_REGION` | 입력/참조 | `regionCode`가 `regions`에 없음 |
 | `422 INVALID_POST` | 입력/참조 | 세션이 없거나 COMPLETED가 아님. 게시물로 공유할 수 없는 상태 |
 | `401 UNAUTHORIZED` | 인증 | `X-User-Id`가 없거나 형식이 맞지 않아 호출자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
@@ -508,7 +510,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 저장하지 않음 |
-| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움 |
+| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움. 최대 500자 |
 | `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없고 `true`이면 CMT01과 같은 변환을 시도한다. 변환 후에도 코스가 없으면(GPS·경사 자료 부족 등) 게시물은 유지하고 `false`로 저장한다(응답은 `courseShared`만 반환하며 실패 사유 필드는 없다) |
 
 ```json
@@ -884,7 +886,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `body` | string | O | `comments.body`에 저장. 비어 있거나 공백만이면 `422 EMPTY_COMMENT` |
+| `body` | string | O | `comments.body`에 저장. 비어 있거나 공백만이면 `422 EMPTY_COMMENT`. 앞뒤 공백을 뺀 길이가 500자를 넘으면 `400 VALIDATION_ERROR`(앱 입력창과 같음, S15P31E105-779) |
 | `parentCommentId` | integer (int64) | X | 대댓글 대상 부모. 생략·null이면 루트 댓글. 같은 게시물·미삭제·루트(`parent_comment_id` NULL)만 허용. 아니면 `422 INVALID_PARENT_COMMENT` |
 
 ```json
@@ -1010,7 +1012,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `body` | string | O | `comments.body` 수정. 비어 있거나 공백만이면 `422 EMPTY_COMMENT` |
+| `body` | string | O | `comments.body` 수정. 비어 있거나 공백만이면 `422 EMPTY_COMMENT`. 500자 초과면 `400 VALIDATION_ERROR` |
 
 ```json
 {

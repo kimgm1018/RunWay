@@ -223,11 +223,13 @@ function CrewPanel({
           onPress={() =>
             navigation.navigate('GroupRunCreate', { crewId: crew.id })
           }
+          hitSlop={4}
           style={styles.plus}
         >
-          <View style={styles.plusDot}>
-            <Icon name="plus" color={stand.onMint} size={16} />
-          </View>
+          {/* Words with the plus, no round container: the lone mint + did not say what it made
+              (S15P31E105-774). */}
+          <Icon name="plus" color={stand.mint} size={16} />
+          <AppText style={styles.plusText}>그룹런 만들기</AppText>
         </PressableScale>
         <PressableScale
           accessibilityRole="button"
@@ -261,7 +263,7 @@ function CrewPanel({
         ) : pinnedOnly ? null : (
           <View style={styles.noRuns}>
             <AppText style={styles.small}>아직 예정된 그룹런이 없어요</AppText>
-            <AppText style={styles.small}>+로 만들어 보세요</AppText>
+            <AppText style={styles.small}>그룹런 만들기로 열어 보세요</AppText>
           </View>
         )
       ) : null}
@@ -565,20 +567,19 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     color: stand.text,
   },
-  // + as a 30 mint circle with a navy plus in a 44 touch area, the fold as a bare chevron.
+  // 그룹런 만들기 as bare mint words after a plus in a 44 tall touch area, the fold as a bare chevron.
   plus: {
-    width: 44,
     height: 44,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 4,
   },
-  plusDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: stand.mint,
-    alignItems: 'center',
-    justifyContent: 'center',
+  plusText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.mint,
   },
   fold: {
     width: 40,

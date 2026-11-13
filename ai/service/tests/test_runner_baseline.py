@@ -153,7 +153,11 @@ def test_past_run_count_uses_402_conditions_without_limit():
                       "total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s"):
         assert condition in sql
     assert params == {"user_id": 7, "cutoff": CUTOFF, "max_duration_sec": 7200,
-                      "min_speed_mps": 0.5, "max_speed_mps": 8.0}
+                      "min_speed_mps": 0.5, "max_speed_mps": 8.0,
+                      "min_moving_sec": 600, "min_distance_m": 1000}
+    # S15P31E105-785: n도 v_ref와 같이 이동 10분·1 km 이상 기록만 센다.
+    for condition in ("moving_duration >= %(min_moving_sec)s", "total_distance >= %(min_distance_m)s"):
+        assert condition in sql
 
 
 def test_past_run_count_where_clause_is_identical_to_402_speed_ref_query():

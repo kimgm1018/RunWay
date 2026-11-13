@@ -218,6 +218,25 @@ test.each([
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-773: 로그인 아이디 칸은 쓸 수 없는 문자를 지우고 알린다. 비밀번호는 773 이전 계정을 위해 그대로 보낸다.
+test('the login ID drops characters it does not take; the password is sent as typed', async () => {
+  serveHome(true);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await type(screen, '아이디', '민준minjun01');
+  expect(last(screen, '아이디', 'onChangeText').props.value).toBe('minjun01');
+  expect(texts(screen)).toContain('영문·숫자만 입력할 수 있어요');
+  await type(screen, '비밀번호', 'runway123비번');
+  expect(texts(screen)).not.toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await press(screen, '로그인');
+  const body = JSON.parse(
+    fetchMock.mock.calls.find(([url]) => String(url).endsWith('/auth/login'))![1]
+      .body,
+  );
+  expect(body).toEqual({ loginId: 'minjun01', password: 'runway123비번' });
+  await act(async () => screen.unmount());
+});
+
 test('no connection asks to check the network', async () => {
   fetchMock.mockRejectedValue(new TypeError('Network request failed'));
   const screen = await launch();

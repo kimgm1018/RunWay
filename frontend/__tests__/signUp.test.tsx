@@ -232,6 +232,50 @@ test('1.3 reads a server format rejection as a format error', async () => {
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-773: 쓸 수 없는 문자는 입력하는 즉시 지우고, 아이디와 같은 비밀번호로는 넘어갈 수 없다.
+test('1.3 drops characters the ID and password do not take and says why', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+
+  await type(screen, '아이디', 'new러너runner 1');
+  expect(last(screen, '아이디', 'onChangeText').props.value).toBe(
+    'newrunner1',
+  );
+  expect(texts(screen)).toContain('영문·숫자만 입력할 수 있어요');
+  await type(screen, '비밀번호', 'run way비번😀123');
+  expect(last(screen, '비밀번호', 'onChangeText').props.value).toBe(
+    'runway123',
+  );
+  expect(texts(screen)).toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await type(screen, '비밀번호', 'runway123!');
+  expect(texts(screen)).not.toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await act(async () => screen.unmount());
+});
+
+test('1.3 does not take a password that is the ID in any case', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+  await type(screen, '아이디', 'newrunner1');
+  await settle(550);
+  await type(screen, '비밀번호', 'NewRunner1');
+  await type(screen, '비밀번호 확인', 'NewRunner1');
+  await type(screen, '전화번호', '010-5555-6666');
+  await press(screen, '인증번호 받기');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+
+  expect(texts(screen)).toContain('아이디와 다른 비밀번호를 입력해 주세요');
+  expect(isDisabled(screen, '다음')).toBe(true);
+  await type(screen, '비밀번호', 'NewRunner12');
+  await type(screen, '비밀번호 확인', 'NewRunner12');
+  expect(texts(screen)).not.toContain('아이디와 다른 비밀번호를 입력해 주세요');
+  expect(isDisabled(screen, '다음')).toBe(false);
+  await act(async () => screen.unmount());
+});
+
 test('signing up creates the account, holds the tokens and goes on to 1.6', async () => {
   serve([]);
   const screen = await launch();
@@ -297,7 +341,7 @@ test.each([
   ],
   [
     respond(422, { code: 'INVALID_PASSWORD_POLICY', message: '', details: {} }),
-    '비밀번호가 규칙에 맞지 않아요. 회원가입에서 공백 없이 8~20자로 바꿔 주세요.',
+    '비밀번호가 규칙에 맞지 않아요. 회원가입에서 아이디와 다른 영문·숫자·특수문자 8~20자로 바꿔 주세요.',
   ],
   [
     respond(400, { code: 'INVALID_PROFILE', message: '', details: {} }),
@@ -388,7 +432,7 @@ test('the code step shows where the code went and when it can be sent again', as
   expect(shown).toContain('인증번호를 입력해주세요');
   expect(shown).not.toContain('로 전송됨');
   expect(shown).toContain('남은 시간');
-  expect(shown).toContain('03:00');
+  expect(shown).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   expect(shown).toContain('인증번호 다시 받기 (1:00)');
   expect(isDisabled(screen, '인증번호 다시 받기 1:00 뒤')).toBe(true);
   await type(screen, '인증번호 6자리', fixtures.verificationCode);
@@ -423,19 +467,70 @@ test('an unclear send opens the code field for an SMS that may still arrive', as
 
   expect(texts(screen)).toContain('문자가 왔다면 입력하고');
   expect(hasField(screen, '인증번호 6자리')).toBe(true);
-  expect(texts(screen)).toContain('03:00');
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());
 });
 
-test('a first request over the limit leaves no code field', async () => {
+// S15P31E105-799 (TEAM QA T05): over the limit, a code sent earlier may still be live, so the field opens for it.
+test('a first request over the limit still opens the field for a code already received', async () => {
   serve([], [failure(429, 'VERIFICATION_SEND_LIMIT_EXCEEDED')]);
   const screen = await launch();
   await openSignUpPhone(screen);
   await press(screen, '인증번호 받기');
 
   expect(texts(screen)).toContain('인증번호 요청 횟수를 넘었어요');
-  expect(hasField(screen, '인증번호 6자리')).toBe(false);
+  expect(texts(screen)).toContain('이미 받은 인증번호가 있으면 입력해 주세요');
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-799 (TEAM QA T05): coming back to the screen and asking again within a minute is 429 too soon, but the
+// code from the first request is still live on the server (180 s from that send), so the field opens with its time.
+test('a first request that is too soon opens the field for the code sent a moment ago', async () => {
+  serve([], [failure(429, 'VERIFICATION_RESEND_TOO_SOON')]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+
+  expect(texts(screen)).toContain('조금 전에 보낸 인증번호를 입력해 주세요');
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  // retryAfterSec 40: sent 20 s ago, so 160 s of the 180 s code are left and 다시 받기 opens in 40 s.
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:02:40|02:3\d)/);
+  expect(texts(screen)).toContain('인증번호 다시 받기 (0:40)');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-799: while 다시 받기 is waiting for the server, the code already on screen stays usable.
+test('the code field stays while a resend is on its way', async () => {
+  let answer: (value: ReturnType<typeof respond>) => void = () => {};
+  const pending = new Promise<ReturnType<typeof respond>>(resolve => {
+    answer = resolve;
+  });
+  serve(
+    [],
+    [
+      respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }),
+      pending as unknown as ReturnType<typeof respond>,
+    ],
+  );
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+  await press(screen, '다시 받기');
+
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await act(async () => {
+    answer(respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }));
+  });
+  await settle();
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());
 });

@@ -54,6 +54,8 @@ export type SpotifyFailure =
   | 'DENIED'
   // The Spotify app on this phone cannot sign in with PKCE yet.
   | 'APP_UPDATE_REQUIRED'
+  // S15P31E105-776: no Spotify app on this phone; the store opens to install it.
+  | 'INSTALL_REQUIRED'
   | 'FAILED';
 
 export class SpotifyError extends Error {
@@ -268,6 +270,7 @@ const appFailures: Partial<Record<string, SpotifyFailure>> = {
   CANCELED: 'CANCELED',
   DENIED: 'DENIED',
   APP_UPDATE_REQUIRED: 'APP_UPDATE_REQUIRED',
+  INSTALL_REQUIRED: 'INSTALL_REQUIRED',
   USER_NOT_REGISTERED: 'USER_NOT_REGISTERED',
 };
 

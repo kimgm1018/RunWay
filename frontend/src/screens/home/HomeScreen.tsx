@@ -4,6 +4,7 @@ import {
   AppState,
   Animated,
   Image,
+  Pressable,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -19,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
+  DefaultAvatar,
   FadeIn,
   Icon,
   PressableScale,
@@ -44,6 +46,7 @@ import {
   CalendarPanel,
   DateLine,
   DayLegend,
+  earliestDay,
   WeekStrip,
 } from '../records/DatePicker';
 import { AnalysisPanel } from './AnalysisPanel';
@@ -94,26 +97,39 @@ const loadWatch = (repositories: Repositories) =>
 export const readinessRecheckDelaysMs = [2_000, 8_000];
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
-function Greeting({
+export function Greeting({
   nickname,
   photo,
+  onPressPhoto,
 }: {
   nickname: string;
   photo: string | null;
+  // S15P31E105-797 (T10): the photo opens 내 프로필.
+  onPressPhoto: () => void;
 }) {
+  // A photo that does not load shows the default profile picture, as without one (S15P31E105-775).
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   return (
     <View style={styles.greeting}>
-      <View style={styles.avatar}>
-        {photo ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="내 프로필 보기"
+        onPress={onPressPhoto}
+        hitSlop={6}
+        style={styles.avatar}
+      >
+        {shown ? (
           <Image
-            source={{ uri: photo }}
+            source={{ uri: shown }}
             style={StyleSheet.absoluteFill}
+            onError={() => setFailed(shown)}
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <AppText style={styles.initial}>{nickname.slice(0, 1)}</AppText>
+          <DefaultAvatar size={44} />
         )}
-      </View>
+      </Pressable>
       <AppText numberOfLines={1} style={styles.hello}>
         {nickname ? `반가워요 ${nickname}님 👋` : '반가워요 👋'}
       </AppText>
@@ -544,6 +560,7 @@ export function HomeScreen() {
         <Greeting
           nickname={me.data?.nickname ?? ''}
           photo={me.data?.profileImageUrl ?? null}
+          onPressPhoto={() => navigateTo(navigation, 'MyProfile')}
         />
         <GlassIconButton
           icon="bell"
@@ -564,7 +581,7 @@ export function HomeScreen() {
                 text and arrows, no button shapes; no 오늘 button. */}
             <DayArrow
               direction={-1}
-              disabled={calendar}
+              disabled={calendar || day <= earliestDay(today)}
               onPress={() => choose(addDays(day, -1))}
             />
             <DateLine
@@ -666,7 +683,8 @@ export function HomeScreen() {
   );
 }
 
-// One day back or forward from 2.1's date line; the next day stops at today.
+// One day back or forward from 2.1's date line; the next day stops at today, the day before at the date
+// picker's earliest day (S15P31E105-776).
 function DayArrow({
   direction,
   disabled,
@@ -714,12 +732,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: homePalette.avatar,
-  },
-  initial: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 22,
-    color: '#FFFFFF',
   },
   hello: {
     flex: 1,

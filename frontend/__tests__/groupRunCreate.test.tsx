@@ -450,3 +450,34 @@ test('6.8 picks a free run distance and finish time on rulers and sends them as 
   });
   await act(async () => screen.unmount());
 });
+
+// S15P31E105-798 (TEAM QA T32): a start picked earlier that the clock has since passed is caught at the tap, with a
+// notice, instead of being sent for the server to refuse.
+test('6.8 does not send a start time that passed while the form was open', async () => {
+  let current = new Date('2026-10-19T12:45:00+09:00');
+  const repos: Repositories = {
+    ...repositories(),
+    clock: { now: () => current },
+  };
+  const create = jest.spyOn(repos.groupRuns, 'create');
+  const screen = await openCreate(repos);
+  // The picked Saturday (10.24) is gone by the next tap.
+  current = new Date('2026-10-26T09:00:00+09:00');
+  await press(screen, '그룹런 만들기');
+  await settle(50);
+  expect(create).not.toHaveBeenCalled();
+  expect(texts(screen)).toContain('지난 시간이에요');
+  await act(async () => screen.unmount());
+});
+
+test('6.8 tells the schedule was refused when the server rejects it', async () => {
+  const repos = repositories();
+  jest
+    .spyOn(repos.groupRuns, 'create')
+    .mockRejectedValueOnce(new DataError('VALIDATION_ERROR', '범위 밖'));
+  const screen = await openCreate(repos);
+  await press(screen, '그룹런 만들기');
+  await settle(50);
+  expect(texts(screen)).toContain('날짜·시간을 다시 골라 주세요');
+  await act(async () => screen.unmount());
+});

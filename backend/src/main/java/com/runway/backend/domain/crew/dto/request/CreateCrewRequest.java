@@ -6,17 +6,19 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * M03 생성 요청. 스키마에 없는 필드(imageId, regionName, regionPosition, level)는 수신만 하고 저장하지 않는다.
  * joinPolicy는 선택이며 생략하면 APPROVAL이다(S15P31E105-570).
  */
 public record CreateCrewRequest(
-        @NotBlank @Size(max = 100) String name,
-        @Size(max = 10000) String description,
+        @NotBlank @Size(max = 30) String name,
+        @Size(max = 200) String description,
         @Size(max = 1024) String imageKey,
         @Size(max = 40) String regionCode,
-        @NotNull @Min(1) @Max(200) Integer capacity,
+        @NotNull @Min(1) @Max(200) @JsonDeserialize(using = StrictIntegerDeserializer.class)
+                Integer capacity,
         @Size(max = 36) String imageId,
         @Size(max = 200) String regionName,
         JsonNode regionPosition,

@@ -935,7 +935,7 @@ class WatchSessionController(
         /** No GROUP_STATUS for this long during a group run marks the standing delayed (S15P31E105-420). */
         const val GROUP_LATE_MS = 15_000L
         /** How often a group run asks Health Services for held-back readings (S15P31E105-420). */
-        const val GROUP_FLUSH_MS = 10_000L
+        const val GROUP_FLUSH_MS = 5_000L
     }
 }
 

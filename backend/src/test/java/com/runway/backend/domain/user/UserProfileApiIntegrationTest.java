@@ -192,6 +192,41 @@ class UserProfileApiIntegrationTest {
                 .andExpect(jsonPath("$.onboardingCompleted").value(false));
     }
 
+    // S15P31E105-779: 프로필 수정 생년도 1950년부터. 저장된 생년을 그대로 다시 보내는 저장(앱 기본 동작)은 막지 않는다.
+    @Test
+    void U05_생년_1950년부터_저장값과_같으면_통과() throws Exception {
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"birthDate\":\"1949-12-31\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PROFILE"));
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"birthDate\":\"1950-01-01\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.birthDate").value("1950-01-01"));
+
+        jdbc.update("UPDATE users SET birth_date = '1930-05-05' WHERE id = ?", userId);
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"nickname\":\"옛러너\",\"birthDate\":\"1930-05-05\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.birthDate").value("1930-05-05"));
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"birthDate\":\"1930-05-06\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PROFILE"));
+    }
+
     @Test
     void U05_닉네임중복_409() throws Exception {
         mockMvc.perform(

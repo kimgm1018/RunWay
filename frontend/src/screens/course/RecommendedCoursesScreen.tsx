@@ -762,19 +762,12 @@ export function RecommendedCoursesScreen() {
               ]}
               style={styles.carousel}
               scrollEventThrottle={16}
+              // S15P31E105-776: the card in view (and its one native map) changes only once the row settles.
+              // Following every scroll frame swapped the live map whenever a drag crossed halfway, so dragging
+              // back and forth unmounted and remounted the maps and the cards flickered.
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                {
-                  useNativeDriver: true,
-                  listener: event =>
-                    settleOn(
-                      (
-                        event as {
-                          nativeEvent: { contentOffset: { x: number } };
-                        }
-                      ).nativeEvent.contentOffset.x,
-                    ),
-                },
+                { useNativeDriver: true },
               )}
               onMomentumScrollEnd={event =>
                 settleOn(event.nativeEvent.contentOffset.x)

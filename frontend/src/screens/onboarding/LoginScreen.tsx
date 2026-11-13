@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Screen, TextField } from '../../components';
 import { DataError, errorCode, useRepositories } from '../../data';
@@ -16,6 +16,8 @@ import {
   StepTitle,
   TextLink,
 } from './parts';
+import { useCleanText } from './useCleanText';
+import { cleanLoginId, loginIdCharsNotice } from './validation';
 
 type Failure = { title: string; detail?: string };
 
@@ -63,10 +65,28 @@ export function LoginScreen() {
   const navigation = useNavigation();
   const { auth } = useRepositories();
   const { signIn, holdTokens, loginRequired } = useSession();
-  const [loginId, setLoginId] = useState('');
+  // 아이디는 쓸 수 없는 문자를 입력 즉시 지우고 이유를 알린다(S15P31E105-773). 비밀번호는 지우지 않는다: 773 이전에 한글 등이
+  // 들어간 비밀번호로 가입한 계정도 로그인할 수 있어야 한다(서버 U01도 그대로 받음, 리뷰 A-2·B-1 사용자 결정).
+  const [loginId, setLoginId, idDropped] = useCleanText('', cleanLoginId);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const shown = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardOpen(true),
+    );
+    const hidden = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardOpen(false),
+    );
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
 
   // Session-expired Login is the stack root; goBack is a dead end, so offer Start instead (S15P31E105-638).
   const onBack = loginRequired
@@ -100,29 +120,11 @@ export function LoginScreen() {
   return (
     <Screen
       {...onboardingScreen}
+      background={keyboardOpen ? <View style={styles.keyboardBackdrop} /> : onboardingScreen.background}
       header={<OnboardingHeader onBack={onBack} />}
-      footer={
-        <OnboardingFooter>
-          <GoButton
-            title={loading ? '로그인 중' : '로그인'}
-            disabled={loading || !loginId.trim() || !password}
-            onPress={submit}
-          />
-          <View style={styles.signUp}>
-            <AppText variant="caption" tone="textSecondary">
-              처음이신가요? ·
-            </AppText>
-            <TextLink
-              title="회원가입"
-              strong
-              onPress={() => navigateTo(navigation, 'SignUp')}
-            />
-          </View>
-        </OnboardingFooter>
-      }
     >
       {/* runway-onboarding-handoff 1.2: the runner and a title in place of the big wordmark. */}
-      <RunnerArt />
+      {!keyboardOpen && <RunnerArt />}
       <StepTitle
         title="다시 달려볼까요?"
         description="아이디로 로그인하고 오늘의 러닝을 이어가요."
@@ -138,7 +140,8 @@ export function LoginScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           textContentType="username"
-          status={failure ? 'error' : 'default'}
+          status={failure || idDropped ? 'error' : 'default'}
+          helper={idDropped ? loginIdCharsNotice : undefined}
           returnKeyType="next"
         />
         <TextField
@@ -166,11 +169,29 @@ export function LoginScreen() {
         onPress={() => navigateTo(navigation, 'PasswordPhone')}
         style={styles.forgot}
       />
+      <OnboardingFooter>
+        <GoButton
+          title={loading ? '로그인 중' : '로그인'}
+          disabled={loading || !loginId.trim() || !password}
+          onPress={submit}
+        />
+        <View style={styles.signUp}>
+          <AppText variant="caption" tone="textSecondary">
+            처음이신가요? ·
+          </AppText>
+          <TextLink
+            title="회원가입"
+            strong
+            onPress={() => navigateTo(navigation, 'SignUp')}
+          />
+        </View>
+      </OnboardingFooter>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardBackdrop: { flex: 1, backgroundColor: '#E9EEF1' },
   fields: { gap: 12 },
   forgot: { alignSelf: 'flex-end' },
   signUp: {

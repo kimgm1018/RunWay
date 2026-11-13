@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
   Backdrop,
+  DefaultAvatar,
   EmptyState,
   Icon,
   type IconName,
@@ -39,7 +40,7 @@ import { errorCode } from '../../data/errors';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import { fontFamily, k1, spacing, useTheme } from '../../theme';
+import { fontFamily, spacing, useTheme } from '../../theme';
 
 export const locationLabels: Record<LocationRecordingMode, string> = {
   ALWAYS: '항상',
@@ -55,9 +56,9 @@ export const settingsLook = {
   band: 'rgba(24,46,61,0.08)',
 } as const;
 
-// The profile photo, or the first letter of the nickname without one.
+// The profile photo, or the default profile picture without one or when it does not load (S15P31E105-775).
+// `nickname` stays so callers pass the same person.
 export function ProfilePhoto({
-  nickname,
   photo,
   size,
 }: {
@@ -66,6 +67,8 @@ export function ProfilePhoto({
   size: number;
 }) {
   const { colors } = useTheme();
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   return (
     <View
       style={[
@@ -74,17 +77,20 @@ export function ProfilePhoto({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: k1.deep,
           borderColor: colors.surfaceRaised,
         },
       ]}
     >
-      {photo ? (
-        <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} />
+      {shown ? (
+        <Image
+          source={{ uri: shown }}
+          style={StyleSheet.absoluteFill}
+          onError={() => setFailed(shown)}
+          accessibilityIgnoresInvertColors
+        />
       ) : (
-        <AppText style={{ color: k1.ice, fontSize: size * 0.38 }}>
-          {nickname.slice(0, 1)}
-        </AppText>
+        // Inside the 2 border.
+        <DefaultAvatar size={size - 4} />
       )}
     </View>
   );
@@ -134,9 +140,10 @@ function Tile({
       }
       disabled={disabled}
       onPress={onPress}
+      // Disabled prevents concurrent saves but deliberately keeps the tile opaque: dimming every
+      // settings switch for the duration of one request looks like a full-screen flash.
       style={({ pressed }) => [
         styles.tile,
-        disabled && styles.leaving,
         pressed && !disabled && styles.pressed,
       ]}
     >
@@ -161,6 +168,16 @@ function Tiles({ children }: { children: React.ReactNode }) {
   return <View style={styles.tiles}>{children}</View>;
 }
 
+// The SVG mist is static. Settings switches update several small state values, so keeping the
+// background outside those renders avoids redrawing a full-screen native SVG on every tap.
+const SettingsBackdrop = React.memo(function SettingsBackdrop() {
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Backdrop tail />
+    </View>
+  );
+});
+
 const loadAll = (repositories: Repositories) =>
   Promise.all([
     repositories.settings.get(),
@@ -183,16 +200,26 @@ export function SettingsScreen() {
     consents: consentsApi,
   } = useRepositories();
   const loaded = useResource(loadAll);
-  const { reload } = loaded;
-  // Coming back from 1.7 shows the watch connected again, and from 8.1b the location mode.
-  useFocusEffect(useCallback(() => reload(), [reload]));
+  const { reload, refresh } = loaded;
+  const focusedOnce = useRef(false);
+  // useResource already loads on mount. Only later focuses need a quiet refresh; starting a second
+  // initial request used to bounce the screen through loading and made the full-screen mist flash.
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
+      void refresh({ keepOnError: true });
+    }, [refresh]),
+  );
   useFocusEffect(
     useCallback(() => {
       const subscription = AppState.addEventListener('change', state => {
-        if (state === 'active') reload();
+        if (state === 'active') void refresh({ keepOnError: true });
       });
       return () => subscription.remove();
-    }, [reload]),
+    }, [refresh]),
   );
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
@@ -361,9 +388,7 @@ export function SettingsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop tail />
-      </View>
+      <SettingsBackdrop />
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <BackButton onPress={() => navigation.goBack()} />
         <AppText style={styles.title} accessibilityRole="header">
@@ -446,16 +471,9 @@ export function SettingsScreen() {
             ) : null}
           </Tiles>
 
-          <Band>공개 및 위치</Band>
+          {/* 계정 공개 범위 moved to 8.2 프로필 수정 (S15P31E105-775). */}
+          <Band>위치</Band>
           <Tiles>
-            <Tile
-              icon="globe"
-              name="계정 공개 범위"
-              state={settings.isPrivate ? '비공개' : '공개'}
-              on={!settings.isPrivate}
-              disabled={savingSettings}
-              onPress={() => change({ isPrivate: !settings.isPrivate })}
-            />
             <Tile
               icon="mapPin"
               name="위치 기록"
