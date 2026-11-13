@@ -145,6 +145,12 @@ export function CourseRunScreen() {
   const resource = useResource(useCallback(loadPlan, []));
   const placeResource = useResource(useCallback(loadPlace, []));
   const plan = resource.status === 'ready' ? resource.data : null;
+  // The plan's pace per km as map labels (S15P31E105-748). Missing or bad values leave the map without labels.
+  const kmPaces = plan?.segmentPacesSecPerKm ?? [];
+  const kmLabels =
+    kmPaces.length > 0 && kmPaces.every(pace => Number.isFinite(pace) && pace > 0)
+      ? kmPaces.map(pace => formatPace(pace))
+      : undefined;
   // Loaded, but no course was picked yet (or the app restarted since): 2.0 asks for one (S15P31E105-635).
   const noCourse = resource.status === 'ready' && !plan;
   const place =
@@ -368,8 +374,10 @@ export function CourseRunScreen() {
         <MapScreenFrame
           renderMap={logo => (
             <RunMap
-              // One mint line, the same as 2.0F's map (S15P31E105-683); the plan's km paces stay in 오늘의 전략.
+              // One mint line, the same as 2.0F's map (S15P31E105-683), with the plan's pace on each km
+              // (S15P31E105-748). No km paces (first run, no server plan): the line alone.
               route={plan?.route}
+              paceLabels={kmLabels}
               unmeasuredEdges={plan?.unmeasuredEdges}
               position={place?.position ?? undefined}
               placeLabel={
@@ -380,9 +388,9 @@ export function CourseRunScreen() {
                     }
                   : undefined
               }
-              // The camera frames the course's start, not me: far from the course the fit of both zoomed out
-              // and lost the start (S15P31E105-715).
-              fitTo={plan?.route?.length ? [plan.route[0]] : undefined}
+              // The camera frames the whole course so every km label shows (S15P31E105-748), not me: far from
+              // the course a fit of both zoomed out and lost it (S15P31E105-715).
+              fitTo={plan?.route?.length ? plan.route : undefined}
               area={{ top: 0.19, bottom: 0.56 }}
               logo={logo}
               view="lean"
