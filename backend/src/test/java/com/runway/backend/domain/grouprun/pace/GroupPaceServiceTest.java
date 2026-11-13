@@ -27,7 +27,7 @@ class GroupPaceServiceTest {
         var events = mock(ApplicationEventPublisher.class);
         var transactions = mock(PlatformTransactionManager.class);
         var service = new GroupPaceService(false, states, groups, participants, coaching, references,
-                ai, plans, events, JsonMapper.builder().build(), transactions);
+                ai, plans, events, JsonMapper.builder().build(), transactions, mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class));
         service.membershipOrGoalChanged(7);
         service.onBatch(8);
         service.evaluateRunning(7);
@@ -157,6 +157,93 @@ class GroupPaceServiceTest {
         verifyNoMoreInteractions(fixture.plans);
         verify(fixture.states).saveStart(7, fixture.token,
                 new GroupPaceRepository.Start(410, 410, 13, 4));
+    }
+
+    // S15P31E105-785: 기준 참가자의 AI09 계획이 탐색 범위 끝에 걸렸고 그 사람의 최근 페이스(편한 범위에 들어가는 본인 값)가 더
+    // 느릴 때만, 추천을 그 본인 페이스로 내린다. 비동의 참가자의 기록은 쓰지 않는다.
+    private static void clampCase(RunningFixture fixture, boolean boundaryHit, int basisRecent) {
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null),
+                new GroupPaceRepository.Candidate(11, false, null)));
+        when(fixture.states.recentPaces(9, 5000)).thenReturn(List.of(BigDecimal.valueOf(basisRecent)));
+        when(fixture.states.recentPaces(10, 5000)).thenReturn(List.of(BigDecimal.valueOf(400)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.fits.findRecentCompletedPaces(List.of(9L, 10L))).thenReturn(java.util.Map.of(
+                9L, List.of(BigDecimal.valueOf(basisRecent)), 10L, List.of(BigDecimal.valueOf(400))));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 9L, BigDecimal.valueOf(5000), BigDecimal.valueOf(433), List.of(), boundaryHit)));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 10L, BigDecimal.valueOf(5000), BigDecimal.valueOf(380), List.of(), false)));
+        fixture.service.evaluateStart(7);
+    }
+
+    @Test
+    void preRun_boundaryHitAndBasisSlowerThanPlan_clampsToBasisOwnPace() {
+        var fixture = new RunningFixture();
+        clampCase(fixture, true, 1000);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(1000, 1000, 9, 2));
+        // 비동의 참가자(11)의 기록은 읽지 않는다.
+        verify(fixture.fits).findRecentCompletedPaces(List.of(9L, 10L));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,1000", "true,420"})
+    void preRun_noBoundaryHitOrBasisNotSlower_keepsAiPace(boolean boundaryHit, int basisRecent) {
+        var fixture = new RunningFixture();
+        clampCase(fixture, boundaryHit, basisRecent);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(433, 433, 9, 2));
+    }
+
+    // 다른 참가자의 더 느린 기록은 clamp 목표가 되지 않는다: 기준(9)이 500이면 10의 900이 아니라 500.
+    @Test
+    void preRun_slowerOtherMember_doesNotBecomeTheTarget() {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.recentPaces(9, 5000)).thenReturn(List.of(BigDecimal.valueOf(500)));
+        when(fixture.states.recentPaces(10, 5000)).thenReturn(List.of(BigDecimal.valueOf(900)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.fits.findRecentCompletedPaces(any())).thenReturn(java.util.Map.of(
+                9L, List.of(BigDecimal.valueOf(500)), 10L, List.of(BigDecimal.valueOf(900))));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 9L, BigDecimal.valueOf(5000), BigDecimal.valueOf(433), List.of(), true)));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 10L, BigDecimal.valueOf(5000), BigDecimal.valueOf(420), List.of(), false)));
+        fixture.service.evaluateStart(7);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(500, 500, 9, 2));
+    }
+
+    // 혼자인 그룹런도 기준 본인의 페이스로 내린다. 739 km 구간 비율은 clamp 뒤에도 그대로 저장된다.
+    @Test
+    void preRun_singleMemberClamp_keepsSegmentRatios() {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(new GroupPaceRepository.Candidate(9, true, null)));
+        when(fixture.states.recentPaces(9, 5000)).thenReturn(List.of(BigDecimal.valueOf(1000)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.fits.findRecentCompletedPaces(any())).thenReturn(java.util.Map.of(
+                9L, List.of(BigDecimal.valueOf(1000))));
+        var segments = List.of(seg5(1, 0, 1000, "1.02"), seg5(2, 1000, 2000, "1.00"), seg5(3, 2000, 3000, "0.99"),
+                seg5(4, 3000, 4000, "1.00"), seg5(5, 4000, 5000, "0.99"));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 9L, BigDecimal.valueOf(5000), BigDecimal.valueOf(433), segments, true)));
+        fixture.service.evaluateStart(7);
+        var saved = org.mockito.ArgumentCaptor.forClass(GroupPaceRepository.Start.class);
+        verify(fixture.states).saveStart(eq(7L), eq(fixture.token), saved.capture());
+        assertThat(saved.getValue().pace()).isEqualTo(1000);
+        assertThat(saved.getValue().aiPace()).isEqualTo(1000);
+        assertThat(saved.getValue().segments()).extracting(GroupPaceRepository.SegmentRatio::ratio)
+                .containsExactly(new BigDecimal("1.02"), new BigDecimal("1.00"), new BigDecimal("0.99"),
+                        new BigDecimal("1.00"), new BigDecimal("0.99"));
+    }
+
+    private static PersonalPacePlanPort.Segment seg5(int n, long start, long end, String ratio) {
+        return new PersonalPacePlanPort.Segment(n, BigDecimal.valueOf(start), BigDecimal.valueOf(end),
+                BigDecimal.valueOf(433).multiply(new BigDecimal(ratio)), new BigDecimal(ratio));
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -370,6 +457,7 @@ class GroupPaceServiceTest {
         final SessionReferenceRepository references = mock(SessionReferenceRepository.class);
         final GroupPacePort ai = mock(GroupPacePort.class);
         final PersonalPacePlanPort plans = mock(PersonalPacePlanPort.class);
+        final com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository fits = mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class);
         final Instant token = Instant.parse("2026-01-01T00:00:00Z");
         final GroupPaceService service;
 
@@ -378,7 +466,7 @@ class GroupPaceServiceTest {
             when(manager.getTransaction(any())).thenReturn(mock(org.springframework.transaction.TransactionStatus.class));
             service = new GroupPaceService(true, states, groups, participants, coaching, references,
                     ai, plans, mock(ApplicationEventPublisher.class),
-                    JsonMapper.builder().build(), manager);
+                    JsonMapper.builder().build(), manager, fits);
             when(groups.findById(7)).thenReturn(Optional.of(new GroupRunRow(7, 1, 9, null,
                     "test", null, token, null, null, null, 5000, 1800, "RUNNING", null, token, token)));
             when(states.find(7)).thenReturn(Optional.of(new GroupPaceRepository.State(375, 380,
