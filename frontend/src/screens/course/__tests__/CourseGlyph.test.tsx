@@ -12,7 +12,29 @@ import {
   drawableShape,
   glyphBox,
   kmMarks,
+  savedCourseCardLayout,
 } from '../SavedCoursesScreen';
+
+describe('saved course responsive card layout', () => {
+  test.each([320, 360, 375, 390])(
+    '%dp keeps two cards and one gap inside the padded screen',
+    windowWidth => {
+      const layout = savedCourseCardLayout(windowWidth);
+      expect(layout.width * 2 + 10 + 30).toBeCloseTo(windowWidth, 10);
+      expect(layout.height / layout.width).toBeCloseTo(245 / 175, 10);
+    },
+  );
+
+  test('a narrow card scales every internal measurement with the card', () => {
+    const narrow = savedCourseCardLayout(320);
+    expect(narrow.scale).toBeCloseTo(narrow.width / 175, 10);
+    expect(narrow.scale).toBeLessThan(1);
+  });
+
+  test('a wide screen keeps the handoff sizes instead of enlarging card contents', () => {
+    expect(savedCourseCardLayout(430).scale).toBe(1);
+  });
+});
 
 // Every render is unmounted after its test, so a card gives its map slot back (S15P31E105-715).
 const mounted: TestRenderer.ReactTestRenderer[] = [];
