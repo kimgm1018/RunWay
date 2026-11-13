@@ -10,6 +10,7 @@ import type {
 import { formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { groupTone, NumText } from './look';
+import { KmPaceToggle } from '../run/KmPacePills';
 
 // S15P31E105-680 공동 페이스 카드 on 6.4: the AI recommendation and whose plan it comes from, the host's goal, the
 // pace applied in the chosen mode (highlighted), 계산 중 while the server recalculates, and a short 방금 바뀜 line.
@@ -161,7 +162,8 @@ export function aiSubLine(goal: CardGoal, aiSecPerKm: number) {
 // The 목표 row's small line: the time the goal was set by (N분 완주), or the time its pace makes of the distance
 // (예상 N분); nothing when there is neither.
 export function goalSubLine(goal: CardGoal, goalSecPerKm: number | null) {
-  const distance = goal.showDistance && goal.distanceM ? kmText(goal.distanceM) : null;
+  const distance =
+    goal.showDistance && goal.distanceM ? kmText(goal.distanceM) : null;
   const time = goal.durationSec
     ? `${minutes(goal.durationSec)}분 완주`
     : goal.distanceM && goalSecPerKm != null
@@ -212,6 +214,9 @@ export function GroupPaceCard({
     ? `${formatPace(pace.appliedSecPerKm)} · 중앙값`
     : null;
   const slower = pace.slowerThanGoalCount ?? 0;
+  // S15P31E105-739: the km paces of the start plan open on a press (KmPaceToggle), closed at first; not while the
+  // server recalculates, nor when it has none.
+  const hasKm = !calculating && pace.kmPaces.length > 0;
   return (
     <View style={styles.card}>
       <View style={styles.head}>
@@ -233,10 +238,20 @@ export function GroupPaceCard({
         />
       ) : null}
       <Row label="AI 추천" value={aiValue} sub={aiSub} applied={aiApplied} />
+      {/* The km pills split the AI pace by km, so they read right under it (S15P31E105-739). */}
+      {hasKm ? (
+        <KmPaceToggle
+          paces={pace.kmPaces}
+          distanceM={pace.kmDistanceM}
+          color={groupTone.accent}
+        />
+      ) : null}
       <Row
         label="목표"
         value={
-          pace.goalSecPerKm != null ? formatPace(pace.goalSecPerKm) : '목표 없음'
+          pace.goalSecPerKm != null
+            ? formatPace(pace.goalSecPerKm)
+            : '목표 없음'
         }
         sub={goalSubLine(goal, pace.goalSecPerKm)}
         applied={goalApplied}

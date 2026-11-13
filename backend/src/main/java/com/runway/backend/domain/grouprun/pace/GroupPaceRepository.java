@@ -39,8 +39,23 @@ public class GroupPaceRepository {
     public static final String MODE_TOGETHER = "TOGETHER";
     public static final String MODE_GOAL = "GOAL";
 
-    /** Start result: applied pace, AI recommendation, its member and the slower-than-goal count. */
-    public record Start(int pace, int aiPace, long basisUserId, Integer slowerThanGoalCount) {}
+    /**
+     * Start result: applied pace, AI recommendation, its member, the slower-than-goal count and the basis plan's km
+     * segment ratios (S15P31E105-739, empty when the plan had none usable).
+     */
+    public record Start(int pace, int aiPace, long basisUserId, Integer slowerThanGoalCount,
+            List<SegmentRatio> segments) {
+        public Start {
+            segments = List.copyOf(segments);
+        }
+
+        public Start(int pace, int aiPace, long basisUserId, Integer slowerThanGoalCount) {
+            this(pace, aiPace, basisUserId, slowerThanGoalCount, List.of());
+        }
+    }
+
+    /** One km segment of the basis plan: its distance range (m) and its pace as a ratio of the plan mean. */
+    public record SegmentRatio(BigDecimal startDistanceM, BigDecimal endDistanceM, BigDecimal ratio) {}
     public record Runner(long userId, long sessionId, String status, Instant startedAt,
             boolean consent) {}
     public record Candidate(long userId, boolean consent, BigDecimal profilePace) {}
@@ -108,6 +123,7 @@ public class GroupPaceRepository {
                 INSERT INTO group_run_pace_state(group_run_id, start_requested_at)
                 VALUES (?, clock_timestamp())
                 ON CONFLICT (group_run_id) DO UPDATE SET start_recommended_pace_sec_per_km = NULL,
+                    start_segment_ratios = NULL,
                     ai_recommended_pace_sec_per_km = NULL, pace_basis_user_id = NULL,
                     slower_than_goal_count = NULL, start_requested_at = clock_timestamp()
                 """, groupId);
@@ -146,11 +162,47 @@ public class GroupPaceRepository {
         return jdbc.update("""
                 UPDATE group_run_pace_state SET start_recommended_pace_sec_per_km = ?,
                     ai_recommended_pace_sec_per_km = ?, pace_basis_user_id = ?,
-                    slower_than_goal_count = ?, start_requested_at = NULL
+                    slower_than_goal_count = ?, start_requested_at = NULL,
+                    start_segment_ratios = CAST(CAST(? AS text) AS jsonb)
                 WHERE group_run_id = ? AND updated_at = ?
                   AND EXISTS (SELECT 1 FROM group_runs WHERE id = ? AND status = 'SCHEDULED')
                 """, start.pace(), start.aiPace(), start.basisUserId(), start.slowerThanGoalCount(),
-                groupId, Timestamp.from(token), groupId) == 1;
+                ratiosJson(start.segments()), groupId, Timestamp.from(token), groupId) == 1;
+    }
+
+    private static String ratiosJson(List<SegmentRatio> segments) {
+        if (segments.isEmpty()) return null;
+        StringBuilder json = new StringBuilder("[");
+        for (var segment : segments) {
+            if (json.length() > 1) json.append(',');
+            json.append("{\"startDistanceM\":").append(segment.startDistanceM().toPlainString())
+                    .append(",\"endDistanceM\":").append(segment.endDistanceM().toPlainString())
+                    .append(",\"ratio\":").append(segment.ratio().toPlainString()).append('}');
+        }
+        return json.append(']').toString();
+    }
+
+    /** One km of the shared start plan: distance range (m) and pace (s/km, two decimals). */
+    public record SegmentPace(BigDecimal startDistanceM, BigDecimal endDistanceM, BigDecimal pace) {}
+
+    /**
+     * km paces of the stored start plan (S15P31E105-739): the stored start pace x the basis plan's ratios, read in one
+     * statement so a recalculation committing in between cannot mix an old pace with new ratios (review B-2). Empty
+     * when there is no start pace or no ratios, or when the basis member no longer shares health data (B-3).
+     */
+    public List<SegmentPace> findStartSegments(long groupId) {
+        return jdbc.query("""
+                SELECT (e->>'startDistanceM')::numeric AS start_m, (e->>'endDistanceM')::numeric AS end_m,
+                       ROUND(s.start_recommended_pace_sec_per_km * (e->>'ratio')::numeric, 2) AS pace
+                FROM group_run_pace_state s
+                JOIN users u ON u.id = s.pace_basis_user_id
+                    AND u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE'
+                CROSS JOIN LATERAL jsonb_array_elements(s.start_segment_ratios) WITH ORDINALITY AS t(e, n)
+                WHERE s.group_run_id = ? AND s.start_segment_ratios IS NOT NULL
+                  AND s.start_recommended_pace_sec_per_km IS NOT NULL
+                ORDER BY t.n
+                """, (rs, n) -> new SegmentPace(rs.getBigDecimal("start_m"), rs.getBigDecimal("end_m"),
+                        rs.getBigDecimal("pace")), groupId);
     }
 
     public List<Runner> runners(long groupId) {

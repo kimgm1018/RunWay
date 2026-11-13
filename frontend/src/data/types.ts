@@ -491,6 +491,18 @@ export type CoursePlan = {
   caution: string | null;
 };
 
+// C12's optional goal: a finish time or a pace, never both (S15P31E105-766).
+export type CoursePlanTarget = {
+  targetDurationSec?: number;
+  targetPaceSecPerKm?: number;
+};
+
+// The part of 2.0's plan that C12 fills.
+export type CoursePlanPaces = Pick<
+  CoursePlan,
+  'segmentPacesSecPerKm' | 'planSource' | 'strategy' | 'expectedDurationSec'
+>;
+
 // One reading during a run, once a second (4.2 러닝 진행).
 export type RunSample = {
   elapsedSec: number;
@@ -714,6 +726,10 @@ export type GroupPaceInfo = {
   calculating: boolean;
   // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
   slowerThanGoalCount: number | null;
+  // S15P31E105-739 km별 공동 출발 페이스 (G03 paceSegments), in order. Empty when the server has none.
+  kmPaces: number[];
+  // Where the last km ends (m), to label a last part shorter than 1 km.
+  kmDistanceM: number;
 };
 
 // S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.
@@ -1414,6 +1430,12 @@ export type Repositories = {
     // picked (and after the app restarts); the mock keeps a default course for the prototype.
     // pacePlan: also ask C12 for the km paces (2.0 only; S15P31E105-733). Others (group create) skip the AI call.
     getTodayPlan: (options?: { pacePlan?: boolean }) => Promise<CoursePlan | null>;
+    // C12 for the picked goal (S15P31E105-766): the km paces of the plan S01 would make with this time or pace goal,
+    // or with none. null when the AI has no plan (slow, 503) or the course is not a server one.
+    getPacePlan: (
+      courseId: string,
+      target: CoursePlanTarget,
+    ) => Promise<CoursePlanPaces | null>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,

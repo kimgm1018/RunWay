@@ -31,6 +31,19 @@ const courseGoals: RunGoal[] = [
 ];
 const course = { distanceM: 5000, plannedPace: 360 };
 
+test.each([5000, 5023.2, 5023.5, 5023.78])(
+  'course distance %s becomes an integer metre goal without changing the course',
+  distanceM => {
+    const source = { distanceM, plannedPace: 360 };
+    const expected =
+      distanceM === 5000 ? 5000 : distanceM === 5023.2 ? 5023 : 5024;
+    for (const goal of [{ kind: 'NONE' } as const, ...courseGoals]) {
+      expect(goalConfig(goal, source).goalDistanceM).toBe(expected);
+    }
+    expect(source.distanceM).toBe(distanceM);
+  },
+);
+
 test('every goal sends at most two of distance · time · pace, and a course keeps its distance', () => {
   for (const goal of freeGoals) {
     expect(count(goalConfig(goal))).toBeLessThanOrEqual(2);

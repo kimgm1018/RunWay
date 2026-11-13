@@ -76,6 +76,7 @@ import {
   runKind,
   type PaceChange,
 } from './GroupPaceCard';
+import { CourseMapZoom } from './CourseMapZoom';
 import { GroupGoalSheet } from './GroupGoalSheet';
 
 export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
@@ -502,30 +503,63 @@ export function GroupRunDetailScreen() {
           <StandHeader title="그룹런 상세" onBack={() => navigation.goBack()} />
         </View>
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.mapCard}>
-            <RunMap
-              muted={cancelled}
-              route={run.route ?? undefined}
-              // The meeting place need not be the course's start, so it stands over the course too, with its
-              // name in a bubble (S15P31E105-696).
-              position={run.meetingPosition}
-              placeLabel={
-                run.route && !cancelled
-                  ? { title: run.meetingPlaceName, sub: '만나는 곳' }
-                  : undefined
-              }
-              area={
-                run.route
-                  ? { top: 0.12, bottom: 0.88 }
-                  : { top: 0.5, bottom: 0.5 }
-              }
-              interactive={false}
-              // The course in RunWay's mint, as on the run start map and the run result, at the plain line's
-              // thinner widths on this small map (S15P31E105-720).
-              mintLine="thin"
-              style={StyleSheet.absoluteFill}
-            />
-          </View>
+          {run.route?.length && !cancelled ? (
+            // A press opens the course big with each km's pace (S15P31E105-739), as in the waiting room.
+            <CourseMapZoom
+              route={run.route}
+              paces={run.pace && !run.pace.calculating ? run.pace.kmPaces : []}
+              distanceM={run.pace?.kmDistanceM ?? 0}
+              style={styles.mapCard}
+            >
+              <RunMap
+                muted={cancelled}
+                route={run.route ?? undefined}
+                // The meeting place need not be the course's start, so it stands over the course too, with its
+                // name in a bubble (S15P31E105-696).
+                position={run.meetingPosition}
+                placeLabel={
+                  run.route && !cancelled
+                    ? { title: run.meetingPlaceName, sub: '만나는 곳' }
+                    : undefined
+                }
+                area={
+                  run.route
+                    ? { top: 0.12, bottom: 0.88 }
+                    : { top: 0.5, bottom: 0.5 }
+                }
+                interactive={false}
+                // The course in RunWay's mint, as on the run start map and the run result, at the plain line's
+                // thinner widths on this small map (S15P31E105-720).
+                mintLine="thin"
+                style={StyleSheet.absoluteFill}
+              />
+            </CourseMapZoom>
+          ) : (
+            <View style={styles.mapCard}>
+              <RunMap
+                muted={cancelled}
+                route={run.route ?? undefined}
+                // The meeting place need not be the course's start, so it stands over the course too, with its
+                // name in a bubble (S15P31E105-696).
+                position={run.meetingPosition}
+                placeLabel={
+                  run.route && !cancelled
+                    ? { title: run.meetingPlaceName, sub: '만나는 곳' }
+                    : undefined
+                }
+                area={
+                  run.route
+                    ? { top: 0.12, bottom: 0.88 }
+                    : { top: 0.5, bottom: 0.5 }
+                }
+                interactive={false}
+                // The course in RunWay's mint, as on the run start map and the run result, at the plain line's
+                // thinner widths on this small map (S15P31E105-720).
+                mintLine="thin"
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          )}
           <View>
             <View>
               <View style={styles.titleRow}>
@@ -588,7 +622,9 @@ export function GroupRunDetailScreen() {
                           .map(personLabel)
                           .join(', ')}`}
                         accessibilityHint={
-                          showPeople ? '이름 목록을 접어요' : '이름 목록을 펼쳐요'
+                          showPeople
+                            ? '이름 목록을 접어요'
+                            : '이름 목록을 펼쳐요'
                         }
                         accessibilityState={{ expanded: showPeople }}
                         onPress={() => setShowPeople(value => !value)}
@@ -609,7 +645,11 @@ export function GroupRunDetailScreen() {
                           />
                         ))}
                         <View style={[styles.chevron, showPeople && styles.up]}>
-                          <Icon name="chevronDown" color={stand.sub} size={16} />
+                          <Icon
+                            name="chevronDown"
+                            color={stand.sub}
+                            size={16}
+                          />
                         </View>
                       </Pressable>
                     }

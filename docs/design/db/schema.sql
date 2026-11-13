@@ -1508,7 +1508,9 @@ CREATE TABLE group_run_pace_state (
     ai_recommended_pace_sec_per_km INTEGER CHECK (ai_recommended_pace_sec_per_km > 0),
     pace_basis_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
     slower_than_goal_count INTEGER CHECK (slower_than_goal_count >= 0),
-    start_requested_at TIMESTAMPTZ
+    start_requested_at TIMESTAMPTZ,
+    -- S15P31E105-739 (V39): 출발 추천 기준 회원 AI09 계획의 km 구간 비율 [{startDistanceM, endDistanceM, ratio}]. G03 paceSegments 계산용.
+    start_segment_ratios JSONB CHECK (start_segment_ratios IS NULL OR jsonb_typeof(start_segment_ratios) = 'array')
 );
 CREATE TRIGGER trg_group_run_pace_state_updated_at
     BEFORE UPDATE ON group_run_pace_state

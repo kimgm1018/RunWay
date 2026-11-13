@@ -178,3 +178,33 @@ test('736 마지막 판단 N초 전', () => {
   assert.equal(m.lastDecisionText(null, now, 0), '');
   assert.equal(m.lastDecisionText({}, now, 0), '');
 });
+
+test('747 청중용 안내 한 줄(10자 안팎, 페이스 숫자 없음)', () => {
+  const group = code => ({decision: {recommendedPaceSecPerKm: 354, reasonCode: code},
+    group: {worstIndex: 1, members: [{label: '러너 1'}, {label: '러너 2'}]}, status: 'OK'});
+  assert.deepEqual(m.headline(group('SPEED_UP')), {tone: 'up', text: '모두 여유 → 올림'});
+  assert.deepEqual(m.headline(group('SLOW_DOWN')), {tone: 'down', text: '러너2 심박 높음 → 늦춤'});
+  assert.equal(m.headline(group('WARMUP')).text, '워밍업 → 늦춤');
+  assert.equal(m.headline(group('COOLDOWN')).text, '방금 바꿈 → 유지');
+  assert.equal(m.headline(group('HOLD')).text, '알맞음 → 유지');
+  assert.equal(m.headline({status: 'INPUT_INSUFFICIENT', decision: {recommendedPaceSecPerKm: 375}}).text, '심박 대기');
+  assert.equal(m.headline({status: 'SAFETY', decision: {recommendedPaceSecPerKm: 400}}).tone, 'danger');
+  const personal = delta => ({status: 'OK', decision: {recommendedPaceSecPerKm: 360, chosenIndex: 0},
+    candidates: [{deltaSecPerKm: delta}]});
+  assert.equal(m.headline(personal(-10)).text, '여유 → 올림');
+  assert.equal(m.headline(personal(10)).text, '심박 오름 → 늦춤');
+  assert.equal(m.headline(personal(0)).text, '알맞음 → 유지');
+  for (const code of ['SPEED_UP', 'SLOW_DOWN', 'COOLDOWN', 'HOLD']) assert.ok(m.headline(group(code)).text.length <= 14);
+  assert.equal(m.toneWord('up'), '여유');
+  assert.equal(m.toneWord('down'), '힘듦');
+  assert.equal(m.toneWord('x'), '');
+});
+
+test('747 안내 카드 지금(실제) 한 값: 개인 그대로, 그룹 평균, 정지·없음', () => {
+  const pace = sec => ({kind: 'pace', text: m.formatPace(sec), sec});
+  assert.equal(m.actualSummary([pace(360)]), m.formatPace(360));
+  assert.equal(m.actualSummary([pace(340), pace(350)]), m.formatPace(345));
+  assert.equal(m.actualSummary([{kind: 'stopped', text: '정지', sec: null}, pace(330)]), m.formatPace(330));
+  assert.equal(m.actualSummary([{kind: 'stopped', text: '정지', sec: null}]), '정지');
+  assert.equal(m.actualSummary([]), '—');
+});

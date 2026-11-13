@@ -495,6 +495,36 @@ export function createCoursesApi({
       return result;
     };
 
+  // C12 with the goal picked on 2.0 (S15P31E105-766). Only server courses have a plan.
+  const getPacePlan: Repositories['courses']['getPacePlan'] = async (
+    courseId,
+    target,
+  ) => {
+    if (!isServerId(courseId)) {
+      return null;
+    }
+    const query = new URLSearchParams();
+    if (target.targetDurationSec != null) {
+      query.set('targetDurationSec', String(target.targetDurationSec));
+    } else if (target.targetPaceSecPerKm != null) {
+      query.set('targetPaceSecPerKm', target.targetPaceSecPerKm.toFixed(2));
+    }
+    const search = query.toString();
+    const server = await apiRequest<PacePlanResponse>(
+      `/courses/${courseId}/pace-plan${search ? `?${search}` : ''}`,
+      { timeoutMs: planTimeoutMs },
+    ).catch(() => null);
+    const planned = server ? planFromServer(server) : null;
+    return planned
+      ? {
+          segmentPacesSecPerKm: planned.segmentPacesSecPerKm,
+          planSource: planned.planSource,
+          strategy: planned.strategy,
+          expectedDurationSec: planned.expectedDurationSec,
+        }
+      : null;
+  };
+
   const courses: Repositories['courses'] = {
     ...mock,
     getPreferences: getCoursePreferences,
@@ -502,6 +532,7 @@ export function createCoursesApi({
     getSaved,
     recommend,
     getTodayPlan,
+    getPacePlan,
     // C07 with no body keeps any alias already set. A C01 route is stored by C10 first.
     save: async courseId => {
       const id = await serverIdOf(courseId);

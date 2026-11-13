@@ -57,6 +57,9 @@ import {
   StandTag,
   standType,
 } from './stand';
+import { KmPaceToggle } from '../run/KmPacePills';
+import { RunMap } from '../../components/RunMap';
+import { CourseMapZoom } from './CourseMapZoom';
 
 const countdownSeconds = 3;
 
@@ -127,44 +130,82 @@ function useCountdown(target: string | null, now: Date) {
 // 추천 공동 페이스 (그룹런 시안, S15P31E105-673): the clock, the title and its basis on the left with the shared pace
 // big under them, then past a line the run's own target pace and, when the server gives it, the members'
 // comfortable range.
+// 참가자 편한 범위: one pace when both ends read the same.
+export function rangeText(range: [number, number]) {
+  const fast = formatPace(range[0]);
+  const slow = formatPace(range[1]);
+  return fast === slow ? fast : `${fast} – ${slow}`;
+}
+
 function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
   const pace = room.recommendedPaceSecPerKm;
   const range = room.comfortRange;
+  // S15P31E105-739: the start plan's km paces, on a press as on the detail card; not while recalculating.
+  const km = run.pace && !run.pace.calculating ? run.pace.kmPaces : [];
   return (
-    <View style={styles.paceRow}>
-      <View style={styles.paceMain}>
-        <View style={styles.paceHead}>
-          <Icon name="clock" color={stand.mint} size={16} />
-          <AppText style={standType.label}>추천 공동 페이스</AppText>
+    <View>
+      <View style={styles.paceRow}>
+        <View style={styles.paceMain}>
+          <View style={styles.paceHead}>
+            <Icon name="clock" color={stand.mint} size={16} />
+            <AppText style={standType.label}>추천 공동 페이스</AppText>
+          </View>
+          <AppText style={styles.noteText}>참가자 기록 기준</AppText>
+          {pace === null ? (
+            <AppText style={[styles.noteText, styles.paceMissing]}>
+              추천 정보 부족
+            </AppText>
+          ) : (
+            <Figure value={formatPace(pace)} unit="/km" size={50} />
+          )}
         </View>
-        <AppText style={styles.noteText}>참가자 기록 기준</AppText>
-        {pace === null ? (
-          <AppText style={[styles.noteText, styles.paceMissing]}>
-            추천 정보 부족
-          </AppText>
-        ) : (
-          <Figure value={formatPace(pace)} unit="/km" size={50} />
-        )}
-      </View>
-      <View style={styles.paceSide}>
-        <View>
-          <AppText style={standType.smallLabel}>목표 페이스</AppText>
-          <NumText
-            style={styles.paceLine}
-            text={`${formatPace(run.goalPaceSecPerKm)} /km`}
-          />
-        </View>
-        {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
-        {range ? (
+        <View style={styles.paceSide}>
           <View>
-            <AppText style={standType.smallLabel}>참가자 편한 범위</AppText>
+            <AppText style={standType.smallLabel}>목표 페이스</AppText>
             <NumText
               style={styles.paceLine}
-              text={`${formatPace(range[0])} – ${formatPace(range[1])}`}
+              text={`${formatPace(run.goalPaceSecPerKm)} /km`}
             />
           </View>
-        ) : null}
+          {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
+          {range ? (
+            <View>
+              <AppText style={standType.smallLabel}>참가자 편한 범위</AppText>
+              <NumText style={styles.paceLine} text={rangeText(range)} />
+            </View>
+          ) : null}
+        </View>
       </View>
+      {km.length ? (
+        <KmPaceToggle
+          paces={km}
+          distanceM={run.pace?.kmDistanceM ?? 0}
+          color={stand.mint}
+          map={
+            // The course with each km's pace on it, as on the solo course start (S15P31E105-748): a small view
+            // only, no bubble or meeting pin so the 1 km pill stays clear. A run without a course shows the pills.
+            run.route?.length ? (
+              <CourseMapZoom
+                route={run.route}
+                paces={km}
+                distanceM={run.pace?.kmDistanceM ?? 0}
+                style={styles.kmMap}
+              >
+                <RunMap
+                  route={run.route}
+                  paceLabels={km.map(value => formatPace(value))}
+                  fitTo={run.route}
+                  interactive={false}
+                  poles={false}
+                  compact
+                  mintLine="thin"
+                  style={StyleSheet.absoluteFill}
+                />
+              </CourseMapZoom>
+            ) : undefined
+          }
+        />
+      ) : null}
     </View>
   );
 }
@@ -591,6 +632,12 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
 }
 
 const styles = StyleSheet.create({
+  kmMap: {
+    height: 180,
+    marginTop: 8,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },

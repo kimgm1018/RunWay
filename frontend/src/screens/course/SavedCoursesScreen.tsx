@@ -6,6 +6,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -339,6 +340,7 @@ export function CourseMapThumb({
   km,
   area,
   shadeFrom,
+  visualScale = 1,
 }: {
   route?: LngLat[] | null;
   basemap?: CourseBasemap | null;
@@ -348,6 +350,7 @@ export function CourseMapThumb({
   km?: number;
   area: CourseThumbArea;
   shadeFrom: number;
+  visualScale?: number;
 }) {
   const given = route && route.length >= 2 ? route : null;
   const [loaded, setLoaded] = useState<CourseMapData | null>(null);
@@ -478,9 +481,18 @@ export function CourseMapThumb({
       </Svg>
       {imageShown ? (
         // ODbL: the map's data is OpenStreetMap contributors' (8 설정 > 데이터 라이선스 has the full notice).
-        <View testID="course-basemap-attribution" style={styles.attribution}>
+        <View
+          testID="course-basemap-attribution"
+          style={[
+            styles.attribution,
+            { top: 14 * visualScale, left: 16 * visualScale },
+          ]}
+        >
           <AppText
-            style={styles.attributionText}
+            style={[
+              styles.attributionText,
+              { fontSize: 7.5 * visualScale, lineHeight: 10 * visualScale },
+            ]}
             accessibilityLabel="지도 데이터 © OpenStreetMap 기여자"
           >
             © OpenStreetMap
@@ -507,6 +519,25 @@ export function splitTitle(title: string) {
   return best < 0 ? title : `${title.slice(0, best)}\n${title.slice(best + 1)}`;
 }
 
+const SAVED_CARD_BASE_WIDTH = 175;
+const SAVED_CARD_BASE_HEIGHT = 245;
+const SAVED_GRID_HORIZONTAL_PADDING = 15;
+const SAVED_GRID_GAP = 10;
+
+// S15P31E105-764: the 175 x 245 handoff card is the scale reference. Narrow phones keep two exact
+// columns, and every measurement inside a card uses the same scale so text, controls and spacing cannot
+// remain larger than the card around them.
+export function savedCourseCardLayout(windowWidth: number) {
+  const gridWidth = Math.max(0, windowWidth - SAVED_GRID_HORIZONTAL_PADDING * 2);
+  const width = Math.max(0, (gridWidth - SAVED_GRID_GAP) / 2);
+  const scale = Math.min(1, width / SAVED_CARD_BASE_WIDTH);
+  return {
+    width,
+    height: SAVED_CARD_BASE_HEIGHT * scale,
+    scale,
+  };
+}
+
 // One saved course: the course on its small light map, the title, distance and time, and 이 코스로 달리기. The whole card
 // opens the course run; the mockup has no unsave control, so a small glass bookmark keeps that action.
 function SavedCard({
@@ -525,6 +556,8 @@ function SavedCard({
   onUnsave: () => void;
 }) {
   const title = course.myAlias ?? course.name;
+  const scale = Math.min(1, (width ?? SAVED_CARD_BASE_WIDTH) / SAVED_CARD_BASE_WIDTH);
+  const scaled = (value: number) => value * scale;
   return (
     <Pressable
       accessibilityRole="button"
@@ -534,7 +567,11 @@ function SavedCard({
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { height },
+        {
+          height,
+          borderRadius: scaled(22),
+          boxShadow: `0 ${scaled(14)}px ${scaled(30)}px rgba(2,5,14,0.22)`,
+        },
         width != null && { width },
         pressed && styles.pressed,
       ]}
@@ -549,26 +586,86 @@ function SavedCard({
         km={course.distanceM / 1000}
         area={{ top: 44 / height, bottom: (height - 128) / height }}
         shadeFrom={(height - 150) / height}
+        visualScale={scale}
       />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title} 저장 해제`}
-        hitSlop={8}
+        hitSlop={scaled(8)}
         onPress={onUnsave}
-        style={styles.bookmark}
+        style={[
+          styles.bookmark,
+          {
+            top: scaled(10),
+            right: scaled(10),
+            width: scaled(28),
+            height: scaled(28),
+            borderRadius: scaled(14),
+            borderWidth: Math.max(0.75, scaled(1)),
+          },
+        ]}
       >
-        <Icon name="bookmark" color="#111111" size={13} solid />
+        <Icon name="bookmark" color="#111111" size={scaled(13)} solid />
       </Pressable>
-      <View style={styles.text}>
-        <AppText style={styles.cardTitle} numberOfLines={2}>
+      <View
+        style={[
+          styles.text,
+          {
+            left: scaled(12),
+            right: scaled(10),
+            bottom: scaled(60),
+            gap: scaled(4),
+          },
+        ]}
+      >
+        <AppText
+          style={[
+            styles.cardTitle,
+            {
+              fontSize: scaled(20),
+              lineHeight: scaled(23),
+              letterSpacing: scaled(-0.6),
+            },
+          ]}
+          numberOfLines={2}
+        >
           {splitTitle(title)}
         </AppText>
-        <AppText style={styles.meta}>
+        <AppText
+          style={[
+            styles.meta,
+            { fontSize: scaled(11.5), lineHeight: scaled(15) },
+          ]}
+          numberOfLines={1}
+        >
           {`${formatKm(course.distanceM, 1)} km · ${course.expectedMinutes}분`}
         </AppText>
       </View>
-      <View style={styles.run}>
-        <AppText style={styles.runText}>이 코스로 달리기</AppText>
+      <View
+        style={[
+          styles.run,
+          {
+            left: scaled(8),
+            right: scaled(8),
+            bottom: scaled(8),
+            height: scaled(38),
+            borderRadius: scaled(14),
+          },
+        ]}
+      >
+        <AppText
+          style={[
+            styles.runText,
+            {
+              fontSize: scaled(13.5),
+              lineHeight: scaled(18),
+              letterSpacing: scaled(-0.2),
+            },
+          ]}
+          numberOfLines={1}
+        >
+          이 코스로 달리기
+        </AppText>
       </View>
     </Pressable>
   );
@@ -605,14 +702,8 @@ export function SavedCoursesScreen() {
   const { courses } = useRepositories();
   const toast = useToast();
   const resource = useResource(useCallback(loadSaved, []));
-  const [area, setArea] = useState(0);
-  // Three rows fit the screen: 15 under the tabs and at the bottom, 10 between.
-  const cardHeight = area ? Math.max(200, (area - 15 * 2 - 10 * 2) / 3) : 245;
-  // The grid's own measured width (S15P31E105-749): styles.card's fixed '48.6%' plus the grid's fixed
-  // 10dp gap only adds up to two per row on wide-enough screens, so narrower phones wrapped to one
-  // column. Two cards' width is computed from the real container width instead, same as cardHeight.
-  const [gridWidth, setGridWidth] = useState(0);
-  const cardWidth = gridWidth ? (gridWidth - 10) / 2 : null;
+  const { width: windowWidth } = useWindowDimensions();
+  const cardLayout = savedCourseCardLayout(windowWidth);
   const [items, setItems] = useState<SavedCourse[] | null>(null);
   useEffect(() => {
     if (resource.status === 'ready') {
@@ -650,7 +741,6 @@ export function SavedCoursesScreen() {
       <CourseTabs current="SavedCourses" />
       <ScrollView
         contentContainerStyle={styles.content}
-        onLayout={event => setArea(event.nativeEvent.layout.height)}
       >
         {resource.status === 'loading' ? (
           <ActivityIndicator />
@@ -673,16 +763,13 @@ export function SavedCoursesScreen() {
             onAction={() => navigateTo(navigation, 'TodayRun')}
           />
         ) : (
-          <View
-            style={styles.grid}
-            onLayout={event => setGridWidth(event.nativeEvent.layout.width)}
-          >
+          <View style={styles.grid}>
             {items?.map(course => (
               <SavedCard
                 key={course.id}
                 course={course}
-                height={cardHeight}
-                width={cardWidth}
+                height={cardLayout.height}
+                width={cardLayout.width}
                 onOpen={() => open(course)}
                 onUnsave={() => unsave(course)}
               />
@@ -699,14 +786,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 15, paddingVertical: 15, gap: spacing.xl },
   pressed: { opacity: 0.85 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  // Two per row, corners of 22. '48.6%' is only the fallback before the grid's width is measured
-  // (SavedCoursesScreen computes the real per-card width from it, S15P31E105-749); the gap's 10dp was
-  // not accounted for here, so it alone broke to one column on narrower screens.
   card: {
-    width: '48.6%',
-    borderRadius: 22,
     overflow: 'hidden',
-    boxShadow: '0 14px 30px rgba(2,5,14,0.22)',
   },
   mapThumb: {
     position: 'absolute',
@@ -723,58 +804,35 @@ const styles = StyleSheet.create({
   // badge behind them.
   attribution: {
     position: 'absolute',
-    top: 14,
-    left: 16,
   },
   attributionText: {
-    fontSize: 7.5,
-    lineHeight: 10,
     color: 'rgba(0,0,0,0.42)',
   },
   bookmark: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.6)',
     backgroundColor: 'rgba(255,255,255,0.32)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   // The title and figures sit on the black lower part, 14 above the button.
-  text: { position: 'absolute', left: 12, right: 10, bottom: 60, gap: 4 },
+  text: { position: 'absolute' },
   cardTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 20,
-    lineHeight: 23,
-    letterSpacing: -0.6,
     color: '#FFFFFF',
   },
   meta: {
     fontFamily: fontFamily.medium,
-    fontSize: 11.5,
-    lineHeight: 15,
     color: 'rgba(255,255,255,0.42)',
   },
   run: {
     position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
-    height: 38,
-    borderRadius: 14,
     backgroundColor: '#EEEEEE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   runText: {
     fontFamily: fontFamily.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    letterSpacing: -0.2,
     color: '#111111',
   },
   error: { alignItems: 'center', gap: spacing.md },

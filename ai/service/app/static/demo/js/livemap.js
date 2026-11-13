@@ -102,14 +102,14 @@
         layer = layers[label] = {
           ribbon: L().polyline([], {color: color, weight: 9, opacity: 0.35, lineCap: 'round', lineJoin: 'round', className: 'route-ribbon'}).addTo(map),
           core: L().polyline([], {color: '#B8FFEC', weight: 3, opacity: 0.95, lineCap: 'round', lineJoin: 'round', className: 'route-core'}).addTo(map),
-          dot: L().circleMarker([0, 0], {radius: 7, color: '#02050E', weight: 3, fillColor: color, fillOpacity: 1, className: 'route-dot'}),
+          dot: L().circleMarker([0, 0], {radius: 11, color: '#02050E', weight: 3.5, fillColor: color, fillOpacity: 1, className: 'route-dot'}),
           points: [], grewAt: Date.now(), lastKey: ''
         };
         if (color !== MINT) layer.core.setStyle({color: color});
         // 727: 가까이 붙어 뛰면 이름표가 겹치지 않게 홀수 번째 러너는 위, 짝수 번째는 아래에 단다
         var below = /(\d+)$/.test(label) && Number(/(\d+)$/.exec(label)[1]) % 2 === 0;
         layer.dot.bindTooltip(label, {permanent: list.length > 1, direction: below ? 'bottom' : 'top',
-          offset: [0, below ? 8 : -8], className: 'route-tip'});
+          offset: [0, below ? 12 : -12], className: 'route-tip'});
       }
       var end = pts[pts.length - 1];
       var key = pts.length + ':' + end[0] + ',' + end[1];

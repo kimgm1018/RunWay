@@ -79,6 +79,15 @@ const icons = {
     </>
   ),
   check: <Path d="M20 6 9 17l-5-5" />,
+  // A small map opens big (S15P31E105-739).
+  expand: (
+    <>
+      <Path d="M15 3h6v6" />
+      <Path d="M9 21H3v-6" />
+      <Path d="m21 3-7 7" />
+      <Path d="m3 21 7-7" />
+    </>
+  ),
   alert: (
     <>
       <Circle cx="12" cy="12" r="10" />

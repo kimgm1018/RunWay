@@ -67,6 +67,21 @@ public class GroupPaceService {
         return enabled ? states.find(groupId) : Optional.empty();
     }
 
+    /**
+     * km paces of the stored start plan (S15P31E105-739). OFF reads nothing. A stored value that cannot be read (only
+     * possible after a manual DB edit) shows no segments instead of failing G03 (review B-5).
+     */
+    public List<GroupPaceRepository.SegmentPace> storedStartSegments(long groupId) {
+        if (!enabled) return List.of();
+        try {
+            return states.findStartSegments(groupId);
+        } catch (org.springframework.dao.DataAccessException | NullPointerException e) {
+            org.slf4j.LoggerFactory.getLogger(GroupPaceService.class)
+                    .warn("group start segments unreadable groupId={}", groupId);
+            return List.of();
+        }
+    }
+
     /** Called inside the existing group mutation transaction. */
     public void membershipOrGoalChanged(long groupId) {
         if (!enabled) return;
@@ -113,6 +128,8 @@ public class GroupPaceService {
         Integer current = state.pace();
         // GOAL holds the goal from the first evaluation, not the measured median (review A-2).
         if (current == null && state.goalMode()) current = goalPace(group);
+        // TOGETHER starts at the stored AI recommendation until AI10 first decides (S15P31E105-750, G17 / 702).
+        if (current == null && !state.goalMode()) current = state.startPace();
         if (current == null) current = GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
                 participants.findRunningParticipantGuidePaces(groupId,
                         now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS)));
@@ -244,6 +261,7 @@ public class GroupPaceService {
         Integer goalPace = goalPace(input.group());
         Integer aiPace = null;
         Long basis = null;
+        List<GroupPaceRepository.SegmentRatio> segments = List.of();
         int slower = 0;
         for (var selected : input.selected()) {
             var candidate = selected.candidate();
@@ -266,6 +284,7 @@ public class GroupPaceService {
             if (aiPace == null || pace > aiPace) {
                 aiPace = pace;
                 basis = candidate.userId();
+                segments = segmentRatios(result.get(), goal.distanceM());
             }
             if (goalPace != null && pace > goalPace) slower++;
         }
@@ -273,7 +292,7 @@ public class GroupPaceService {
         // without max(goal, AI); GOAL the host's goal.
         int applied = input.goalMode() && goalPace != null ? goalPace : aiPace;
         var start = new GroupPaceRepository.Start(applied, aiPace, basis,
-                goalPace == null ? null : slower);
+                goalPace == null ? null : slower, segments);
         tx.execute(status -> {
             references.lockGroupRun(groupId);
             if (input.selected().stream().anyMatch(r -> r.candidate().consent()
@@ -283,6 +302,48 @@ public class GroupPaceService {
             }
             return states.saveStart(groupId, input.token(), start);
         });
+    }
+
+    static final BigDecimal MIN_RATIO = new BigDecimal("0.85");
+    static final BigDecimal MAX_RATIO = new BigDecimal("1.20");
+
+    /**
+     * The basis plan's km segments as ratios of its mean (S15P31E105-739). Kept only when, as S01 checks them
+     * (SessionPlanPreparation.valid), they tile the goal distance from 0 in 1 km steps (the last one shorter), each pace
+     * is the mean x its ratio, ratios stay inside AI09's 0.85~1.20 and their distance-weighted mean is 1; otherwise
+     * empty, so G03 shows the single start pace as before.
+     */
+    static List<GroupPaceRepository.SegmentRatio> segmentRatios(
+            PersonalPacePlanPort.Result result, int distanceM) {
+        List<GroupPaceRepository.SegmentRatio> ratios = new ArrayList<>();
+        BigDecimal end = BigDecimal.ZERO;
+        BigDecimal weighted = BigDecimal.ZERO;
+        int sequence = 1;
+        for (var segment : result.segments()) {
+            if (segment.sequence() != sequence++
+                    || segment.start() == null || segment.end() == null || segment.ratio() == null
+                    || segment.start().compareTo(end) != 0
+                    || segment.end().compareTo(segment.start()) <= 0
+                    || segment.end().compareTo(BigDecimal.valueOf(distanceM)
+                            .min(segment.start().add(BigDecimal.valueOf(1000)))) != 0
+                    || segment.ratio().compareTo(MIN_RATIO) < 0
+                    || segment.ratio().compareTo(MAX_RATIO) > 0
+                    || segment.pace() == null || result.pace() == null
+                    || result.pace().multiply(segment.ratio()).subtract(segment.pace()).abs()
+                            .compareTo(new BigDecimal("0.02")) > 0) {
+                return List.of();
+            }
+            ratios.add(new GroupPaceRepository.SegmentRatio(segment.start(), segment.end(),
+                    segment.ratio()));
+            weighted = weighted.add(segment.end().subtract(segment.start()).multiply(segment.ratio()));
+            end = segment.end();
+        }
+        if (end.compareTo(BigDecimal.valueOf(distanceM)) != 0
+                || weighted.divide(BigDecimal.valueOf(distanceM), java.math.MathContext.DECIMAL64)
+                        .subtract(BigDecimal.ONE).abs().compareTo(new BigDecimal("0.01")) > 0) {
+            return List.of();
+        }
+        return ratios;
     }
 
     private void abandon(long groupId, Instant token) {

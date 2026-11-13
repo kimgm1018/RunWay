@@ -72,6 +72,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -786,7 +787,12 @@ public class GroupRunService {
             if (pace != null) return pace;
             // GOAL starts at the host's goal even when the start calculation has not finished or gave up.
             Integer goal = GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
-            if ("SCHEDULED".equals(row.status()) && stored.get().goalMode() && goal != null) return goal;
+            boolean beforeFirstDecision = "SCHEDULED".equals(row.status()) || "RUNNING".equals(row.status());
+            if (beforeFirstDecision && stored.get().goalMode() && goal != null) return goal;
+            // TOGETHER runs at the stored AI recommendation until AI10 first decides (S15P31E105-750, G17 / 702).
+            if ("RUNNING".equals(row.status()) && !stored.get().goalMode() && stored.get().startPace() != null) {
+                return stored.get().startPace();
+            }
         }
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
             Instant measuredAtCeiling =
@@ -988,7 +994,8 @@ public class GroupRunService {
                 card.aiPace(),
                 card.basis(),
                 card.calculating(),
-                card.slowerThanGoal());
+                card.slowerThanGoal(),
+                card.segments());
     }
 
     private record PaceCard(
@@ -996,7 +1003,8 @@ public class GroupRunService {
             Integer aiPace,
             GroupRunDetailResponse.PaceBasis basis,
             Boolean calculating,
-            Integer slowerThanGoal) {}
+            Integer slowerThanGoal,
+            List<RunningSessionResponse.Segment> segments) {}
 
     /**
      * 공동 페이스 카드(S15P31E105-680). 기능이 꺼져 있으면 모두 null. 상태 행이 아직 없으면 기본 모드·중앙값 근거다. 계산 중은 SCHEDULED에서
@@ -1004,7 +1012,7 @@ public class GroupRunService {
      */
     private PaceCard paceCard(GroupRunRow row) {
         if (!groupPaceService.isEnabled()) {
-            return new PaceCard(null, null, null, null, null);
+            return new PaceCard(null, null, null, null, null, null);
         }
         var state = groupPaceService.stored(row.id()).orElse(null);
         if (state == null) {
@@ -1013,7 +1021,8 @@ public class GroupRunService {
                     null,
                     new GroupRunDetailResponse.PaceBasis("MEDIAN", null),
                     false,
-                    null);
+                    null,
+                    List.of());
         }
         boolean calculating =
                 GroupRunStatus.SCHEDULED.name().equals(row.status()) && state.calculating();
@@ -1037,7 +1046,30 @@ public class GroupRunService {
                 state.aiPace(),
                 new GroupRunDetailResponse.PaceBasis(type, nickname),
                 calculating,
-                state.slowerThanGoalCount());
+                state.slowerThanGoalCount(),
+                // The start plan is for the start: only before the run (review B-6).
+                GroupRunStatus.SCHEDULED.name().equals(row.status())
+                        ? paceSegments(groupPaceService.storedStartSegments(row.id()))
+                        : List.of());
+    }
+
+    /**
+     * km별 공동 페이스(S15P31E105-739): 저장된 출발 페이스 × 기준 회원 AI 계획의 구간 비율(저장소가 한 문장으로 계산). 출발 추천이 없거나
+     * 비율이 없으면 빈 배열.
+     */
+    private static List<RunningSessionResponse.Segment> paceSegments(
+            List<GroupPaceRepository.SegmentPace> stored) {
+        List<RunningSessionResponse.Segment> segments = new java.util.ArrayList<>();
+        int sequence = 1;
+        for (var segment : stored) {
+            segments.add(
+                    new RunningSessionResponse.Segment(
+                            sequence++,
+                            segment.startDistanceM(),
+                            segment.endDistanceM(),
+                            segment.pace()));
+        }
+        return segments;
     }
 
     /** G17 방장 페이스 모드 변경(S15P31E105-680). 출발 전(SCHEDULED)에만, GOAL은 목표 페이스가 있어야 한다. */

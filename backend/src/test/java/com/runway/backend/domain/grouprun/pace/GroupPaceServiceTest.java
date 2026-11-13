@@ -326,6 +326,42 @@ class GroupPaceServiceTest {
         assertThat(fixture.request().progressRatio()).isNull();
     }
 
+    private static PersonalPacePlanPort.Segment seg(int n, long start, long end, String ratio) {
+        return new PersonalPacePlanPort.Segment(n, BigDecimal.valueOf(start), BigDecimal.valueOf(end),
+                BigDecimal.valueOf(400).multiply(new BigDecimal(ratio)), new BigDecimal(ratio));
+    }
+
+    private static PersonalPacePlanPort.Result plan(List<PersonalPacePlanPort.Segment> segments) {
+        return new PersonalPacePlanPort.Result(null, 9L, BigDecimal.valueOf(2500), BigDecimal.valueOf(400),
+                segments);
+    }
+
+    @Test
+    void segmentRatios_keepsOnlyContiguousKmSegmentsInsideTheAiBound() {
+        var good = GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1000, "1.02"),
+                seg(2, 1000, 2000, "1.00"), seg(3, 2000, 2500, "0.96"))), 2500);
+        assertThat(good).extracting(GroupPaceRepository.SegmentRatio::ratio)
+                .containsExactly(new BigDecimal("1.02"), new BigDecimal("1.00"), new BigDecimal("0.96"));
+        // A gap, a ratio out of 0.85~1.20, a segment over 1 km, or a plan that stops short: none kept.
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1000, "1.00"),
+                seg(2, 1200, 2500, "1.00"))), 2500)).isEmpty();
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1000, "1.30"),
+                seg(2, 1000, 2000, "1.00"), seg(3, 2000, 2500, "0.90"))), 2500)).isEmpty();
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1500, "1.00"),
+                seg(2, 1500, 2500, "1.00"))), 2500)).isEmpty();
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1000, "1.00"))), 2500)).isEmpty();
+        assertThat(GroupPaceService.segmentRatios(plan(List.of()), 2500)).isEmpty();
+        // As S01 checks: a 500 m step in the middle, ratios not averaging 1, or a pace off mean x ratio.
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 500, "1.00"),
+                seg(2, 500, 1500, "1.00"), seg(3, 1500, 2500, "1.00"))), 2500)).isEmpty();
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(seg(1, 0, 1000, "1.10"),
+                seg(2, 1000, 2000, "1.10"), seg(3, 2000, 2500, "1.10"))), 2500)).isEmpty();
+        var offPace = new PersonalPacePlanPort.Segment(1, BigDecimal.ZERO, BigDecimal.valueOf(1000),
+                BigDecimal.valueOf(430), BigDecimal.ONE);
+        assertThat(GroupPaceService.segmentRatios(plan(List.of(offPace, seg(2, 1000, 2000, "1.00"),
+                seg(3, 2000, 2500, "1.00"))), 2500)).isEmpty();
+    }
+
     private static class RunningFixture {
         final GroupPaceRepository states = mock(GroupPaceRepository.class);
         final GroupRunJdbcRepository groups = mock(GroupRunJdbcRepository.class);
