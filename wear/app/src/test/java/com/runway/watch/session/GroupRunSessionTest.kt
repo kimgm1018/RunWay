@@ -407,13 +407,14 @@ class GroupRunSessionTest {
     }
 
     @Test
-    fun `a running group asks for held-back readings every ten seconds, a personal run does not`() = runBlocking {
+    fun `a running group asks for held-back readings every five seconds, a personal run does not`() = runBlocking {
         val c = controller()
         c.groupRunning()
         c.tick()
-        clockMs += 5_000
+        clockMs += WatchSessionController.GROUP_FLUSH_MS - 1
         c.tick()
-        clockMs += WatchSessionController.GROUP_FLUSH_MS - 5_000
+        assertEquals(1, gateway.calls.count { it == "flush" })
+        clockMs += 1
         c.tick()
         assertEquals(2, gateway.calls.count { it == "flush" })
 
