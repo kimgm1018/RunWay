@@ -128,6 +128,29 @@ test('2.0F says the location was not found and a tap looks again', async () => {
   expect(texts(screen)).toContain('민락수변공원 입구');
 });
 
+// S15P31E105-798 (TEAM QA T22): the phone's lookup answers "no position" (no permission, location off, no fix)
+// instead of failing, so the card must not stay silent on that answer either.
+test('2.0F with no position from the phone says so and a tap looks again', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getCurrentPlace = repositories.run.getCurrentPlace;
+  const lookup = jest
+    .spyOn(repositories.run, 'getCurrentPlace')
+    .mockResolvedValueOnce({
+      name: '위치를 확인할 수 없어요',
+      gps: 'none',
+      position: null,
+    });
+  const screen = await launch(repositories);
+  await press(screen, '러닝');
+
+  expect(texts(screen)).toContain('못 찾았어요 · 다시 찾기');
+
+  lookup.mockImplementation(getCurrentPlace);
+  await press(screen, '현재 위치 다시 찾기');
+  expect(texts(screen)).not.toContain('못 찾았어요 · 다시 찾기');
+  expect(texts(screen)).toContain('민락수변공원 입구');
+});
+
 test('6.4c says the run did not load instead of spinning on', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const get = repositories.groupRuns.get;
