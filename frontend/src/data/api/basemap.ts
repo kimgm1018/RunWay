@@ -5,8 +5,9 @@ import type { CourseBasemap } from '../types';
 // map PNG with the course on it. An older server leaves the field out; anything that cannot be loaded is null, never
 // guessed, so the card keeps its plain outline.
 
-// A relative address is made whole on the API server's origin, as profile photos are (api/profile.ts): the image is
-// loaded by <Image> without the app's Authorization header, so it must be public.
+// A relative address is made whole on the API server's origin, as profile photos are (api/profile.ts). A course
+// basemap is public and loaded without the app's Authorization header; an own run thumbnail (S15P31E105-756) is
+// loaded with ownImageSource, which adds the token for this origin only.
 const serverOrigin = appConfig.apiBaseUrl.replace(
   /^(https?:\/\/[^/]+).*$/,
   '$1',

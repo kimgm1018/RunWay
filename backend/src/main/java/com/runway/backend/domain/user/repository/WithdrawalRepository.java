@@ -135,7 +135,8 @@ public class WithdrawalRepository {
         jdbc.update("DELETE FROM exercise_training_loads WHERE user_id=?",userId);
         jdbc.update("DELETE FROM daily_health_metrics WHERE user_id=?",userId);
         jdbc.update("DELETE FROM daily_readiness WHERE user_id=?",userId);
-        for (String table : List.of("running_route_points","running_metric_samples","running_session_splits"))
+        // S15P31E105-756: 기록 경로 썸네일 행(파일은 탈퇴 이미지 정리가 images/run-route/{userId}를 지운다).
+        for (String table : List.of("running_route_points","running_metric_samples","running_session_splits","running_session_basemaps"))
             jdbc.update("DELETE FROM " + table + " WHERE running_session_id IN"
                     + " (SELECT id FROM running_sessions WHERE user_id=?)",userId);
         // H08 기록 공유 링크(S15P31E105-704). 경로를 로그인 없이 여는 token이므로 원본 GPS와 함께 지운다.

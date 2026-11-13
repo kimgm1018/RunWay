@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -39,6 +45,7 @@ import {
 } from '../../components';
 import {
   DataError,
+  ownImageSource,
   useRepositories,
   type CourseMapData,
   type FollowListKind,
@@ -61,11 +68,14 @@ import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
 import {
+  CardViewportContext,
   CourseMapThumb,
+  createCardViewport,
   useOpenSavedCourse,
 } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
 import { BackButton } from '../../components/BackButton';
+import { runRouteOf } from '../../components/mapRoute';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import { usePostPages } from './usePostPages';
 
@@ -394,11 +404,17 @@ function RunTile({
   record,
   width,
   loadRoute,
+  noRouteLabel,
+  ownThumbnail = false,
   onPress,
 }: {
   record: RunRecordSummary;
   width: number;
   loadRoute?: () => Promise<CourseMapData | null>;
+  // 내 기록: the server's OSM thumbnail of the run, asked with my token, and never a live Naver map (S15P31E105-756).
+  ownThumbnail?: boolean;
+  // 내 기록 only: a run with no route says so (S15P31E105-756); a post may just not share its course.
+  noRouteLabel?: string;
   onPress: () => void;
 }) {
   const detail = record.group
@@ -428,6 +444,14 @@ function RunTile({
         km={record.distanceM / 1000}
         area={{ top: 0.08, bottom: 0.5 }}
         shadeFrom={0.42}
+        emptyLabel={noRouteLabel}
+        basemap={
+          ownThumbnail && record.routePreviewImageUrl
+            ? { imageUrl: record.routePreviewImageUrl, osmDataTimestamp: null }
+            : undefined
+        }
+        imageSource={ownThumbnail ? ownImageSource : undefined}
+        liveMap={!ownThumbnail}
       />
       <View style={styles.tileText}>
         {record.runType === 'GROUP' ? (
@@ -782,15 +806,15 @@ function MyProfileLists({
                     key={record.id}
                     record={record}
                     width={tileWidth}
+                    // S11 measured route (S15P31E105-756): H02 detail leaves route null, so read the parts.
                     loadRoute={() =>
-                      recordsRepo
-                        .getDetail(record.id)
-                        .then(detail =>
-                          detail.route
-                            ? { route: detail.route, basemap: null }
-                            : null,
-                        )
+                      recordsRepo.getRoute(record.id).then(parts => {
+                        const run = runRouteOf(parts);
+                        return run ? { route: run.route, basemap: null } : null;
+                      })
                     }
+                    noRouteLabel="경로 기록 없음"
+                    ownThumbnail
                     onPress={() => openRecord(navigation, record.id)}
                   />
                 ))}
@@ -1001,8 +1025,30 @@ function Profile({
   const onNearEnd = useCallback((loadMore: (() => void) | null) => {
     loadMoreRef.current = loadMore;
   }, []);
+  // The run tiles' small maps go to the tiles on screen (S15P31E105-756), told at most every 120 ms while the page
+  // moves and once more after it stops.
+  const viewport = useMemo(() => createCardViewport(), []);
+  const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tellViewport = useCallback(() => {
+    if (viewportTimer.current) {
+      return;
+    }
+    viewportTimer.current = setTimeout(() => {
+      viewportTimer.current = null;
+      viewport.changed();
+    }, 120);
+  }, [viewport]);
+  useEffect(
+    () => () => {
+      if (viewportTimer.current) {
+        clearTimeout(viewportTimer.current);
+      }
+    },
+    [],
+  );
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      tellViewport();
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
       if (
@@ -1012,7 +1058,7 @@ function Profile({
         loadMoreRef.current?.();
       }
     },
-    [],
+    [tellViewport],
   );
   const [requestsOpen, setRequestsOpen] = useState(false);
   // 팔로우 요청 N건, or N건+ when U24 has more pages.
@@ -1041,7 +1087,7 @@ function Profile({
       ? '요청됨'
       : '팔로우';
   return (
-    <>
+    <CardViewportContext.Provider value={viewport}>
       <HeroBackdrop
         initial={profile.nickname.slice(0, 1)}
         photo={profile.profileImageUrl}
@@ -1059,6 +1105,8 @@ function Profile({
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true, listener: onScroll },
         )}
+        onMomentumScrollEnd={tellViewport}
+        onScrollEndDrag={tellViewport}
         scrollEventThrottle={16}
       >
         <View style={[styles.hero, { height: heroHeight }]}>
@@ -1190,7 +1238,7 @@ function Profile({
           onDecided={onRequestsChanged}
         />
       ) : null}
-    </>
+    </CardViewportContext.Provider>
   );
 }
 

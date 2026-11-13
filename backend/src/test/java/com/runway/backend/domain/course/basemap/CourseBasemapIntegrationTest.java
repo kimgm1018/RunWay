@@ -189,6 +189,8 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
         CourseBasemapProperties properties = new CourseBasemapProperties();
         properties.setBackfillOnStartup(backfill);
         properties.setBackfillLimit(limit);
+        // These tests are about courses; run thumbnails (S15P31E105-756) have their own tests.
+        properties.setRunBackfillLimit(0);
         properties.setBackfillInterval(Duration.ZERO);
         properties.setBackfillRetryDelay(Duration.ZERO);
         return properties;
@@ -496,7 +498,7 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
         CourseBasemapDispatcher dispatcher = new CourseBasemapDispatcher(service(port), properties);
         try {
             int submitted =
-                    new CourseBasemapBackfill(repository, dispatcher, port, properties).submit();
+                    new CourseBasemapBackfill(repository, new RunRouteBasemapRepository(jdbc), dispatcher, port, properties).submit();
             assertThat(dispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
 
             assertThat(submitted).isEqualTo(3);
@@ -532,12 +534,12 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
         CourseBasemapProperties off = properties(false, 500);
         CourseBasemapDispatcher dispatcher = new CourseBasemapDispatcher(service(port), off);
         try {
-            assertThat(new CourseBasemapBackfill(repository, dispatcher, port, off).submit())
+            assertThat(new CourseBasemapBackfill(repository, new RunRouteBasemapRepository(jdbc), dispatcher, port, off).submit())
                     .isZero();
 
             port.configured = false;
             CourseBasemapProperties on = properties(true, 500);
-            assertThat(new CourseBasemapBackfill(repository, dispatcher, port, on).submit())
+            assertThat(new CourseBasemapBackfill(repository, new RunRouteBasemapRepository(jdbc), dispatcher, port, on).submit())
                     .isZero();
             assertThat(dispatcher.awaitIdle(Duration.ofSeconds(10))).isTrue();
             assertThat(port.calls).isEmpty();

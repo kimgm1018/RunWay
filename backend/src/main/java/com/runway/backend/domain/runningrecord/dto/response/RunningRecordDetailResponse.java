@@ -16,4 +16,6 @@ public record RunningRecordDetailResponse(
         Long courseId,
         boolean courseFromFreeRun,
         BigDecimal targetPaceSecPerKm,
-        Long comparisonSessionId) {}
+        Long comparisonSessionId,
+        // S15P31E105-756 (ADR-0024): own run-route thumbnail /api/v1/images/{id}, null until there is one.
+        String routePreviewImageUrl) {}

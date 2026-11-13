@@ -118,6 +118,7 @@
 | `items[].group.groupRunId` | integer (int64) | 조건부 | 연결 `group_runs.id`. FE 6.7 결과 진입용. |
 | `items[].group.crewName` | string | 조건부 | 그룹런 소속 크루 이름. |
 | `items[].group.finisherCount` | integer | 조건부 | 해당 그룹런에서 `goal_achieved = true`인 참가자 수. |
+| `items[].routePreviewImageUrl` | string | X | 이 기록의 경로 썸네일 PNG 주소 `/api/v1/images/{id}`(같은 서버 기준 상대 경로, S15P31E105-756, [ADR-0024](../../adr/0024-own-run-route-thumbnail.md)). 그림이 아직 없거나(생성 전·실패) 그릴 경로가 없으면 필드를 생략한다. 기록 주인만 Bearer 토큰으로 F02 조회할 수 있다. 그림 구조·배치는 [C03 basemap](courses.md#basemap-썸네일-지도-바탕-구조)과 같다. |
 
 
 **사용 흐름과 응답 판단**
@@ -232,7 +233,7 @@
 | `averageHeartRate` | number / null | O | `running_sessions.average_heart_rate` (NUMERIC(7,2)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `averageCadence` | number / null | O | `running_sessions.average_cadence` (NUMERIC(8,2)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `goalAchieved` | boolean / null | O | `running_sessions.goal_achieved` (BOOLEAN). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `routePreviewImageUrl` | string / null (제안) | X | 원본 경로에서 생성한 표시용 이미지 참조. 해당 저장 컬럼·준비 상태는 미정. 원본 GPS 응답으로 대체하지 않는다. |
+| `routePreviewImageUrl` | string / null | O | 이 기록의 경로 썸네일 PNG 주소 `/api/v1/images/{id}`([running_session_basemaps](../db/erd.md)). 그림이 아직 없거나(종료 직후 생성 전·실패) 그릴 경로가 없으면 null. H01 항목과 같은 값이며 기록 주인만 Bearer 토큰으로 F02 조회한다(S15P31E105-756, [ADR-0024](../../adr/0024-own-run-route-thumbnail.md)). 원본 GPS 응답으로 대체하지 않는다. |
 | `courseId` | integer (int64) / null | O | `running_sessions.course_id` (BIGINT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `courseFromFreeRun` | boolean | O | 연결 세션의 코스가 이 자유 러닝 또는 자유 그룹런(코스 미지정 그룹런) 기록으로 만든 개인 코스이면 true(`courses.source_session_id`=세션 ID, [S15P31E105-762](https://ssafy.atlassian.net/browse/S15P31E105-762)). 코스가 없거나 일반 코스(지정 코스 그룹런 포함)를 쓴 기록이면 false. `courseId`가 숨겨지는 조회자에게는 false. 항상 포함 |
 
@@ -267,7 +268,10 @@
 
 ### 처리 규칙
 
-- H04 원본 GPS 조회는 제공하지 않는다. 경로 그림은 `routePreviewImageUrl` 등 표시용 이미지 참조로 제공하는 계약을 제안한다. 생성 위치·형식·캐시·미생성 상태 표현은 미정이다.
+- H04 원본 GPS 조회는 제공하지 않는다. 경로 그림은 표시용 이미지 `routePreviewImageUrl`로 제공한다(S15P31E105-756, [ADR-0024](../../adr/0024-own-run-route-thumbnail.md)).
+  - 생성: 개인 세션이 처음 완료되면 커밋 뒤 서버가 비동기로 S11과 같은 표시용 경로 조각(조각 사이를 잇지 않음)과 Route 바탕 지도(`POST /internal/v1/basemaps`, bbox만 전송)로 600×900 PNG를 그린다. 선 스타일·배치는 [C03 basemap](courses.md#basemap-썸네일-지도-바탕-구조)과 같다. 서버 기동 시 그림이 없거나 그리기 버전이 다른 완료 기록을 최신순으로 설정 건수만큼 채운다. 종료 응답에는 영향이 없다.
+  - 미생성 표현: 생성 전·Route 일시 실패는 필드 없음(H01)·null(H02). 표시용 경로가 50 m 미만이거나 없거나 전국 자료 범위 밖이면 그림 없이 끝나며 다시 시도하지 않는다.
+  - 형식·캐시·권한: [F02](files.md#f02-이미지-조회)의 기록 경로 썸네일 규칙을 따른다(본인만, 그 외 404, `private` 캐시).
 - 본인 기록의 지도 표시용 경로 좌표는 [S11 러닝 경로 조회](sessions.md#s11-러닝-경로-조회)가 제공한다(S15P31E105-549). 기록 ID는 세션 ID와 같다. S11은 출처 선택·정확도·구간 분리를 적용한 표시용 좌표이며 원본 GPS 다운로드가 아니다.
 - 이미지도 기록 접근 권한을 적용한다. 공유 게시물에는 게시물 권한에 맞는 표시용 결과만 제공하며 원본 GPS 다운로드 기능을 추가하지 않는다.
 

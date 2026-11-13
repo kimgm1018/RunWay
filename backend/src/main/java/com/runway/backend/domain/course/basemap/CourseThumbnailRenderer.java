@@ -121,6 +121,17 @@ public class CourseThumbnailRenderer {
      * @return PNG 바이트
      */
     public byte[] render(List<BasemapFeature> features, List<double[]> course, ThumbnailCamera camera) {
+        return renderParts(features, List.of(course), camera);
+    }
+
+    /**
+     * 끊긴 조각으로 된 경로(기록의 표시용 경로, S15P31E105-756)를 그린다. 조각마다 따로 선을 그리고 조각 사이는 잇지 않는다. 선
+     * 스타일·출발점은 코스와 같다. 조각이 하나면 {@link #render}와 같은 그림이다.
+     *
+     * @param parts 조각별 경로 좌표({@code [lon, lat]}). 첫 조각의 첫 점이 출발점
+     */
+    public byte[] renderParts(
+            List<BasemapFeature> features, List<List<double[]>> parts, ThumbnailCamera camera) {
         BufferedImage image =
                 new BufferedImage(
                         ThumbnailCamera.WIDTH, ThumbnailCamera.HEIGHT, BufferedImage.TYPE_INT_RGB);
@@ -137,7 +148,7 @@ public class CourseThumbnailRenderer {
             drawLines(g, features, camera, factor);
             drawBuildings(g, features, camera, factor);
             drawRoads(g, features, camera, factor);
-            drawCourse(g, course, camera);
+            drawCourse(g, parts, camera);
         } finally {
             g.dispose();
         }
@@ -292,21 +303,31 @@ public class CourseThumbnailRenderer {
     }
 
     /** 코스: 진한 청록 테두리 → 민트 리본 → 밝은 민트 가운데 줄 → 출발점(테두리, 민트 채움). */
-    private static void drawCourse(Graphics2D g, List<double[]> course, ThumbnailCamera camera) {
-        if (course.isEmpty()) {
+    private static void drawCourse(
+            Graphics2D g, List<List<double[]>> parts, ThumbnailCamera camera) {
+        if (parts.isEmpty() || parts.get(0).isEmpty()) {
             return;
         }
-        if (course.size() >= 2) {
-            Path2D path = new Path2D.Double();
-            for (int i = 0; i < course.size(); i++) {
-                double x = camera.screenX(course.get(i)[0]);
-                double y = camera.screenY(course.get(i)[1]);
+        // Each part is its own sub-path (moveTo), so a stroke never joins one part's end to the next part's start.
+        Path2D path = new Path2D.Double();
+        boolean drawn = false;
+        for (List<double[]> part : parts) {
+            if (part.size() < 2) {
+                continue;
+            }
+            for (int i = 0; i < part.size(); i++) {
+                double x = camera.screenX(part.get(i)[0]);
+                double y = camera.screenY(part.get(i)[1]);
                 if (i == 0) {
                     path.moveTo(x, y);
                 } else {
                     path.lineTo(x, y);
                 }
             }
+            drawn = true;
+        }
+        List<double[]> course = parts.get(0);
+        if (drawn) {
             stroke(g, path, roundStroke(COURSE_SHADOW_WIDTH * SCALE), COURSE_SHADOW);
             stroke(g, path, roundStroke(COURSE_INNER_WIDTH * SCALE), COURSE_INNER);
             stroke(g, path, roundStroke(COURSE_RIBBON_WIDTH * SCALE), COURSE_RIBBON);

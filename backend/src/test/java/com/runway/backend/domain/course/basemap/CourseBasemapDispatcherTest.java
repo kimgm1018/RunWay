@@ -63,6 +63,8 @@ class CourseBasemapDispatcherTest {
     private static CourseBasemapProperties properties(Duration interval, Duration retryDelay) {
         CourseBasemapProperties properties = new CourseBasemapProperties();
         properties.setBackfillLimit(10);
+        // 코스 일괄 채우기 상한만 보는 테스트들이다. 기록 작업(S15P31E105-756)은 아래 테스트가 따로 본다.
+        properties.setRunBackfillLimit(0);
         properties.setBackfillInterval(interval);
         properties.setBackfillRetryDelay(retryDelay);
         return properties;
@@ -216,5 +218,60 @@ class CourseBasemapDispatcherTest {
         assertThat(new Failure("RESPONSE_TOO_LARGE").retryable()).isFalse();
         assertThat(new Failure("INTERRUPTED").retryable()).isFalse();
         assertThat(new Failure("NOT_CONFIGURED").retryable()).isFalse();
+    }
+
+    // --- S15P31E105-756: 러닝 기록 경로 썸네일 작업 ---
+
+    @Test
+    void 기록_작업은_같은_스레드에서_코스와_구분해_실행하고_저장_이벤트를_먼저_한다() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch gate = new CountDownLatch(1);
+        List<Long> sessions = new CopyOnWriteArrayList<>();
+        RunRouteBasemapRunService runRoute = mock(RunRouteBasemapRunService.class);
+        when(runRoute.run(anyLong()))
+                .thenAnswer(
+                        invocation -> {
+                            long id = invocation.getArgument(0);
+                            sessions.add(id);
+                            runs.add(-id);
+                            return Outcome.SAVED;
+                        });
+        CourseBasemapProperties properties = properties(Duration.ZERO, Duration.ZERO);
+        properties.setRunBackfillLimit(5);
+        dispatcher = new CourseBasemapDispatcher(runService(started, gate), runRoute, properties);
+
+        assertThat(dispatcher.dispatchBackfill(1L)).isTrue();
+        assertThat(started.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        // 같은 숫자라도 코스와 기록은 다른 작업이다.
+        assertThat(dispatcher.dispatchRunBackfill(1L)).isTrue();
+        assertThat(dispatcher.dispatchRunBackfill(1L)).isFalse();
+        assertThat(dispatcher.dispatchRun(7L)).isTrue();
+        assertThat(dispatcher.dispatchRun(7L)).isFalse();
+        gate.countDown();
+
+        assertThat(dispatcher.awaitIdle(WAIT)).isTrue();
+        // 코스 1 실행 중에 넣은 종료 이벤트(기록 7)가 기록 일괄 채우기(기록 1)보다 먼저다.
+        assertThat(runs).containsExactly(1L, -7L, -1L);
+        assertThat(sessions).containsExactly(7L, 1L);
+    }
+
+    @Test
+    void 일괄_채우기_상한은_코스와_기록_상한의_합이다() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch gate = new CountDownLatch(1);
+        CourseBasemapProperties properties = properties(Duration.ZERO, Duration.ZERO);
+        properties.setBackfillLimit(1);
+        properties.setRunBackfillLimit(1);
+        dispatcher =
+                new CourseBasemapDispatcher(
+                        runService(started, gate), mock(RunRouteBasemapRunService.class), properties);
+
+        assertThat(dispatcher.dispatchBackfill(1L)).isTrue();
+        assertThat(started.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        assertThat(dispatcher.dispatchBackfill(2L)).isTrue();
+        assertThat(dispatcher.dispatchRunBackfill(3L)).isTrue();
+        assertThat(dispatcher.dispatchRunBackfill(4L)).isFalse();
+        gate.countDown();
+        assertThat(dispatcher.awaitIdle(WAIT)).isTrue();
     }
 }

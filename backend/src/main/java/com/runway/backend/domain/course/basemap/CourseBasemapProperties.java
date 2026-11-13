@@ -24,6 +24,12 @@ public class CourseBasemapProperties {
     /** 기동 한 번에 채우기 대상으로 넣는 코스 수 상한. */
     private int backfillLimit = 500;
 
+    /**
+     * 기동 한 번에 채우기 대상으로 넣는 러닝 기록(세션) 수 상한(S15P31E105-756). 최신 기록부터 넣는다. 0 이하이면 기록 일괄 채우기를
+     * 하지 않는다.
+     */
+    private int runBackfillLimit = 200;
+
     /** 일괄 채우기 작업 사이에 쉬는 시간(앞 작업이 끝난 뒤). Route CPU를 추천과 나눠 쓰도록 둔다(B-1). 0 이상. */
     private Duration backfillInterval = Duration.ofSeconds(2);
 
@@ -76,6 +82,14 @@ public class CourseBasemapProperties {
 
     public void setBackfillLimit(int backfillLimit) {
         this.backfillLimit = backfillLimit;
+    }
+
+    public int getRunBackfillLimit() {
+        return runBackfillLimit;
+    }
+
+    public void setRunBackfillLimit(int runBackfillLimit) {
+        this.runBackfillLimit = runBackfillLimit;
     }
 
     public Duration getBackfillInterval() {

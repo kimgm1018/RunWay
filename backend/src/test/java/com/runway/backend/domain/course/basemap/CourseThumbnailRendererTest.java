@@ -369,4 +369,36 @@ class CourseThumbnailRendererTest {
         assertThat(CourseThumbnailRenderer.screenArea(square(0, 0, 20), camera))
                 .isCloseTo(Math.pow(20 / camera.metersPerPixel(), 2), org.assertj.core.api.Assertions.within(0.01));
     }
+
+    // --- S15P31E105-756: 끊긴 조각으로 된 기록 경로 ---
+
+    @Test
+    void 조각이_하나면_코스_그리기와_같은_바이트다() throws Exception {
+        List<double[]> course = loop();
+        ThumbnailCamera camera = ThumbnailCamera.fit(course);
+
+        assertThat(sha256(renderer.renderParts(scene(), List.of(course), camera)))
+                .isEqualTo(sha256(renderer.render(scene(), course, camera)));
+    }
+
+    @Test
+    void 조각_사이는_잇지_않고_각_조각에는_선을_그린다() throws Exception {
+        List<double[]> west = List.of(at(-500, 0), at(-300, 0));
+        List<double[]> east = List.of(at(300, 0), at(500, 0));
+        List<double[]> all = new ArrayList<>(west);
+        all.addAll(east);
+        ThumbnailCamera camera = ThumbnailCamera.fit(all);
+
+        BufferedImage image = decode(renderer.renderParts(List.of(), List.of(west, east), camera));
+
+        int ground = CourseThumbnailRenderer.GROUND.getRGB() & 0xFFFFFF;
+        int y = (int) Math.round(camera.screenY(at(0, 0)[1]));
+        // 두 조각 사이 가운데(0 m)는 바탕색, 각 조각 가운데(±400 m)는 선 색이다.
+        assertThat(image.getRGB((int) Math.round(camera.screenX(at(0, 0)[0])), y) & 0xFFFFFF)
+                .isEqualTo(ground);
+        assertThat(image.getRGB((int) Math.round(camera.screenX(at(-400, 0)[0])), y) & 0xFFFFFF)
+                .isNotEqualTo(ground);
+        assertThat(image.getRGB((int) Math.round(camera.screenX(at(400, 0)[0])), y) & 0xFFFFFF)
+                .isNotEqualTo(ground);
+    }
 }

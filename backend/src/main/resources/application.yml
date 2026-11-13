@@ -106,6 +106,8 @@ runway:
     max-response-bytes: 8388608
     backfill-on-startup: true
     backfill-limit: 500
+    # S15P31E105-756: 기동 시 경로 썸네일이 없는 완료 기록을 최신순으로 넣는 상한. 0이면 기록 일괄 채우기를 하지 않는다.
+    run-backfill-limit: 200
     backfill-interval: PT2S
     backfill-retry-delay: PT1M
     ready-poll-interval: PT10S

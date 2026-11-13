@@ -32,6 +32,12 @@ public class ImageController {
      */
     static final String COURSE_BASEMAP_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
+    /**
+     * 본인 기록 경로 썸네일 PNG(S15P31E105-756, ADR-0024) 캐시 정책. 키가 그릴 때마다 새 UUID라 내용이 바뀌지 않지만 주인에게만 주므로
+     * 공유 캐시는 막고 기기 캐시만 허용한다.
+     */
+    static final String RUN_ROUTE_BASEMAP_CACHE_CONTROL = "private, max-age=31536000, immutable";
+
     static final String DEFAULT_CACHE_CONTROL = "no-store";
 
     private final ImageService imageService;
@@ -58,7 +64,9 @@ public class ImageController {
                         HttpHeaders.CACHE_CONTROL,
                         ImageService.isCourseBasemap(image)
                                 ? COURSE_BASEMAP_CACHE_CONTROL
-                                : DEFAULT_CACHE_CONTROL)
+                                : ImageService.isRunRouteBasemap(image)
+                                        ? RUN_ROUTE_BASEMAP_CACHE_CONTROL
+                                        : DEFAULT_CACHE_CONTROL)
                 .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
                 .header(HttpHeaders.CONTENT_TYPE, image.contentType())
                 .contentLength(image.contentLength())
