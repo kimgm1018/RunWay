@@ -28,7 +28,8 @@ public class UserProfileValidator {
 
         String nickname = null;
         if (request.nicknamePresent()) {
-            if (request.nickname() == null || !text(request.nickname(), 2, 10, false)) {
+            // 문자 규칙(NicknamePolicy)은 저장값과 비교해야 해서 UserProfileService에서 본다(S15P31E105-781).
+            if (request.nickname() == null) {
                 throw new ApiException(ErrorCode.INVALID_PROFILE);
             }
             nickname = request.nickname();
@@ -86,31 +87,6 @@ public class UserProfileValidator {
             throw new ApiException(ErrorCode.INVALID_PROFILE);
         }
         return birth;
-    }
-
-    private static boolean text(String value, int min, int max, boolean allowSpaces) {
-        int count = 0;
-        for (int offset = 0; offset < value.length(); ) {
-            char first = value.charAt(offset);
-            if (Character.isSurrogate(first)
-                    && (!Character.isHighSurrogate(first)
-                            || offset + 1 >= value.length()
-                            || !Character.isLowSurrogate(value.charAt(offset + 1)))) {
-                return false;
-            }
-            int point = value.codePointAt(offset);
-            if (Character.isISOControl(point)
-                    || (!allowSpaces
-                            && (Character.isWhitespace(point) || Character.isSpaceChar(point)))) {
-                return false;
-            }
-            count++;
-            if (count > max) {
-                return false;
-            }
-            offset += Character.charCount(point);
-        }
-        return count >= min;
     }
 
     public record Patch(

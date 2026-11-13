@@ -927,6 +927,12 @@ export type BasicProfile = Pick<
   'nickname' | 'birthDate' | 'gender'
 >;
 
+// U05 기본 정보 저장. 닉네임은 바꿀 때만 보낸다: 서버는 보낸 닉네임만 검사해서, 규칙(S15P31E105-781) 이전에 저장한
+// 닉네임도 그대로 두고 성별·생일을 저장할 수 있다.
+export type BasicProfileChange = Omit<BasicProfile, 'nickname'> & {
+  nickname?: string;
+};
+
 export type LoginIdAvailability = {
   loginId: string;
   available: boolean;
@@ -1369,7 +1375,7 @@ export type Repositories = {
   };
   profile: {
     getMe: () => Promise<UserProfile>;
-    updateBasic: (profile: BasicProfile) => Promise<void>;
+    updateBasic: (profile: BasicProfileChange) => Promise<void>;
     // null until the first U07 save (404 PROFILE_NOT_SET).
     getRunningProfile: () => Promise<RunningProfile | null>;
     saveRunningProfile: (

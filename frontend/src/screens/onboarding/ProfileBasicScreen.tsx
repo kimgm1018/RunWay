@@ -26,6 +26,7 @@ import {
   clampBirthDate,
   defaultBirthDate,
   isValidNickname,
+  nicknameError,
   nicknameRule,
   parseBirthDate,
   toBirthDate,
@@ -137,6 +138,8 @@ export function ProfileBasicScreen() {
   const nicknameTaken =
     draft.takenNickname !== null && draft.takenNickname === nickname.trim();
   const nicknameValid = isValidNickname(nickname);
+  // 공백·허용하지 않는 문자는 입력하는 즉시, 길이 부족은 칸을 벗어난 뒤 안내한다(S15P31E105-781).
+  const nicknameProblem = nicknameError(nickname, touched);
   const ready = nicknameValid && !nicknameTaken && gender;
 
   const next = () => {
@@ -173,20 +176,17 @@ export function ProfileBasicScreen() {
         label="닉네임"
         placeholder="2-10자"
         value={nickname}
-        onChangeText={setNickname}
+        onChangeText={text => {
+          setNickname(text);
+          setTouched(false);
+        }}
         onBlur={() => setTouched(true)}
         maxLength={10}
-        status={
-          nicknameTaken || (touched && nickname && !nicknameValid)
-            ? 'error'
-            : 'default'
-        }
+        status={nicknameTaken || nicknameProblem ? 'error' : 'default'}
         helper={
           nicknameTaken
             ? '이미 사용 중인 닉네임이에요'
-            : touched && nickname && !nicknameValid
-            ? '닉네임은 2–10자로 입력해 주세요'
-            : nicknameRule
+            : nicknameProblem ?? nicknameRule
         }
       />
       <AppText style={styles.label}>성별</AppText>

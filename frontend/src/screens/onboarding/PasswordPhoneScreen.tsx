@@ -29,6 +29,7 @@ import {
   passwordGuide,
   passwordRule,
   passwordSameAsIdRule,
+  phoneNumberError,
 } from './validation';
 
 // U30 failures that used up the proof or leave it in doubt: verify the number again (users.md U30). A 5xx such as
@@ -85,6 +86,11 @@ export function PasswordPhoneScreen() {
   const verified = phone.phase === 'verified';
   const sent = phone.phase !== 'idle' && phone.phase !== 'requesting';
   const phoneError = phone.error?.field === 'phone' ? phone.error : null;
+  // 서버가 받지 않는 번호(010 + 8자리가 아님)는 인증 요청 전에 칸 아래에 이유를 보인다(S15P31E105-781).
+  const [phoneDone, setPhoneDone] = useState(false);
+  const phoneFormatError = verified
+    ? null
+    : phoneNumberError(phone.phoneNumber, phoneDone);
   const passwordOk = isValidPassword(password) && confirm === password;
   // 회원가입과 같은 안내(S15P31E105-627). 서버가 정책 위반(422)으로 돌려보내면 증명은 그대로 두고 규칙을 알린다.
   // 길이·문자는 앱이 먼저 막으므로 남는 원인은 그 번호 회원의 아이디와 같은 비밀번호다(users.md U30, S15P31E105-773).
@@ -164,12 +170,16 @@ export function PasswordPhoneScreen() {
           icon="handset"
           label="전화번호"
           value={formatPhoneNumber(phone.phoneNumber)}
-          onChangeText={phone.setPhoneNumber}
+          onChangeText={text => {
+            phone.setPhoneNumber(text);
+            setPhoneDone(false);
+          }}
+          onBlur={() => setPhoneDone(true)}
           keyboardType="phone-pad"
           textContentType="telephoneNumber"
           placeholder="010-0000-0000"
           editable={!verified}
-          status={phoneError ? 'error' : 'default'}
+          status={phoneError || phoneFormatError ? 'error' : 'default'}
           accessory={
             sent ? (
               <FieldChip
@@ -205,6 +215,8 @@ export function PasswordPhoneScreen() {
               </View>
             ) : null}
           </>
+        ) : phoneFormatError ? (
+          <InlineError>{phoneFormatError}</InlineError>
         ) : null}
       </View>
 

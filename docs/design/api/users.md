@@ -438,7 +438,7 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `nickname` | string | X | U15와 동일: 코드포인트 2~10·공백 불가·중복 불가 |
+| `nickname` | string | X | U15와 동일: 완성형 한글·영문·숫자만 2~10자·중복 불가. 저장된 값과 다를 때만 문자 규칙을 검사하므로 규칙 이전에 저장된 닉네임은 생략하거나 그대로 보내면 유지된다(S15P31E105-781) |
 | `gender` | string | X | MALE / FEMALE |
 | `birthDate` | string (YYYY-MM-DD) | X | 1950-01-01 이상(앱 생년 휠과 같음, S15P31E105-779), 오늘(UTC) 이하 |
 | `profileImageId` | string (UUID) / null | X | F01 PROFILE 업로드 ID. null이면 사진 삭제. 생략 시 유지 |
@@ -1024,7 +1024,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | --- | --- | --- | --- |
 | loginId | string | O | 영문·숫자 4~16자, 대소문자 구분. trim·정규화 없음. 탈퇴 계정 포함 중복 불가 |
 | password | string | O | 공통 비밀번호 정책: Unicode 코드포인트 8~20자, 공백·고립 surrogate 불가, 특수문자 허용. 새 비밀번호 제한: 영문·숫자·키보드 특수문자(ASCII `0x21`~`0x7E`)만, `loginId`와 대소문자 무시로 같은 값 불가(S15P31E105-773) |
-| nickname | string | O | Unicode 코드포인트 2~10자, 공백·고립 surrogate 불가. 대소문자 구분·정규화 없음, ACTIVE 회원 대상 부분 UNIQUE로 중복 불가. 탈퇴한 회원의 기존 닉네임은 재사용 허용 |
+| nickname | string | O | 완성형 한글(가~힣)·영문·숫자만 2~10자. 공백·이모지·특수문자·자모 단독(ㅋㅋ 등)·제어/보이지 않는 문자 불가(S15P31E105-781). 대소문자 구분·정규화 없음, ACTIVE 회원 대상 부분 UNIQUE로 중복 불가. 탈퇴한 회원의 기존 닉네임은 재사용 허용 |
 | birthDate | string | O | YYYY-MM-DD의 유효한 날짜, 1950-01-01 이상(앱 생년 휠과 같음, S15P31E105-779), 미래 불가 |
 | gender | string | O | MALE 또는 FEMALE |
 | phoneNumber | string | O | 국내 휴대전화 010으로 시작하는 숫자 11자리. 하이픈·공백 거절. U28·U29로 인증한 번호여야 하며 ACTIVE 회원이 쓰는 번호는 가입 불가(S15P31E105-560) |

@@ -252,3 +252,23 @@ test('spaces, Hangul and emoji are dropped from the new password with a notice',
   expect(texts(screen)).not.toContain('영문·숫자·특수문자만 입력할 수 있어요');
   await act(async () => screen.unmount());
 });
+
+// S15P31E105-781: 비밀번호 찾기의 전화번호 칸도 서버가 받지 않는 번호면 이유를 보이고 인증번호를 받을 수 없다.
+test('the phone field says why a number is refused', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '비밀번호를 잊으셨나요?');
+
+  await type(screen, '전화번호', '016-1234-5678');
+  expect(texts(screen)).toContain('010으로 시작하는 휴대폰 번호만 쓸 수 있어요');
+  expect(isDisabled(screen, '인증번호 받기')).toBe(true);
+
+  await type(screen, '전화번호', '010-123-4567');
+  await act(async () => {
+    last(screen, '전화번호', 'onBlur').props.onBlur();
+  });
+  expect(texts(screen)).toContain('휴대폰 번호 11자리를 입력해 주세요');
+  expect(isDisabled(screen, '인증번호 받기')).toBe(true);
+  await act(async () => screen.unmount());
+});

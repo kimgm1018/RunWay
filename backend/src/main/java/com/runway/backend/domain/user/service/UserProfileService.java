@@ -1,5 +1,6 @@
 package com.runway.backend.domain.user.service;
 
+import com.runway.backend.domain.auth.validation.NicknamePolicy;
 import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.user.dto.request.UpdateProfileRequest;
 import com.runway.backend.domain.user.dto.response.UpdatedUserProfileResponse;
@@ -56,6 +57,11 @@ public class UserProfileService {
             if (!"ACTIVE".equals(current.status())) throw new ApiException(ErrorCode.UNAUTHORIZED);
             String nickname = current.nickname();
             if (patch.nicknamePresent()) {
+                // S15P31E105-781: 완성형 한글·영문·숫자 2~10자. 이전 앱은 저장할 때마다 닉네임을 다시 보내므로,
+                // 저장된 값과 같은 닉네임(규칙 이전에 받은 값 포함)은 다시 막지 않는다(779 생년과 같은 방식).
+                if (!patch.nickname().equals(nickname) && !NicknamePolicy.accepts(patch.nickname())) {
+                    throw new ApiException(ErrorCode.INVALID_PROFILE);
+                }
                 if (accounts.nicknameTakenByOther(patch.nickname(), userId)) {
                     throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);
                 }

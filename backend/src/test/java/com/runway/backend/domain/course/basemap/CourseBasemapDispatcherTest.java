@@ -139,13 +139,20 @@ class CourseBasemapDispatcherTest {
         // 다시 시도하지 않는 실패.
         scripted.put(3L, new CopyOnWriteArrayList<>(List.of(Outcome.FAILED, Outcome.SAVED)));
         Duration retryDelay = Duration.ofMillis(200);
+        // 1번이 끝나기 전에 2~4번이 모두 대기열에 들어가게 한다. 그러지 않으면 느린 CI에서 1번이 실패한 순간 대기열이 비어
+        // 1번 다시 시도가 2~4번보다 먼저 예약된다(S15P31E105-781 CI에서 간헐 실패).
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch gate = new CountDownLatch(1);
         dispatcher =
                 new CourseBasemapDispatcher(
-                        runService(null, null), properties(Duration.ZERO, retryDelay));
+                        runService(started, gate), properties(Duration.ZERO, retryDelay));
 
-        for (long id = 1; id <= 4; id++) {
+        dispatcher.dispatchBackfill(1L);
+        assertThat(started.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        for (long id = 2; id <= 4; id++) {
             dispatcher.dispatchBackfill(id);
         }
+        gate.countDown();
         assertThat(dispatcher.awaitIdle(WAIT)).isTrue();
 
         assertThat(runs).containsExactly(1L, 2L, 3L, 4L, 1L, 2L);

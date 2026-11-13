@@ -310,6 +310,56 @@ test('signing up creates the account, holds the tokens and goes on to 1.6', asyn
   await act(async () => relaunch.unmount());
 });
 
+// S15P31E105-781: 서버가 받지 않는 번호는 인증 요청 전에 칸 아래에 이유를 보이고 인증번호를 받을 수 없다.
+test('1.3 says why a phone number is refused before asking for a code', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+
+  await type(screen, '전화번호', '011-1234-5678');
+  expect(texts(screen)).toContain('010으로 시작하는 휴대폰 번호만 쓸 수 있어요');
+  expect(isDisabled(screen, '인증번호 받기')).toBe(true);
+
+  // 자릿수 부족은 칸을 벗어난 뒤에 알린다.
+  await type(screen, '전화번호', '010-1234-567');
+  expect(texts(screen)).not.toContain('휴대폰 번호 11자리를 입력해 주세요');
+  await act(async () => {
+    last(screen, '전화번호', 'onBlur').props.onBlur();
+  });
+  expect(texts(screen)).toContain('휴대폰 번호 11자리를 입력해 주세요');
+  expect(isDisabled(screen, '인증번호 받기')).toBe(true);
+
+  // 다시 입력하기 시작하면 칸을 벗어날 때까지 자릿수 안내를 거둔다(781 리뷰 A-5·B-6).
+  await type(screen, '전화번호', '010-1234-56');
+  expect(texts(screen)).not.toContain('휴대폰 번호 11자리를 입력해 주세요');
+  await type(screen, '전화번호', '010-1234-5678');
+  expect(texts(screen)).not.toContain('휴대폰 번호 11자리를 입력해 주세요');
+  expect(isDisabled(screen, '인증번호 받기')).toBe(false);
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-781: 서버가 거절하는 닉네임(공백·이모지 등)은 1.5에서 바로 안내하고 넘어가지 않는다.
+test('1.5 says why a nickname is refused and stays', async () => {
+  serve([]);
+  const screen = await launch();
+  await reachBasicProfile(screen);
+  await press(screen, '남성');
+
+  await type(screen, '닉네임', '홍 길동');
+  expect(texts(screen)).toContain('닉네임에는 공백을 쓸 수 없어요');
+  expect(isDisabled(screen, '다음')).toBe(true);
+
+  await type(screen, '닉네임', '😀😀');
+  expect(texts(screen)).toContain('한글·영문·숫자만 쓸 수 있어요');
+  expect(isDisabled(screen, '다음')).toBe(true);
+
+  await type(screen, '닉네임', '홍길동');
+  expect(texts(screen)).not.toContain('한글·영문·숫자만 쓸 수 있어요');
+  expect(isDisabled(screen, '다음')).toBe(false);
+  await act(async () => screen.unmount());
+});
+
 test('a taken nickname shows under the field until it changes', async () => {
   serve([
     respond(409, { code: 'NICKNAME_DUPLICATED', message: '', details: {} }),

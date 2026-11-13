@@ -128,11 +128,29 @@ class SignupValidationTest {
 
     @Test
     void profileBoundariesAndStrictDates() {
-        for (String nickname : List.of("가나", "가".repeat(10), "😀".repeat(10))) {
+        // S15P31E105-781: 완성형 한글·영문·숫자만 2~10자. 이모지·특수문자·자모 단독·보이지 않는 문자는 거절한다.
+        for (String nickname : List.of("가나", "가".repeat(10), "Runner12", "Ab", "1234567890")) {
             var body = payload("runner02", nickname, false);
             assertThat(validator.validate(request(body)).nickname()).isEqualTo(nickname);
         }
-        for (String nickname : List.of("", "가", "가".repeat(11), "두 글자", "가\u00a0나", "\ud800가")) {
+        for (String nickname :
+                List.of(
+                        "",
+                        "가",
+                        "가".repeat(11),
+                        "두 글자",
+                        " 러너",
+                        "가\u00a0나",
+                        "\ud800가",
+                        "😀".repeat(10),
+                        "😀😀",
+                        "러너😀",
+                        "러너!",
+                        "run_ner",
+                        "ㅋㅋ",
+                        "가\u200b나",
+                        "가\u0301나",
+                        "ｒｕｎ")) {
             rejects(payload("runner02", nickname, false), "INVALID_PROFILE", 400);
         }
         for (String date : List.of("2000-02-30", "2000-2-03", "date", "")) {

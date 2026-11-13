@@ -39,6 +39,7 @@ import {
   birthYearMin,
   daysInMonth,
   isValidNickname,
+  nicknameError,
   nicknameRule,
   toBirthDate,
 } from '../onboarding/validation';
@@ -196,6 +197,8 @@ function Form({
     .split('-')
     .map(Number);
   const [nickname, setNickname] = useState(detail.nickname);
+  // 서버에 저장된 닉네임. U05가 성공하면 보낸 값으로 바꿔, 뒤 단계(U07)가 실패한 뒤 되돌린 닉네임도 다시 보낸다(781 리뷰 B-1).
+  const [savedNickname, setSavedNickname] = useState(detail.nickname);
   const [gender, setGender] = useState<Gender>(detail.gender);
   const [year, setYear] = useState(birthYear);
   const [month, setMonth] = useState(birthMonth);
@@ -249,7 +252,10 @@ function Form({
     setMonth(nextMonth);
     setDay(current => Math.min(current, daysInMonth(nextYear, nextMonth)));
   };
-  const valid = isValidNickname(nickname) && !nicknameTaken;
+  // 닉네임은 바꿀 때만 검사하고 보낸다. 규칙(S15P31E105-781) 이전에 저장된 닉네임도 그대로 두고 다른 항목을 저장할 수 있다.
+  const nicknameChanged = nickname.trim() !== savedNickname;
+  const valid =
+    (!nicknameChanged || isValidNickname(nickname)) && !nicknameTaken;
   // A picked photo shows at once and goes to the server with 저장; once uploaded it is not sent again.
   const [shownPhoto, setShownPhoto] = useState(photo);
   const [pendingPhoto, setPendingPhoto] = useState<PhotoFile | null>(null);
@@ -290,10 +296,11 @@ function Form({
     }
     try {
       await profile.updateBasic({
-        nickname: nickname.trim(),
+        ...(nicknameChanged ? { nickname: nickname.trim() } : {}),
         gender,
         birthDate: toBirthDate(year, month, day),
       });
+      setSavedNickname(nickname.trim());
       // U07 with the level alone keeps the saved pace (8.2b changes that one).
       await profile.saveRunningProfile({ selfReportedLevel: level });
       toast('프로필을 저장했어요');
@@ -376,7 +383,9 @@ function Form({
                 accessibilityLabel="닉네임"
                 value={nickname}
                 onChangeText={setNickname}
-                maxLength={10}
+                // 허용 문자는 모두 UTF-16 한 단위라 10이면 충분하다. 규칙 이전의 긴 이모지 닉네임은 Android가 잘라 보이지
+                // 않도록 저장된 길이까지 늘린다(781 실기기 확인, 리뷰 A-4·B-4).
+                maxLength={Math.max(10, savedNickname.length)}
                 placeholder="2-10자"
                 placeholderTextColor="#8A8A8A"
                 selectionColor={settingsLook.ink}
@@ -386,7 +395,9 @@ function Form({
           </View>
           {nicknameTaken || !valid ? (
             <AppText style={styles.error}>
-              {nicknameTaken ? '이미 사용 중인 닉네임이에요' : nicknameRule}
+              {nicknameTaken
+                ? '이미 사용 중인 닉네임이에요'
+                : nicknameError(nickname) ?? nicknameRule}
             </AppText>
           ) : null}
         </View>
