@@ -50,6 +50,17 @@ export function commentFailure(error: unknown, action: '수정' | '삭제') {
   return `댓글을 ${action}하지 못했어요. 잠시 후 다시 시도해 주세요`;
 }
 
+// The longest comment the bar takes (S15P31E105-780), like a post body (PostWriteScreen bodyLimit). The server keeps
+// its own check (S15P31E105-779).
+export const COMMENT_LIMIT = 500;
+// From this many characters the bar shows how many are used.
+export const COMMENT_COUNT_FROM = COMMENT_LIMIT - 50;
+// A long comment shows this many lines until 더 보기 opens it, so one comment cannot fill the sheet.
+export const COMMENT_FOLD_LINES = 6;
+// About six lines on a phone: comments past it (or with more line breaks) fold.
+export const longComment = (body: string) =>
+  body.length > 140 || body.split('\n').length > COMMENT_FOLD_LINES;
+
 // One comment: avatar, handle and text, the time · likes · 답글 달기, and its heart (7.2 and the 댓글 sheet). A reply
 // sits indented under its root; a deleted root kept for its replies shows only '삭제된 댓글입니다'.
 export function CommentRow({
@@ -69,6 +80,7 @@ export function CommentRow({
   onLike: () => void;
 }) {
   const { clock } = useRepositories();
+  const [unfolded, setUnfolded] = useState(false);
   if (comment.deleted || !comment.author) {
     return (
       <View style={[styles.comment, reply && styles.reply]}>
@@ -86,6 +98,7 @@ export function CommentRow({
   ]
     .filter(Boolean)
     .join(' · ');
+  const folds = longComment(comment.body);
   return (
     <View style={[styles.comment, reply && styles.reply]}>
       <Avatar
@@ -95,12 +108,28 @@ export function CommentRow({
         size={reply ? 26 : 32}
       />
       <View style={styles.flex}>
-        <AppText style={styles.commentText}>
+        <AppText
+          style={styles.commentText}
+          numberOfLines={folds && !unfolded ? COMMENT_FOLD_LINES : undefined}
+        >
           <AppText style={[styles.commentText, styles.strong]}>
             {author.handle}{' '}
           </AppText>
           {comment.body}
         </AppText>
+        {folds ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={unfolded ? '댓글 접기' : '댓글 더 보기'}
+            onPress={() => setUnfolded(open => !open)}
+            hitSlop={6}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <AppText style={[styles.commentMetaText, styles.replyText]}>
+              {unfolded ? '접기' : '더 보기'}
+            </AppText>
+          </Pressable>
+        ) : null}
         <View style={styles.commentMeta}>
           <AppText style={styles.commentMetaText}>
             {onReply ? `${meta} · ` : meta}
@@ -252,6 +281,9 @@ export function CommentSheet({
   const [failed, setFailed] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Set as soon as a 게시 or 저장 starts, before the re-render that disables the button: quick taps in between
+  // would otherwise send the same comment twice (S15P31E105-780).
+  const sendingNow = useRef(false);
   // The comment whose sheet is open, and the one being edited in the comment bar.
   const [commentMenu, setCommentMenu] = useState<PostComment | null>(null);
   const [editing, setEditing] = useState<PostComment | null>(null);
@@ -436,6 +468,10 @@ export function CommentSheet({
       setNotice('댓글 내용을 입력해 주세요');
       return;
     }
+    if (sendingNow.current) {
+      return;
+    }
+    sendingNow.current = true;
     setSending(true);
     try {
       const saved = await community.updateComment(comment.id, body);
@@ -449,6 +485,7 @@ export function CommentSheet({
     } catch (error) {
       setNotice(commentFailure(error, '수정'));
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   };
@@ -478,9 +515,10 @@ export function CommentSheet({
       return;
     }
     const body = draft.trim();
-    if (!postId || !comments || !body) {
+    if (!postId || !comments || !body || sendingNow.current) {
       return;
     }
+    sendingNow.current = true;
     setSending(true);
     try {
       const comment = await community.addComment(
@@ -505,6 +543,7 @@ export function CommentSheet({
       }
       setNotice('댓글을 남기지 못했어요. 잠시 후 다시 시도해 주세요');
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   };
@@ -693,8 +732,17 @@ export function CommentSheet({
                         selectionColor={communityLook.ink}
                         value={draft}
                         onChangeText={setDraft}
+                        maxLength={COMMENT_LIMIT}
                         style={styles.inputText}
                       />
+                      {draft.length >= COMMENT_COUNT_FROM ? (
+                        <AppText
+                          style={styles.count}
+                          accessibilityLabel={`${COMMENT_LIMIT}자 중 ${draft.length}자`}
+                        >
+                          {`${draft.length}/${COMMENT_LIMIT}`}
+                        </AppText>
+                      ) : null}
                     </View>
                     {/* 저장 stays pressable on an emptied comment so it can say why it does not save. */}
                     <Pressable
@@ -841,6 +889,15 @@ const styles = StyleSheet.create({
     color: communityLook.ink,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
+  },
+  // Used/limit in the field's corner once the comment nears COMMENT_LIMIT.
+  count: {
+    position: 'absolute',
+    right: 10,
+    bottom: 2,
+    fontFamily: fontFamily.medium,
+    fontSize: 10.5,
+    color: communityLook.meta,
   },
   send: { height: 44, paddingHorizontal: 4, justifyContent: 'center' },
   sendText: {
