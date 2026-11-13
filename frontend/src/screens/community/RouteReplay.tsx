@@ -124,6 +124,12 @@ export function replayPlayMs(distanceM: number) {
 }
 // The runner stays at this height on the screen while the map moves under them.
 const markerAt = 0.42;
+// 7.2's still map (S15P31E105-754): room kept clear for the page's header (its top at the inset plus 6, 48 tall)
+// and the pin's head over the finish, a little room over the sheet, and the course filling 90% of the height left.
+const overviewHeaderRoom = 60;
+const overviewPinRoom = 72;
+const overviewFootRoom = 28;
+const overviewFill = 0.9 / (2 * markerAt);
 
 type Point = [number, number];
 
@@ -609,6 +615,8 @@ function MapReplay({
   onClose,
   inline = false,
   hold = false,
+  overviewHeight,
+  markers = true,
   onShown,
 }: {
   run: ReplayRun;
@@ -625,10 +633,17 @@ function MapReplay({
   // The feed's pages around the one on screen: their map is made and holds the whole course, ready to play the
   // moment the page comes on screen, without loading again (작업 요청자: 다시 로딩).
   hold?: boolean;
+  // 7.2 상세 (S15P31E105-754): the map's height; set, the map holds still on the whole, drawn course with the
+  // runner's pin on its finish.
+  overviewHeight?: number;
+  // Off takes the runner's pin off the map.
+  markers?: boolean;
   // Once, when the map has drawn its tiles, so the feed can lift its cover.
   onShown?: () => void;
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width, height: screenHeight } = useWindowDimensions();
+  const height = overviewHeight ?? screenHeight;
+  const overview = overviewHeight !== undefined;
   const insets = useSafeAreaInsets();
   const shot = useRef<View>(null);
   const playMs = replayPlayMs(run.distanceM);
@@ -666,6 +681,19 @@ function MapReplay({
   // The whole course keeps clear of the title above and the big pace (or the feed's author row and words) below,
   // so its start and finish pins are not covered (작업 요청자).
   const fitShare = 0.45;
+  // 7.2's still map fits the course below its header and the pin standing on the finish, above the sheet.
+  const overviewPadding = {
+    top: insets.top + overviewHeaderRoom + overviewPinRoom,
+    bottom: overviewFootRoom,
+  };
+  const overviewInner = Math.max(
+    1,
+    height - overviewPadding.top - overviewPadding.bottom,
+  );
+  const overviewCamera = useMemo(
+    () => overviewOf(route, width, overviewInner, overviewFill),
+    [route, width, overviewInner],
+  );
   const [camera, setCamera] = useState(() =>
     overviewOf(route, width, height, fitShare),
   );
@@ -798,7 +826,7 @@ function MapReplay({
 
   // The swoop: from the overview down to the start, leaning back and turning to the way ahead, then the run.
   useEffect(() => {
-    if (!visible || !ready || !mapDrawn || still || hold) {
+    if (!visible || !ready || !mapDrawn || still || hold || overview) {
       return;
     }
     const [first] = path.current;
@@ -829,7 +857,7 @@ function MapReplay({
       clearTimeout(swoop);
       clearTimeout(go);
     };
-  }, [visible, ready, mapDrawn, round, still, inline, hold]);
+  }, [visible, ready, mapDrawn, round, still, inline, hold, overview]);
 
   // Playback: each tick moves the camera to the next point over the tick's length, so the moves join into one
   // glide; progress follows the clock, so a slow phone keeps the same pace.
@@ -925,24 +953,26 @@ function MapReplay({
   // drew solid black on Android).
   // The opening overview shows the whole course drawn with the runner on its start (작업 요청자); it clears as the
   // camera leans in, and the line draws again as the runner moves.
-  const drawn = intro ? whole : playing ? trail : shown;
+  const drawn = overview ? 1 : intro ? whole : playing ? trail : shown;
   const reveal = { color: darkMapLook.unpassed, progress: drawn };
   // The runner stands on the map where they are while the camera moves over the course (작업 요청자): on the start
   // until the run, on the finish after it (so 공유's picture shows where the run ended); while it plays the camera
   // keeps them in the middle of the screen.
-  const runnerOnMap = intro ? route[0] : done ? route[route.length - 1] : null;
+  const runnerOnMap = overview
+    ? route[route.length - 1]
+    : intro ? route[0] : done ? route[route.length - 1] : null;
 
   const mapLayer = (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <NaverMapView
         style={StyleSheet.absoluteFill}
-        camera={camera}
+        camera={overview ? overviewCamera : camera}
         // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
         // flat. With no custom style to load, the map is ready once made.
         onInitialized={() => setReady(true)}
         // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
         onMapLoaded={() => setMapDrawn(true)}
-        animationDuration={motion.duration}
+        animationDuration={overview ? 0 : motion.duration}
         animationEasing={motion.easing}
         mapType="Basic"
         layerGroups={{
@@ -959,14 +989,18 @@ function MapReplay({
         // comes out black.
         isUseTextureViewAndroid
         // The camera's middle sits where the runner's pin is, above the numbers.
-        mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
+        mapPadding={
+          overview ? overviewPadding : { bottom: height * (1 - 2 * markerAt) }
+        }
         // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
         // still bright, instead of the foot where the dark band and the numbers cover it.
         // In the feed the author row sits there, so the logo goes where the feed's own map puts it: just over
         // the run's words (feedMapArea's foot at 60% of the page), counted from above the map's bottom padding.
         logoAlign={inline ? 'BottomLeft' : 'TopLeft'}
         logoMargin={
-          inline
+          overview
+            ? { left: 18, bottom: 6 }
+            : inline
             ? { left: 18, bottom: height * (2 * markerAt - 0.6) + 6 }
             : { left: 18, top: insets.top + 86 }
         }
@@ -995,7 +1029,7 @@ function MapReplay({
                   zIndex={0}
                 />
               ))}
-            {intro && whole === 1 && !replaySections ? (
+            {!overview && intro && whole === 1 && !replaySections ? (
               // The whole course, thin and grey, over the opening overview; under the run's lines.
               <NaverMapPathOverlay
                 coords={coords}
@@ -1078,7 +1112,7 @@ function MapReplay({
                 </React.Fragment>
               );
             })}
-            {runnerOnMap ? (
+            {markers && runnerOnMap ? (
               <NaverMapMarkerOverlay
                 latitude={runnerOnMap[1]}
                 longitude={runnerOnMap[0]}
@@ -1100,7 +1134,7 @@ function MapReplay({
     return visible ? (
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         {mapLayer}
-        {runnerOnMap ? null : (
+        {runnerOnMap || overview ? null : (
           <ReplayPin
             nickname={run.runner.nickname}
             userId={run.runner.userId}
@@ -1240,6 +1274,63 @@ export function FeedRouteReplay({
     />
   ) : null;
 }
+// 7.2 게시물 상세 (S15P31E105-754): the course as the replay draws it, held still on the whole route with the
+// author's pin on its finish — no swoop, no playback, no camera moves. Before the post is read (its course
+// comes first from 7.1) the same map stands without the pin, so it is not swapped for another when the post comes.
+export function PostRouteOverview({
+  post,
+  route,
+  unmeasuredEdges,
+  height,
+  markers,
+  onShown,
+}: {
+  post: Post | null;
+  route: LngLat[];
+  unmeasuredEdges: number[];
+  height: number;
+  // Off while the replay covers the page, so the native map stops redrawing the pin under it.
+  markers: boolean;
+  onShown?: () => void;
+}) {
+  const run = useMemo(
+    () => (post ? replayOfPost(post) : routeOnlyRun),
+    [post],
+  );
+  return route.length >= 2 ? (
+    <View pointerEvents="none" style={[styles.overview, { height }]}>
+      <MapReplay
+        run={run}
+        route={route}
+        unmeasuredEdges={unmeasuredEdges}
+        drawConnectors
+        visible
+        inline
+        overviewHeight={height}
+        markers={markers && !!post}
+        onClose={noop}
+        onShown={onShown}
+      />
+    </View>
+  ) : null;
+}
+const routeOnlyRun: ReplayRun = {
+  key: 'route',
+  kind: '코스',
+  title: '',
+  byline: '',
+  startedAt: '',
+  shareMessage: '',
+  link: null,
+  runner: { nickname: '', userId: '', photo: null, mine: false },
+  distanceM: 0,
+  durationSec: 0,
+  averagePaceSecPerKm: null,
+  cadence: null,
+  shape: [],
+  parts: null,
+};
+
 // A draft uses the feed's bright map, camera and profile pin before a post exists.
 export function InlineRunReplay({
   run,
@@ -1590,6 +1681,7 @@ const ReplayHeader = memo(function Header({
 });
 
 const styles = StyleSheet.create({
+  overview: { position: 'absolute', top: 0, left: 0, right: 0 },
   root: { flex: 1, overflow: 'hidden', backgroundColor: feedLook.ground },
   pressed: { opacity: 0.6 },
   hidden: { opacity: 0 },

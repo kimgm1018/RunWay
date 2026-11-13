@@ -12,13 +12,15 @@ import {
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
-import { NaverMapPathOverlay } from '@mj-studio/react-native-naver-map';
+import { NaverMapPathOverlay, NaverMapView, NaverMapMarkerOverlay } from '@mj-studio/react-native-naver-map';
 import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
 import {
   FeedRouteReplay,
   pointAt,
+  PostRouteOverview,
   replayPlayMs,
+  RouteReplay,
 } from '../src/screens/community/RouteReplay';
 import { routeLengthM, walkAlong, type LngLat } from '../src/geo';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
@@ -376,8 +378,11 @@ test('7.2 draws the shared course before the post has been read', async () => {
   expect(feedRoute.length).toBeGreaterThan(1);
   await openFirstPost(screen);
   const detail = screen.root.findByType(PostDetailScreen);
-  const [drawn] = detail.findAllByType(RunMap);
+  const [drawn] = detail.findAllByType(PostRouteOverview);
   expect(drawn.props.route).toEqual(feedRoute);
+  // The same still map the post will use, without the author's pin until the post is read (S15P31E105-754).
+  expect(detail.findAllByType(RunMap)).toHaveLength(0);
+  expect(drawn.findAllByType(NaverMapMarkerOverlay)).toHaveLength(0);
   expect(
     detail.findAll(
       node =>
@@ -618,14 +623,16 @@ test('a feed page opens 7.2, whose map plays the course from the start with paus
   // Only the part already run is drawn (S15P31E105-672 review): every replay line is see-through past the
   // runner, shares the same progress and has its own layer. The opening overview shows the whole course drawn
   // (작업 요청자, S15P31E105-704) over the thin grey course.
+  // The replay window's own lines; 7.2's still map under it draws the same layers (S15P31E105-754).
+  const replay = () => screen.root.findByType(RouteReplay);
   const replayLines = () =>
-    screen.root.findAll(
+    replay().findAll(
       node =>
         node.type === NaverMapPathOverlay &&
         node.props.passedColor !== undefined,
     );
   const outlines = () =>
-    screen.root.findAll(
+    replay().findAll(
       node =>
         node.type === NaverMapPathOverlay &&
         node.props.color === darkMapLook.outline,
@@ -682,24 +689,47 @@ test('the detail map under an open replay has no markers, and gets them back on 
   await press(screen, 'minjun.run의 게시물 열기');
   await settle(50);
   const detail = screen.root.findByType(PostDetailScreen);
-  const detailMap = () => detail.findByType(RunMap);
+  const detailMap = () => detail.findAllByType(NaverMapView)[0];
   const detailMarkers = () =>
     detailMap().findAll(
       node =>
         typeof node.type === 'string' &&
         node.props.testID === 'naver-map-marker',
     ).length;
-  expect(detailMap().props.markers).toBe(true);
   const shown = detailMarkers();
   expect(shown).toBeGreaterThan(0);
 
   await press(screen, '코스 재생');
-  expect(detailMap().props.markers).toBe(false);
   expect(detailMarkers()).toBe(0);
 
   await press(screen, '코스 재생 닫기');
-  expect(detailMap().props.markers).toBe(true);
   expect(detailMarkers()).toBe(shown);
+});
+
+test('the detail holds the whole replay route with the author at its finish', async () => {
+  const screen = await openCommunity();
+  await press(screen, 'minjun.run의 게시물 열기');
+  await settle(50);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const map = () => detail.findAllByType(NaverMapView)[0];
+  const lines = () => map().findAllByType(NaverMapPathOverlay);
+  const core = () => lines().find(line => line.props.zIndex === 3)!;
+  expect(core()).toBeDefined();
+  expect(core().props.progress).toBe(1);
+  expect(core().props.passedColor).toBe(darkMapLook.ink);
+  const end = core().props.coords.at(-1);
+  const marker = map().findByType(NaverMapMarkerOverlay);
+  expect(marker.props.latitude).toBe(end.latitude);
+  expect(marker.props.longitude).toBe(end.longitude);
+  expect(marker.findByType(Avatar).props.userId).toBe('user-minjun');
+  expect(map().props.animationDuration).toBe(0);
+  const camera = map().props.camera;
+  for (let step = 0; step < 40; step++) {
+    await settle(500);
+  }
+  expect(map().props.camera).toEqual(camera);
+  expect(core().props.progress).toBe(1);
+  expect(map().findByType(NaverMapMarkerOverlay).props.latitude).toBe(end.latitude);
 });
 
 // The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
