@@ -3,18 +3,21 @@ package com.runway.backend.domain.grouprun.dto.request;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.runway.backend.global.geo.GeoJsonPoint;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 
 /**
  * G04 PATCH. 생략은 유지, {@code courseId: null}은 코스 해제. 목표 부분 null 해제는 미구현이며
- * 목표 필드가 오면 환산으로 재설정한다.
+ * 목표 필드가 오면 환산으로 재설정한다. 글자 필드 길이는 G01({@link CreateGroupRunRequest})과 같다(S15P31E105-778).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PatchGroupRunRequest {
 
+    @Size(max = 100)
     private String title;
     private boolean titlePresent;
 
+    @Size(max = 10000)
     private String description;
     private boolean descriptionPresent;
 
@@ -24,9 +27,11 @@ public class PatchGroupRunRequest {
     private GeoJsonPoint meetingPosition;
     private boolean meetingPositionPresent;
 
+    @Size(max = 200)
     private String meetingPlaceName;
     private boolean meetingPlaceNamePresent;
 
+    @Size(max = 255)
     private String meetingAddress;
     private boolean meetingAddressPresent;
 

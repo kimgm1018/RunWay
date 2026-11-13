@@ -260,6 +260,35 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("NOT_HOST"));
     }
 
+    // S15P31E105-778: G04 PATCH도 G01과 같은 길이 규칙을 DTO에서 검사해 DB 오류(500) 대신 400을 준다.
+    @Test
+    void patch_overLongTextFields_badRequest_andKeepsRow() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        String[] bodies = {
+            "{\"title\":\"%s\"}".formatted("가".repeat(101)),
+            "{\"description\":\"%s\"}".formatted("a".repeat(10001)),
+            "{\"meetingPlaceName\":\"%s\"}".formatted("가".repeat(201)),
+            "{\"meetingAddress\":\"%s\"}".formatted("가".repeat(256))
+        };
+        for (String body : bodies) {
+            mockMvc.perform(
+                            patch("/api/v1/group-runs/{id}", groupRunId)
+                                    .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        String title100 = "가".repeat(100);
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"title\":\"%s\"}".formatted(title100)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value(title100));
+    }
+
     // S15P31E105-636 AC-2: G07 참가자 프로필 사진 주소. 사진 없는 참가자는 null 키.
     @Test
     void participants_includeProfileImageUrl() throws Exception {

@@ -521,10 +521,12 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `goalInputType` | string | 조건부 | TIME/PACE. 거리·시간·페이스 환산이 필요한 목표 변경 시 기준을 명시한다. |
 | `targetDurationSec` | integer / null | 조건부 | TIME 기준 목표 시간(초). 양수. 자유러닝의 해당 목표 해제는 null. |
 | `targetPaceSecPerKm` | number / null | 조건부 | PACE 기준 목표 페이스(초/km). 양수. 자유러닝의 해당 목표 해제는 null. |
-| `title` | string / object (확인 필요) | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
-| `description` | string / object (확인 필요) | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
+| `title` | string | X | 최대 100자(G01과 같음). 공백만이면 `400 VALIDATION_ERROR` |
+| `description` | string / null | X | 최대 10000자(G01과 같음) |
 | `scheduledAt` | string (ISO 8601) | X | 그룹런 예정 시작시각(UTC) |
 | `meetingPosition` | GeoJSON | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
+| `meetingPlaceName` | string | X | 최대 200자(G01과 같음) |
+| `meetingAddress` | string / null | X | 최대 255자(G01과 같음) |
 | `capacity` | number | X | 참가 인원 상한(허용 범위 미정) |
 | `courseId` | integer (int64) / null | X | 수정할 코스. null은 자유러닝으로 전환, 생략은 기존 코스 유지 |
 
@@ -590,7 +592,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `409 EDIT_NOT_ALLOWED` | 상태 충돌 | 현재 그룹 상태에서 변경할 수 없는 정보를 수정하려 함. 수정 가능 필드·상태 범위 확인 필요 |
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함. `title`·`description`·`meetingPlaceName`·`meetingAddress`가 G01 길이 상한을 넘음(S15P31E105-778) |
 
 **추가 오류 후보 — HTTP·코드·판정 정책 확인 필요**
 

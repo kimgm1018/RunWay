@@ -95,7 +95,7 @@ public class GroupRunController {
     public PatchGroupRunResponse patch(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long groupRunId,
-            @RequestBody PatchGroupRunRequest request) {
+            @Valid @RequestBody PatchGroupRunRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return groupRunService.patch(userId, groupRunId, request);
     }
