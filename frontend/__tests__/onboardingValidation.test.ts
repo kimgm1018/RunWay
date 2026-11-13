@@ -14,6 +14,8 @@ import {
   isValidNickname,
   isValidPassword,
   isValidPhoneNumber,
+  nicknameError,
+  phoneNumberError,
   parseClock,
   parseDistanceKm,
   passwordChecks,
@@ -89,19 +91,74 @@ test('passwords need 8 characters with a letter and a digit', () => {
   expect(isValidPassword('runwayrun')).toBe(false);
 });
 
-test('phone numbers are Korean mobile numbers shown with dashes', () => {
+// S15P31E105-781: 서버와 같이 010으로 시작하는 11자리만 받는다.
+test('phone numbers are 010 numbers with 11 digits, shown with dashes', () => {
   expect(isValidPhoneNumber('01024835917')).toBe(true);
-  expect(isValidPhoneNumber('0102483591')).toBe(true);
+  expect(isValidPhoneNumber('0102483591')).toBe(false);
+  expect(isValidPhoneNumber('01124835917')).toBe(false);
+  expect(isValidPhoneNumber('0112483591')).toBe(false);
+  expect(isValidPhoneNumber('01624835917')).toBe(false);
+  expect(isValidPhoneNumber('01924835917')).toBe(false);
   expect(isValidPhoneNumber('0212345678')).toBe(false);
+  expect(isValidPhoneNumber('010248359170')).toBe(false);
   expect(formatPhoneNumber('01024835917')).toBe('010-2483-5917');
   expect(formatPhoneNumber('0102483591')).toBe('010-248-3591');
   expect(formatPhoneNumber('0102')).toBe('010-2');
 });
 
-test('nicknames are 2–10 characters', () => {
+test('the phone field tells why a number is refused', () => {
+  const prefix = '010으로 시작하는 휴대폰 번호만 쓸 수 있어요';
+  const length = '휴대폰 번호 11자리를 입력해 주세요';
+  expect(phoneNumberError('')).toBeNull();
+  expect(phoneNumberError('0')).toBeNull();
+  expect(phoneNumberError('01')).toBeNull();
+  expect(phoneNumberError('010')).toBeNull();
+  // 앞자리가 틀리면 칸을 벗어나기 전에도 바로 알린다.
+  expect(phoneNumberError('011')).toBe(prefix);
+  expect(phoneNumberError('0162483591')).toBe(prefix);
+  expect(phoneNumberError('02')).toBe(prefix);
+  expect(phoneNumberError('1')).toBe(prefix);
+  // 자릿수 부족은 칸을 벗어난 뒤에 알린다.
+  expect(phoneNumberError('0102483591')).toBeNull();
+  expect(phoneNumberError('0102483591', true)).toBe(length);
+  expect(phoneNumberError('01024835917', true)).toBeNull();
+});
+
+// S15P31E105-781: 서버와 같이 완성형 한글·영문·숫자만 2~10자.
+test('nicknames are 2–10 Korean letters, English letters or digits', () => {
   expect(isValidNickname('민')).toBe(false);
   expect(isValidNickname('민준')).toBe(true);
+  expect(isValidNickname('Runner12')).toBe(true);
+  expect(isValidNickname('가'.repeat(10))).toBe(true);
   expect(isValidNickname('가'.repeat(11))).toBe(false);
+  // 앞뒤 공백은 잘라서 보내므로 통과하고, 가운데 공백은 서버가 거절하므로 막는다.
+  expect(isValidNickname(' 민준 ')).toBe(true);
+  expect(isValidNickname('홍 길동')).toBe(false);
+  expect(isValidNickname('😀😀')).toBe(false);
+  expect(isValidNickname('러너😀')).toBe(false);
+  expect(isValidNickname('러너!')).toBe(false);
+  expect(isValidNickname('run_ner')).toBe(false);
+  expect(isValidNickname('ㅋㅋ')).toBe(false);
+  expect(isValidNickname('가​나')).toBe(false);
+  expect(isValidNickname('ｒｕｎ')).toBe(false);
+});
+
+test('the nickname field tells why a nickname is refused', () => {
+  expect(nicknameError('')).toBeNull();
+  expect(nicknameError('민준')).toBeNull();
+  expect(nicknameError('홍 길동')).toBe('닉네임에는 공백을 쓸 수 없어요');
+  expect(nicknameError('😀😀')).toBe('한글·영문·숫자만 쓸 수 있어요');
+  expect(nicknameError('ㅋㅋ')).toBe('한글·영문·숫자만 쓸 수 있어요');
+  expect(nicknameError('러너!')).toBe('한글·영문·숫자만 쓸 수 있어요');
+  // 한글 조합 중 끝 글자가 잠깐 자모인 것은 칸을 벗어나기 전에는 알리지 않는다(781 리뷰 B-2).
+  expect(nicknameError('민ㅈ')).toBeNull();
+  expect(nicknameError('ㅁ')).toBeNull();
+  expect(nicknameError('민ㅈ', true)).toBe('한글·영문·숫자만 쓸 수 있어요');
+  expect(nicknameError('ㅋㅋ')).toBe('한글·영문·숫자만 쓸 수 있어요');
+  // 한 글자는 칸을 벗어난 뒤에 알린다.
+  expect(nicknameError('민')).toBeNull();
+  expect(nicknameError('민', true)).toBe('닉네임은 2–10자로 입력해 주세요');
+  expect(nicknameError('가'.repeat(11))).toBe('닉네임은 2–10자로 입력해 주세요');
 });
 
 test('birth dates respect month length and leap years', () => {

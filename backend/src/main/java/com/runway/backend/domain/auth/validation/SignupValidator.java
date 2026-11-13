@@ -47,7 +47,7 @@ public class SignupValidator {
         if (!PasswordPolicy.acceptsNew(password) || PasswordPolicy.sameAsLoginId(password, loginId))
             throw new ApiException(ErrorCode.INVALID_PASSWORD_POLICY);
         String nickname = (String) request.nickname();
-        if (!text(nickname, 2, 10, false)) throw new ApiException(ErrorCode.INVALID_PROFILE);
+        if (!NicknamePolicy.accepts(nickname)) throw new ApiException(ErrorCode.INVALID_PROFILE);
         LocalDate birth;
         try {
             String raw = (String) request.birthDate();
@@ -99,26 +99,6 @@ public class SignupValidator {
             result.add(new Consent(type, granted));
         }
         return List.copyOf(result);
-    }
-
-    private static boolean text(String value, int min, int max, boolean allowSpaces) {
-        int count = 0;
-        for (int offset = 0; offset < value.length(); ) {
-            char first = value.charAt(offset);
-            if (Character.isSurrogate(first)
-                    && (!Character.isHighSurrogate(first)
-                            || offset + 1 >= value.length()
-                            || !Character.isLowSurrogate(value.charAt(offset + 1)))) return false;
-            int point = value.codePointAt(offset);
-            if (Character.isISOControl(point)
-                    || (!allowSpaces
-                            && (Character.isWhitespace(point) || Character.isSpaceChar(point))))
-                return false;
-            count++;
-            if (count > max) return false;
-            offset += Character.charCount(point);
-        }
-        return count >= min;
     }
 
     public record Consent(String type, boolean granted) {

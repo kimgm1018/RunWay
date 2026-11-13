@@ -303,11 +303,113 @@ test('8.2 saves a level change with the level alone', async () => {
   await press(screen, '저장');
   await settle(50);
 
-  // U05 with the account part, then U07 with the level alone.
+  // U05 with the account part, then U07 with the level alone. 바꾸지 않은 닉네임은 보내지 않는다(S15P31E105-781).
   expect(patchBodies()).toEqual([
-    { nickname: '민준', gender: 'MALE', birthDate: '1995-03-14' },
+    { gender: 'MALE', birthDate: '1995-03-14' },
     { selfReportedLevel: 'ADVANCED' },
   ]);
   expect(texts(screen)).toContain('프로필을 저장했어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-781: 프로필 수정도 서버가 거절하는 닉네임은 바로 안내하고 저장할 수 없다. 바꾼 닉네임만 보낸다.
+test('8.2 says why a nickname is refused and sends a changed one', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes('/devices')
+      ? respond(200, { items: [] })
+      : url.endsWith('/users/me')
+      ? respond(200, me)
+      : profileResponse({ selfReportedLevel: 'BEGINNER' }),
+  );
+  const screen = await launch(true);
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+
+  await type(screen, '닉네임', '민 준');
+  expect(texts(screen)).toContain('닉네임에는 공백을 쓸 수 없어요');
+  expect(isDisabled(screen, '저장')).toBe(true);
+  await type(screen, '닉네임', '민준😀');
+  expect(texts(screen)).toContain('한글·영문·숫자만 쓸 수 있어요');
+  expect(isDisabled(screen, '저장')).toBe(true);
+
+  await type(screen, '닉네임', '민준2');
+  expect(isDisabled(screen, '저장')).toBe(false);
+  await press(screen, '저장');
+  await settle(50);
+  expect(patchBodies()[0]).toEqual({
+    nickname: '민준2',
+    gender: 'MALE',
+    birthDate: '1995-03-14',
+  });
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-781 리뷰 A-2·B-3: 규칙 이전에 저장된 닉네임(이모지 등)도 바꾸지 않으면 안내 없이 저장할 수 있고, 보내지 않는다.
+test('8.2 keeps an old nickname outside the rule and saves the rest', async () => {
+  const legacy = { ...me, nickname: '😀😀😀😀😀😀' };
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes('/devices')
+      ? respond(200, { items: [] })
+      : url.endsWith('/users/me')
+      ? respond(200, legacy)
+      : profileResponse({ selfReportedLevel: 'ADVANCED' }),
+  );
+  const screen = await launch(true);
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+
+  expect(texts(screen)).not.toContain('한글·영문·숫자만 쓸 수 있어요');
+  expect(isDisabled(screen, '저장')).toBe(false);
+  // 이모지 6개는 UTF-16 12단위다. 칸 길이 제한이 이를 잘라 보이지 않게 한다(실기기 확인).
+  expect(last(screen, '닉네임', 'onChangeText').props.maxLength).toBe(12);
+  await press(screen, '상급');
+  await press(screen, '저장');
+  await settle(50);
+  expect(patchBodies()[0]).toEqual({ gender: 'MALE', birthDate: '1995-03-14' });
+  expect(texts(screen)).toContain('프로필을 저장했어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-781 리뷰 B-1: 닉네임 저장 뒤 수준 저장(U07)이 실패해 화면에 남으면, 원래 닉네임으로 되돌린 저장도 서버에 보낸다.
+test('8.2 sends a nickname changed back after a failed level save', async () => {
+  let levelSaves = 0;
+  fetchMock.mockImplementation(
+    async (url: string, init: { method?: string } = {}) => {
+      if (url.includes('/devices')) {
+        return respond(200, { items: [] });
+      }
+      if (url.endsWith('/users/me')) {
+        return respond(200, me);
+      }
+      if (init.method === 'PATCH') {
+        levelSaves += 1;
+        if (levelSaves === 1) {
+          return respond(500, { code: 'INTERNAL_ERROR', message: '', details: {} });
+        }
+      }
+      return profileResponse({ selfReportedLevel: 'BEGINNER' });
+    },
+  );
+  const screen = await launch(true);
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+
+  await type(screen, '닉네임', '민준2');
+  await press(screen, '저장');
+  await settle(50);
+  await type(screen, '닉네임', '민준');
+  await press(screen, '저장');
+  await settle(50);
+
+  const nicknames = patchBodies()
+    .filter(body => 'gender' in body)
+    .map(body => body.nickname);
+  expect(nicknames).toEqual(['민준2', '민준']);
   await act(async () => screen.unmount());
 });
