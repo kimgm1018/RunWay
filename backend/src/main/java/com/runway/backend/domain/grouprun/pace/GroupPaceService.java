@@ -6,6 +6,7 @@ import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
+import com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunRow;
@@ -41,12 +42,14 @@ public class GroupPaceService {
     private final ApplicationEventPublisher events;
     private final JsonMapper mapper;
     private final TransactionTemplate tx;
+    private final GroupRunFitJdbcRepository fits;
 
     public GroupPaceService(@Value("${runway.group-pace.enabled:false}") boolean enabled,
             GroupPaceRepository states, GroupRunJdbcRepository groups,
             GroupRunParticipantJdbcRepository participants, SessionCoachingRepository coaching,
             SessionReferenceRepository references, GroupPacePort ai, PersonalPacePlanPort plans,
-            ApplicationEventPublisher events, JsonMapper mapper, PlatformTransactionManager manager) {
+            ApplicationEventPublisher events, JsonMapper mapper, PlatformTransactionManager manager,
+            GroupRunFitJdbcRepository fits) {
         this.enabled = enabled;
         this.states = states;
         this.groups = groups;
@@ -58,6 +61,7 @@ public class GroupPaceService {
         this.events = events;
         this.mapper = mapper;
         this.tx = new TransactionTemplate(manager);
+        this.fits = fits;
     }
 
     public boolean isEnabled() { return enabled; }
@@ -213,7 +217,25 @@ public class GroupPaceService {
     }
 
     record Ranked(GroupPaceRepository.Candidate candidate, Integer recentPace) {}
-    record StartInput(GroupRunRow group, Instant token, List<Ranked> selected, boolean goalMode) {}
+    record StartInput(GroupRunRow group, Instant token, List<Ranked> selected, boolean goalMode,
+            java.util.Map<Long, Integer> displayedPaces) {}
+
+    /**
+     * 동의한 후보 본인의 최근 페이스. 대기방 '참가자 편한 범위'(G03 comfortRange)에 들어가는 그 사람의 값과 같은 계산이다
+     * (최근 완료 5회 평균, S15P31E105-785). 비동의 참가자의 기록은 읽지 않는다.
+     */
+    java.util.Map<Long, Integer> displayedPaces(List<GroupPaceRepository.Candidate> consented) {
+        if (consented.isEmpty()) return java.util.Map.of();
+        var recent = fits.findRecentCompletedPaces(consented.stream()
+                .map(GroupPaceRepository.Candidate::userId).toList());
+        var result = new java.util.HashMap<Long, Integer>();
+        if (recent == null) return result;
+        for (var c : consented) {
+            Integer pace = GroupRunFitCalculator.recentPaceSecPerKm(recent.get(c.userId()));
+            if (pace != null) result.put(c.userId(), pace);
+        }
+        return result;
+    }
 
     static List<Ranked> selectSlowest(List<Ranked> ranked) {
         var result = new ArrayList<>(ranked.stream().filter(r -> r.recentPace() == null).toList());
@@ -244,8 +266,9 @@ public class GroupPaceService {
                 states.abandonStart(groupId, state.updatedAt());
                 return null;
             }
-            var ranked = states.candidates(groupId).stream()
-                    .filter(GroupPaceRepository.Candidate::consent)
+            var consented = states.candidates(groupId).stream()
+                    .filter(GroupPaceRepository.Candidate::consent).toList();
+            var ranked = consented.stream()
                     .map(candidate -> new Ranked(candidate,
                     GroupRunFitCalculator.recentPaceSecPerKm(states.recentPaces(
                             candidate.userId(), group.goalDistance())))).toList();
@@ -254,7 +277,8 @@ public class GroupPaceService {
                 states.abandonStart(groupId, state.updatedAt());
                 return null;
             }
-            return new StartInput(group, state.updatedAt(), selected, state.goalMode());
+            return new StartInput(group, state.updatedAt(), selected, state.goalMode(),
+                    displayedPaces(consented));
         });
         if (input == null) return;
         var goal = new SessionGoal(null, null, input.group().goalDistance(), null, null);
@@ -263,6 +287,7 @@ public class GroupPaceService {
         Long basis = null;
         List<GroupPaceRepository.SegmentRatio> segments = List.of();
         int slower = 0;
+        boolean basisBoundaryHit = false;
         for (var selected : input.selected()) {
             var candidate = selected.candidate();
             if (candidate.consent() && !states.consented(candidate.userId())) {
@@ -284,9 +309,20 @@ public class GroupPaceService {
             if (aiPace == null || pace > aiPace) {
                 aiPace = pace;
                 basis = candidate.userId();
+                basisBoundaryHit = result.get().paceSearchBoundaryHit();
                 segments = segmentRatios(result.get(), goal.distanceM());
             }
             if (goalPace != null && pace > goalPace) slower++;
+        }
+        // S15P31E105-785: AI09 cannot plan slower than its search range, so a member slower than that range comes back
+        // faster than they actually run. Only in that direction (the basis member's own recent pace is slower than the
+        // plan), bring the recommendation down to that member's own recent pace: consented data only, inside the range.
+        Integer basisPace = basis == null ? null : input.displayedPaces().get(basis);
+        if (basisBoundaryHit && basisPace != null && aiPace < basisPace) {
+            org.slf4j.LoggerFactory.getLogger(GroupPaceService.class).info(
+                    "GROUP_PACE_START_CLAMPED groupRunId={} basisUserId={} aiPace={} basisRecentPace={}",
+                    groupId, basis, aiPace, basisPace);
+            aiPace = basisPace;
         }
         // Each mode applies its own value (S15P31E105-702): TOGETHER ('AI 추천') the AI recommendation as it is,
         // without max(goal, AI); GOAL the host's goal.

@@ -40,6 +40,21 @@ class AiPersonalPacePlanClientTest {
         }
     }
 
+    // S15P31E105-785: AI09 탐색 범위 끝에 걸렸는지(paceSearchBoundaryHit)를 읽는다. 없거나 boolean이 아니면 false.
+    @Test
+    void readsPaceSearchBoundaryHit() {
+        for (var c : new String[][] {{",\"paceSearchBoundaryHit\":true", "true"},
+                {",\"paceSearchBoundaryHit\":false", "false"}, {"", "false"},
+                {",\"paceSearchBoundaryHit\":\"true\"", "false"}}) {
+            try (var server = new FakeAiServer()) {
+                server.respond(200, OK.substring(0, OK.length() - 1) + c[0] + "}");
+                assertThat(client(server, Duration.ofSeconds(2)).plan(73L, goal).orElseThrow()
+                                .paceSearchBoundaryHit())
+                        .isEqualTo(Boolean.parseBoolean(c[1]));
+            }
+        }
+    }
+
     @Test
     void transientFailureRetriesExactlyOnce() {
         try (var server = new FakeAiServer()) {
