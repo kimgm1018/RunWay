@@ -178,6 +178,17 @@ type CoachingResultEvent = Extract<WatchSessionEvent, { type: 'COACHING_RESULT' 
 
 const noop = () => undefined;
 
+// The server sends a coaching only while it is valid (about 20 s, sessions.md coaching), and coaching comes much less
+// often, so the 코칭 tab was empty most of the run. Within the same session the last one stays, as on the watch, and the
+// tab marks it 지난 코칭 once expiresAt passes (S15P31E105-782). Another session starts with none.
+export function lastCoaching(
+  next: CoachingGuide | null | undefined,
+  previous: CoachingGuide | null,
+  sameSession: boolean,
+): CoachingGuide | null {
+  return next ?? (sameSession ? previous : null);
+}
+
 // 실기기 진단(S15P31E105-549): 제어 단계·명령 번호·오류 코드만 남긴다. 건강값·좌표·토큰은 남기지 않는다.
 // 릴리스 번들에서도 logcat ReactNativeJS 태그로 보인다.
 const diag = (line: string) => {
@@ -635,7 +646,7 @@ export function createRunControl({
       startedAt: view.startedAt,
       endedAt: view.endedAt,
       comparison: view.comparison ?? null,
-      coaching: view.coaching ?? null,
+      coaching: lastCoaching(view.coaching, state.coaching, view.sessionId === state.sessionId),
       currentBpm: view.currentBpm ?? null,
       recordingMode: view.recordingMode,
       clock: runClockOf(view, Date.now()),
@@ -1209,7 +1220,7 @@ export function createRunControl({
     if (view.stateVersion >= state.stateVersion) {
       setState({
         comparison: view.comparison ?? null,
-        coaching: view.coaching ?? null,
+        coaching: lastCoaching(view.coaching, state.coaching, view.sessionId === state.sessionId),
         currentBpm: view.currentBpm ?? null,
         clock: runClockOf(view, Date.now()),
       });

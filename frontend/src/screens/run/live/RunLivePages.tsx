@@ -510,6 +510,7 @@ export function CoachingPage({
   currentBpm,
   cadence,
   now,
+  phoneOnly = false,
 }: {
   pace: number | null;
   goalPace: number | null;
@@ -517,11 +518,21 @@ export function CoachingPage({
   currentBpm: number | null;
   cadence: number | null;
   now: Date;
+  // A run recorded by the phone alone (PHONE_ONLY): there is no heart rate or cadence for the server to coach on.
+  phoneOnly?: boolean;
 }) {
   const expired =
     coaching !== null && new Date(coaching.expiresAt).getTime() < now.getTime();
+  // The page itself is the pager's page (flex: 1). Wrapped in a View with no height of its own, it had none and
+  // its tiles drew empty with the values shrunk to a dot (S15P31E105-782), so the phone-only line lives in here.
   return (
     <View style={styles.page}>
+      {phoneOnly ? (
+        <AppText style={styles.phoneOnly}>
+          워치가 없어 심박·케이던스 기반 코칭은 제공되지 않아요. 페이스 안내만
+          확인할 수 있어요.
+        </AppText>
+      ) : null}
       <AppText style={styles.section}>목표</AppText>
       <View style={styles.grid}>
         <Metric
@@ -874,6 +885,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: liveLook.muted,
     paddingVertical: 8,
+  },
+  phoneOnly: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    color: liveLook.sub,
   },
   chart: { gap: 6 },
   chartBox: {
