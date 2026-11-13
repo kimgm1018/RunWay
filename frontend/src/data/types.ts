@@ -591,6 +591,8 @@ export type CrewListItem = {
   capacity: number;
   memberCount: number;
   myMembership: MyCrew['membership'] | null;
+  // My last request was turned down (M01·M02 myMembershipStatus REJECTED); I can ask again (S15P31E105-800).
+  myRejected?: boolean;
   // 크루 대표 사진 주소(M01·M02 imageUrl, S15P31E105-636), null without one.
   imageUrl?: string | null;
 };

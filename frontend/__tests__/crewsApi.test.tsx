@@ -40,6 +40,8 @@ type ServerCrew = {
   joinPolicy?: 'APPROVAL' | 'INSTANT';
   members: Person[];
   pending: Person[];
+  // users whose last request was turned down (myMembershipStatus REJECTED, S15P31E105-800).
+  rejected?: number[];
   // F02 path of the crew photo (M01·M02·M10 imageUrl, S15P31E105-636).
   imageUrl?: string;
 };
@@ -56,6 +58,8 @@ const statusOf = (crew: ServerCrew) =>
     ? 'APPROVED'
     : crew.pending.some(member => member.userId === meId)
     ? 'PENDING'
+    : crew.rejected?.includes(meId)
+    ? 'REJECTED'
     : null;
 
 const summary = (crew: ServerCrew) => ({
@@ -522,6 +526,44 @@ test('a dissolved crew drops out of 크루 모집 and 내 크루 without leaving
   }
 });
 
+// S15P31E105-800 (TEAM QA T29): another member joining while I look at a crew shows in 크루 모집 on the way back.
+test('크루 모집 reads the member count again after coming back from a crew', async () => {
+  const screen = await openGroup();
+  const recruitText = () =>
+    screen.root
+      .findByType(CrewRecruitPage)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number')
+      .join(' ');
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 3/30명');
+    const crew = crews.find(item => item.name === '광안리 새벽 크루')!;
+    crew.members.push({ userId: 990, nickname: '새 멤버' });
+    await press(screen, '뒤로');
+    await settle(50);
+    expect(recruitText()).toMatch(/4\s*\/\s*30/);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+// S15P31E105-800 (TEAM QA T19): a request the leader turned down shows on the crew, and asking again works.
+test('a turned-down request says so and can be sent again', async () => {
+  const crew = crews.find(item => item.name === '광안리 새벽 크루')!;
+  crew.members = crew.members.filter(member => member.userId !== meId);
+  crew.rejected = [meId];
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 2/30명');
+    expect(texts(screen)).toContain('신청이 거절됐어요 · 다시 신청');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
 // S15P31E105-774: M04 answers 404 CREW_NOT_FOUND for a crew dissolved after its page opened.
 test('a join request to a dissolved crew says it is already dissolved', async () => {
   const screen = await openGroup();
@@ -828,7 +870,9 @@ test('혼자인 크루장은 해산 확인 전까지 요청하지 않는다', as
     await press(screen, '크루 모집');
     await press(screen, '민락 야경 러너스, 모집 중 1/30명');
     await press(screen, '크루 나가기');
-    expect(texts(screen)).toContain('크루를 해산할까요?');
+    // S15P31E105-800 (TEAM QA T23): leaving alone says why the crew ends.
+    expect(texts(screen)).toContain('멤버가 없어 나가면 크루가 해산돼요');
+    expect(texts(screen)).not.toContain('크루를 해산할까요?');
     expect(sent('DELETE')).toEqual([]);
     await press(screen, '취소');
     expect(sent('DELETE')).toEqual([]);

@@ -122,6 +122,7 @@ export function createCrewsApi({
       capacity: crew.capacity,
       memberCount: crew.memberCount,
       myMembership: membershipOf(crew.myMembershipStatus),
+      ...(crew.myMembershipStatus === 'REJECTED' ? { myRejected: true } : {}),
       imageUrl: imageAddress(crew.imageUrl),
     };
   }

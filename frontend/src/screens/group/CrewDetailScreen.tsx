@@ -476,6 +476,8 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
     | 'ownerLeave'
     | 'remove'
     | 'dissolve'
+    // S15P31E105-800 (TEAM QA T23): 크루 나가기 by a leader with no other member ends the crew.
+    | 'soleLeave'
     | null
   >(null);
   const [busy, setBusy] = useState(false);
@@ -656,7 +658,7 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
       navigateTo(navigation, 'MyCrews');
     } catch (error) {
       if (errorCode(error) === 'OWNER_CANNOT_LEAVE') {
-        setSheet('dissolve');
+        setSheet('soleLeave');
         toast('후임을 지정해 탈퇴하거나 크루 해산을 확인해 주세요');
       } else if (errorCode(error) === 'INVALID_SUCCESSOR') {
         toast('후임으로 지정할 수 없는 멤버예요. 다른 멤버를 선택해 주세요');
@@ -758,7 +760,8 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
         onPress: () => setSheet('full'),
       }
     : {
-        title: '가입 신청',
+        // S15P31E105-800 (TEAM QA T19): a request the leader turned down can be sent again.
+        title: crew.myRejected ? '신청이 거절됐어요 · 다시 신청' : '가입 신청',
         icon: 'plus' as const,
         primary: true,
         onPress: () => requestJoin(crew),
@@ -939,7 +942,7 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
                         crew.amOwner
                           ? successors.length
                             ? 'ownerLeave'
-                            : 'dissolve'
+                            : 'soleLeave'
                           : 'leave',
                       );
                     }}
@@ -1120,12 +1123,20 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
                   />
                 </View>
               </View>
-            ) : crew && sheet === 'dissolve' ? (
+            ) : crew && (sheet === 'dissolve' || sheet === 'soleLeave') ? (
               <SheetBody
                 icon="alert"
                 danger
-                title="크루를 해산할까요?"
-                body={`‘${crew.name}’의 모든 구성원이 크루에서 나가며, 크루 목록에서 더 이상 보이지 않아요.`}
+                title={
+                  sheet === 'soleLeave'
+                    ? '멤버가 없어 나가면 크루가 해산돼요'
+                    : '크루를 해산할까요?'
+                }
+                body={
+                  sheet === 'soleLeave'
+                    ? `‘${crew.name}’에 다른 멤버가 없어 크루장이 나가면 크루가 해산되고, 크루 목록에서 더 이상 보이지 않아요.`
+                    : `‘${crew.name}’의 모든 구성원이 크루에서 나가며, 크루 목록에서 더 이상 보이지 않아요.`
+                }
               >
                 <SheetButton
                   title="취소"
