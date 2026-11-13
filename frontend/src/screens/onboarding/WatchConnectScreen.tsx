@@ -25,6 +25,7 @@ import {
   type WatchLinkState,
 } from '../../data';
 import {
+  neverHadWatch,
   watchConnectionLabel,
   watchReadinessDetail,
 } from '../../data/api/devices';
@@ -95,7 +96,8 @@ function WatchFace({
   const { colors } = useTheme();
   const window = useWindowDimensions();
   const connected = connection?.status === 'connected';
-  const waiting = busy || !connection;
+  // No watch ever linked looks like waiting, not 1.8's coral 끊김 (TEAM QA T06, S15P31E105-784).
+  const waiting = busy || !connection || neverHadWatch(connection);
   const tone = waiting ? palette.pale : connected ? k1.ice : k1.coral;
   // Near the prototype's 250/360 width, capped by height so the 2×2 cards below still fit.
   const watch = Math.min(window.width * 0.7, window.height * 0.3, 340);
@@ -323,6 +325,12 @@ export function WatchConnectScreen() {
   const error = loaded.status === 'error' || failed;
   const busy = loaded.status === 'loading' || reconnecting;
   const connected = connection?.status === 'connected';
+  const noWatch = connection ? neverHadWatch(connection) : false;
+  const dotColor = connected
+    ? colors.accent
+    : noWatch
+    ? colors.textDisabled
+    : colors.danger;
   const detail = connection ? watchReadinessDetail(connection) : null;
   return (
     <Screen
@@ -348,7 +356,10 @@ export function WatchConnectScreen() {
         ) : !busy && (connection || error) ? (
           <OnboardingFooter>
             {connection ? (
-              <GoButton title="다시 연결" onPress={reconnect} />
+              <GoButton
+                title={noWatch ? '워치 연결하기' : '다시 연결'}
+                onPress={reconnect}
+              />
             ) : null}
             <TextLink
               title="나중에 연결하기"
@@ -369,30 +380,18 @@ export function WatchConnectScreen() {
             <View style={styles.statusItem}>
               {/* A soft halo stands in for the prototype's glowing dot. */}
               <View style={styles.dotWrap}>
-                <View
-                  style={[
-                    styles.halo,
-                    {
-                      backgroundColor: connected
-                        ? colors.accent
-                        : colors.danger,
-                    },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor: connected
-                        ? colors.accent
-                        : colors.danger,
-                    },
-                  ]}
-                />
+                <View style={[styles.halo, { backgroundColor: dotColor }]} />
+                <View style={[styles.dot, { backgroundColor: dotColor }]} />
               </View>
               <AppText
                 variant="captionStrong"
-                tone={connected ? 'accentText' : 'danger'}
+                tone={
+                  connected
+                    ? 'accentText'
+                    : noWatch
+                    ? 'textSecondary'
+                    : 'danger'
+                }
               >
                 {watchConnectionLabel(connection)}
               </AppText>
