@@ -360,6 +360,77 @@ test('8.2 says the photo is too large when F01 refuses it and saves nothing else
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-796 (TEAM QA T24): a big photo is turned down at once with the reason, a picker error is told instead
+// of reading as 취소, and a slow first pick shows that it is working.
+test('8.2 turns down a 6MB photo on the spot and never uploads it', async () => {
+  const screen = await openProfileEdit();
+  pickNext({ ...picked, fileSize: 6 * 1024 * 1024 });
+  await press(screen, '프로필 사진 바꾸기');
+
+  expect(texts(screen)).toContain('5MB 이하의 사진을 골라 주세요');
+  await press(screen, '저장');
+  expect(uploads()).toHaveLength(0);
+  await act(async () => screen.unmount());
+});
+
+test('8.2 tells a picker that failed instead of ending silently', async () => {
+  const screen = await openProfileEdit();
+  (
+    require('react-native-image-picker').launchImageLibrary as jest.Mock
+  ).mockResolvedValueOnce({ errorCode: 'others', errorMessage: 'boom' });
+  await press(screen, '프로필 사진 바꾸기');
+  expect(texts(screen)).toContain('사진을 불러오지 못했어요');
+  await act(async () => screen.unmount());
+});
+
+test('8.2 shows the camera badge busy while a photo is being prepared and ignores a second tap', async () => {
+  const screen = await openProfileEdit();
+  const launch = require('react-native-image-picker')
+    .launchImageLibrary as jest.Mock;
+  launch.mockClear();
+  let finish: (value: unknown) => void = () => {};
+  launch.mockReturnValueOnce(
+    new Promise(resolve => {
+      finish = resolve;
+    }),
+  );
+  await act(async () => {
+    labelled(screen, '프로필 사진 바꾸기').props.onPress();
+  });
+  expect(
+    labelled(screen, '프로필 사진 바꾸기').props.accessibilityState.busy,
+  ).toBe(true);
+  await act(async () => {
+    labelled(screen, '프로필 사진 바꾸기').props.onPress();
+  });
+  expect(launch).toHaveBeenCalledTimes(1);
+
+  await act(async () => finish({ assets: [picked] }));
+  await settle();
+  expect(
+    labelled(screen, '프로필 사진 바꾸기').props.accessibilityState.busy,
+  ).toBe(false);
+  await act(async () => screen.unmount());
+});
+
+test('8.2 uploads once when 저장 is tapped three times in a row', async () => {
+  const screen = await openProfileEdit();
+  pickNext(picked);
+  await press(screen, '프로필 사진 바꾸기');
+  await act(async () => {
+    const save = labelled(screen, '저장').props.onPress;
+    save();
+    save();
+    save();
+  });
+  await settle();
+  await settle();
+
+  expect(uploads()).toHaveLength(1);
+  expect(patches()).toHaveLength(3);
+  await act(async () => screen.unmount());
+});
+
 // 8.2b 평소 러닝 정보 (S15P31E105-551): U06 fills it, U07 saves the pace part only.
 
 const runningGets = () =>

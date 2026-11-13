@@ -420,7 +420,9 @@ test('crew and member photos show, and a broken photo falls back to the letter',
       .findAllByType(Image)
       .map(node => (node.props.source as { uri?: string })?.uri ?? '');
   const shows = (screen: Screen, id: string) =>
-    photos(screen).filter(uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)));
+    photos(screen).filter(
+      uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)),
+    );
   const letter = (screen: Screen, text: string) =>
     screen.root.findAllByType(Text).some(node => node.props.children === text);
 
@@ -561,6 +563,20 @@ test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with t
   pickNext({ uri: 'file:///cache/run.gif', type: 'image/gif', fileSize: 1000 });
   await press(screen, '대표 사진 추가');
   expect(texts(screen)).toContain('JPG나 PNG 사진만 쓸 수 있어요');
+
+  // S15P31E105-796: a 6MB photo is told at once too, and a picker error is not read as 취소.
+  pickNext({
+    uri: 'file:///cache/big.jpg',
+    type: 'image/jpeg',
+    fileSize: 6 * 1024 * 1024,
+  });
+  await press(screen, '대표 사진 추가');
+  expect(texts(screen)).toContain('5MB 이하의 사진을 골라 주세요');
+  (
+    require('react-native-image-picker').launchImageLibrary as jest.Mock
+  ).mockResolvedValueOnce({ errorCode: 'others' });
+  await press(screen, '대표 사진 추가');
+  expect(texts(screen)).toContain('사진을 불러오지 못했어요');
 
   pickNext({
     uri: 'file:///cache/crew.jpg',

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -26,6 +27,7 @@ import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { photoFailure, pickPhoto } from '../photoPicker';
+import { useTapLock } from '../useTapLock';
 
 // M03: 1–200 members; a new crew starts at 20.
 const minCapacity = 1;
@@ -242,14 +244,22 @@ export function CrewCreateScreen() {
   const [busy, setBusy] = useState(false);
   const ready = name.trim().length > 0 && area !== null;
 
+  // S15P31E105-796: the tile spins while a big original is shrunk, and a refusal is always told (see ProfileEdit).
+  const [picking, setPicking] = useState(false);
   const choosePhoto = async () => {
-    const picked = await pickPhoto('crew');
-    if (picked.kind === 'refused') {
-      toast(picked.message);
-    } else if (picked.kind === 'picked') {
-      setPhoto(picked.photo);
+    setPicking(true);
+    try {
+      const picked = await pickPhoto('crew');
+      if (picked.kind === 'refused') {
+        toast(picked.message);
+      } else if (picked.kind === 'picked') {
+        setPhoto(picked.photo);
+      }
+    } finally {
+      setPicking(false);
     }
   };
+  const once = useTapLock();
 
   const create = async () => {
     if (!ready || !area) {
@@ -309,11 +319,14 @@ export function CrewCreateScreen() {
                 accessibilityLabel={
                   photo ? '대표 사진 바꾸기' : '대표 사진 추가'
                 }
-                disabled={busy}
+                accessibilityState={{ busy: picking }}
+                disabled={busy || picking}
                 onPress={choosePhoto}
                 style={styles.photo}
               >
-                {photo ? (
+                {picking ? (
+                  <ActivityIndicator color={groupTone.text} />
+                ) : photo ? (
                   <Image
                     source={{ uri: photo.uri }}
                     style={StyleSheet.absoluteFill}
@@ -426,7 +439,7 @@ export function CrewCreateScreen() {
             title="크루 만들기"
             icon="plus"
             disabled={!ready || busy}
-            onPress={create}
+            onPress={once(create)}
           />
         </SafeAreaView>
       </View>
