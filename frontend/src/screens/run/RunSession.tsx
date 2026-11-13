@@ -650,7 +650,8 @@ export function RunSessionProvider({
     const paceChange = createPaceChangeTracker();
     // 그룹장 폰만 선두–후미 간격 벌어짐을 알린다(S15P31E105-629, 같은 규칙). 기준은 groupStatus.ts GROUP_GAP_ALERT_M.
     const gapAlert = createGapAlertTracker();
-    // 그룹장·뒤처진 본인 음성 안내(S15P31E105-735). 음성 코칭 설정이 켜져 있을 때만, 코칭 문장을 끊지 않게 말한다.
+    // 후미보다 앞선 러너(그룹장 포함, S15P31E105-771)·뒤처진 본인 음성 안내(S15P31E105-735). 음성 코칭 설정이 켜져 있을 때만,
+    // 코칭 문장을 끊지 않게 말한다.
     const gapVoice = createGroupGapVoice({
       enabled: () => voiceOn.current,
       running: () => myRunning.current,
