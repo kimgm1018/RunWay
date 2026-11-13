@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { AppText, PressableScale } from '../../components';
+import { AppText, DefaultAvatar, PressableScale } from '../../components';
 import {
   useRepositories,
   type CrewJoinRequest,
@@ -41,7 +41,8 @@ function requestLine(request: CrewJoinRequest, now: Date) {
 
 // One request as its own faint white panel on the navy page (S15P31E105-594 담당자 시안): the name on top,
 // then its line with 거절 quiet and 승인 in the mockup's mint (navy text) on the right. The line keeps the date in it (중급 · 최근 5km 5′56″ · 3분 전 신청), so it is not
-// split off to the top right as in the mockup, and the mockup has no initial tile, so it is left out.
+// split off to the top right as in the mockup. Without a photo the default profile picture stands by the
+// name, as everywhere else (S15P31E105-775).
 // Shared by 6.2a 가입 신청 관리 and the leader's 6.2 크루 상세 (S15P31E105-678).
 export function CrewJoinRequestRow({
   request,
@@ -57,9 +58,13 @@ export function CrewJoinRequestRow({
   const { clock } = useRepositories();
   return (
     <View style={styles.card}>
-      {/* The applicant's photo by the name when they have one (S15P31E105-636). */}
+      {/* The applicant's photo by the name (S15P31E105-636), or the default one (S15P31E105-775). */}
       <View style={styles.photoRow}>
-        <PhotoOr photo={request.profileImageUrl} size={32} fallback={null} />
+        <PhotoOr
+          photo={request.profileImageUrl}
+          size={32}
+          fallback={<DefaultAvatar size={32} />}
+        />
         <AppText style={[styles.name, styles.flex]}>
           {request.loginId
             ? `${request.nickname} · ${request.loginId}`

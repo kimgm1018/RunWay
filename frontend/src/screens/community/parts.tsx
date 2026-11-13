@@ -8,7 +8,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, Logo, MistFill } from '../../components';
+import { AppText, DefaultAvatar, Icon, Logo, MistFill } from '../../components';
 import {
   useRepositories,
   type Post,
@@ -40,24 +40,11 @@ const pick = (id: string, count: number) =>
 export const mediaFor = (seed: string) =>
   communityLook.media[pick(seed, communityLook.media.length)];
 
-// The handoff's avatar fills, top to bottom; mine is the deep teal one (7.2 댓글 입력 · 7.3).
-const avatarFills = [
-  ['#8DACBA', '#5D8194'],
-  ['#A4BDC9', '#5D8194'],
-  ['#7DA0B2', '#3A5A6C'],
-  ['#3A5A6C', '#182E3D'],
-];
-const mineFill = ['#3A5A6C', '#182E3D', '#091019'];
-// 7.4's big avatar of someone else: pale mist with dark letters.
-const heroFill = ['#C4D4DC', '#8DACBA', '#5D8194'];
-
-// The first letter of the nickname on a mist circle, with no ring: the service has no stories (담당자 결정).
-// `hero` is the big 7.4 · 7.4b one. `photo` is the runner's photo address (profileImageUrl): it fills the
-// circle, and a missing one or one that does not load leaves the letter.
+// The runner's photo in a circle, with no ring: the service has no stories (담당자 결정). `hero` is the big
+// 7.4 · 7.4b one. `photo` is the runner's photo address (profileImageUrl): it fills the circle, and a missing
+// one or one that does not load shows the default profile picture (S15P31E105-775). `nickname`, `userId` and
+// `mine` stay so every author passes the same person.
 export function Avatar({
-  nickname,
-  userId,
-  mine = false,
   size = 40,
   hero = false,
   photo = null,
@@ -69,15 +56,8 @@ export function Avatar({
   hero?: boolean;
   photo?: string | null;
 }) {
-  const fillId = useSvgId('avatar');
   const [failed, setFailed] = useState<string | null>(null);
   const shown = photo && photo !== failed ? photo : null;
-  const light = hero && !mine;
-  const fill = mine
-    ? mineFill
-    : light
-    ? heroFill
-    : avatarFills[pick(userId, avatarFills.length)];
   return (
     <View
       style={[
@@ -95,21 +75,7 @@ export function Avatar({
           accessibilityIgnoresInvertColors
         />
       ) : (
-        <>
-          <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
-          <AppText
-            style={[
-              styles.avatarText,
-              light && styles.avatarTextDark,
-              {
-                fontSize: Math.round(size * 0.38),
-                lineHeight: Math.round(size * 0.5),
-              },
-            ]}
-          >
-            {nickname.slice(0, 1)}
-          </AppText>
-        </>
+        <DefaultAvatar size={size} />
       )}
     </View>
   );
@@ -572,8 +538,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   avatarHero: { boxShadow: '0 8px 20px rgba(2,5,14,0.16)' },
-  avatarText: { fontFamily: fontFamily.bold, color: communityLook.onDark },
-  avatarTextDark: { color: '#091019' },
   stats: {
     flexDirection: 'row',
     justifyContent: 'space-around',

@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
   BottomSheet,
+  DefaultAvatar,
   EmptyState,
   Icon,
   type IconName,
@@ -228,11 +229,7 @@ function MemberRow({
         <PhotoOr
           photo={member.profileImageUrl}
           size={34}
-          fallback={
-            <AppText style={styles.initialText}>
-              {member.nickname.slice(0, 1)}
-            </AppText>
-          }
+          fallback={<DefaultAvatar size={34} />}
         />
       </View>
       <AppText style={styles.memberName}>
@@ -1335,15 +1332,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: groupTone.inner,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  initialText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 18,
-    color: groupTone.text,
+    overflow: 'hidden',
   },
   memberName: {
     fontFamily: fontFamily.bold,

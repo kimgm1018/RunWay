@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
-import { AppText, BottomSheet, Button } from '../../components';
+import { AppText, BottomSheet, Button, DefaultAvatar } from '../../components';
 import {
   errorCode,
   useRepositories,
   type FollowDecision,
   type FollowRequest,
 } from '../../data';
-import { radius, spacing, useTheme } from '../../theme';
+import { spacing, useTheme } from '../../theme';
 
 // 7.4b 팔로우 요청 (runway-flow v15 reqSheet, U24 · U25, S15P31E105-525): the requests waiting for my answer,
 // each with 승인 and 거절. An answered row leaves the list. Results show inside the sheet, as a toast would sit
@@ -185,16 +185,8 @@ export function FollowRequestSheet({
             const busy = deciding === request.requestId;
             return (
               <View key={request.requestId} style={styles.row}>
-                <View
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: colors.surfaceMuted },
-                  ]}
-                >
-                  <AppText variant="bodyStrong">
-                    {request.nickname.slice(0, 1)}
-                  </AppText>
-                </View>
+                {/* The request carries no photo, so the default profile picture (S15P31E105-775). */}
+                <DefaultAvatar size={36} />
                 <AppText
                   variant="bodyStrong"
                   numberOfLines={1}
@@ -252,12 +244,5 @@ const styles = StyleSheet.create({
   list: { maxHeight: 360 },
   rows: { gap: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   name: { flex: 1 },
 });

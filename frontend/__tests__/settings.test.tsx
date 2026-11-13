@@ -100,9 +100,9 @@ test('8.1 tiles switch at once and 8.1b picks where the location is recorded', a
   expect(voice().props.accessibilityState.checked).toBe(false);
   expect(stateOf(screen, '코칭 음성 알림')).toBe('끄기');
 
-  expect(stateOf(screen, '계정 공개 범위')).toBe('공개');
-  await press(screen, '계정 공개 범위');
-  expect(stateOf(screen, '계정 공개 범위')).toBe('비공개');
+  // 계정 공개 범위 moved to 8.2 프로필 수정 (S15P31E105-775).
+  expect(() => labelled(screen, '계정 공개 범위')).toThrow();
+  expect(page).not.toContain('공개 및 위치');
 
   // 위치 기록 opens 8.1b: one of 항상 · 러닝 중에만 · 끔 is on, and 8.1 shows the one picked.
   expect(stateOf(screen, '위치 기록')).toBe('러닝 중에만');
@@ -132,13 +132,13 @@ test('8.1 keeps the switch when save lands but the companion read fails', async 
     throw new DataError('SERVER_ERROR', 'unexpected');
   };
   const screen = await openSettings(repositories);
-  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
-    true,
-  );
+  expect(
+    labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked,
+  ).toBe(true);
   await press(screen, 'BPM 리듬 가이드');
-  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
-    false,
-  );
+  expect(
+    labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked,
+  ).toBe(false);
   expect(texts(screen)).toContain('저장했어요. 최신 설정을 불러오지 못했어요');
   expect(texts(screen)).not.toContain(
     '설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요',
@@ -165,9 +165,9 @@ test('8.1 ignores a second switch tap while a save is in flight', async () => {
     labelled(screen, '코칭 음성 알림').props.onPress();
   });
   await settle();
-  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.disabled).toBe(
-    true,
-  );
+  expect(
+    labelled(screen, '코칭 음성 알림').props.accessibilityState.disabled,
+  ).toBe(true);
   await act(async () => {
     labelled(screen, '코칭 음성 알림').props.onPress();
     labelled(screen, 'BPM 리듬 가이드').props.onPress();
@@ -179,13 +179,13 @@ test('8.1 ignores a second switch tap while a save is in flight', async () => {
   await settle();
   await settle();
   expect(updates).toBe(1);
-  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.checked).toBe(
-    false,
-  );
+  expect(
+    labelled(screen, '코칭 음성 알림').props.accessibilityState.checked,
+  ).toBe(false);
   // Fixture starts with bpmGuideEnabled true; the ignored tap must leave it there.
-  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
-    true,
-  );
+  expect(
+    labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked,
+  ).toBe(true);
   await act(async () => screen.unmount());
 });
 
@@ -388,6 +388,51 @@ test('8.2 saves the nickname from the foot and opens with it again', async () =>
   } finally {
     holdToast.mockRestore();
   }
+});
+
+// S15P31E105-775: 계정 공개 범위 sits on 8.2 and saves at once with U14, as the 8.1 switch did.
+test('8.2 switches 계정 공개 범위 at once and opens with it again', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const update = jest.spyOn(repositories.settings, 'update');
+  const screen = await openSettings(repositories);
+  await press(screen, '뒤로');
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+  const privacy = () => labelled(screen, '계정 공개 범위');
+  expect(privacy().props.accessibilityState.checked).toBe(true);
+  expect(texts(screen)).toContain('공개');
+  await press(screen, '계정 공개 범위');
+  expect(update).toHaveBeenCalledWith({ isPrivate: true });
+  expect(privacy().props.accessibilityState.checked).toBe(false);
+  expect(texts(screen)).toContain('비공개');
+  // Saved without 저장: leaving and coming back reads it again.
+  await press(screen, '뒤로');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+  expect(privacy().props.accessibilityState.checked).toBe(false);
+  await act(async () => screen.unmount());
+});
+
+test('8.2 rolls 계정 공개 범위 back when U14 fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.settings.update = async () => {
+    throw new DataError('SERVER_ERROR', 'down');
+  };
+  const screen = await openSettings(repositories);
+  await press(screen, '뒤로');
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '프로필 수정');
+  await settle(50);
+  await press(screen, '계정 공개 범위');
+  expect(
+    labelled(screen, '계정 공개 범위').props.accessibilityState.checked,
+  ).toBe(true);
+  expect(texts(screen)).toContain('설정을 저장하지 못했어요');
+  await act(async () => screen.unmount());
 });
 
 test('8.4 keeps 다음 off while a crew I lead must be handed over first (users.md U17·U18)', async () => {

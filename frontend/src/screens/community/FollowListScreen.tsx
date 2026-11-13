@@ -20,6 +20,7 @@ import {
   AppText,
   Backdrop,
   Button,
+  DefaultAvatar,
   EmptyState,
   Icon,
   Segmented,
@@ -80,7 +81,7 @@ const closedBy = (error: unknown): 'locked' | 'gone' | null => {
 };
 
 function Row({ item, onPress }: { item: FollowListItem; onPress: () => void }) {
-  // A photo that does not load leaves the initial, as without one.
+  // A photo that does not load shows the default profile picture, as without one (S15P31E105-775).
   const [failed, setFailed] = useState<string | null>(null);
   const photo =
     item.profileImageUrl && item.profileImageUrl !== failed
@@ -102,9 +103,7 @@ function Row({ item, onPress }: { item: FollowListItem; onPress: () => void }) {
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <AppText style={styles.initial}>
-            {item.nickname.slice(0, 1).toUpperCase()}
-          </AppText>
+          <DefaultAvatar size={44} />
         )}
       </View>
       <AppText style={styles.name} numberOfLines={1}>
@@ -354,15 +353,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: look.mark,
   },
   photo: { width: 44, height: 44 },
-  initial: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 22,
-    color: '#FFFFFF',
-  },
   name: {
     flex: 1,
     fontFamily: fontFamily.medium,

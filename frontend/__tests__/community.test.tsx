@@ -13,7 +13,11 @@ import {
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
-import { NaverMapPathOverlay, NaverMapView, NaverMapMarkerOverlay } from '@mj-studio/react-native-naver-map';
+import {
+  NaverMapPathOverlay,
+  NaverMapView,
+  NaverMapMarkerOverlay,
+} from '@mj-studio/react-native-naver-map';
 import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
 import {
@@ -727,7 +731,9 @@ test('the detail holds the whole replay route with the author at its finish', as
   }
   expect(map().props.camera).toEqual(camera);
   expect(core().props.progress).toBe(1);
-  expect(map().findByType(NaverMapMarkerOverlay).props.latitude).toBe(end.latitude);
+  expect(map().findByType(NaverMapMarkerOverlay).props.latitude).toBe(
+    end.latitude,
+  );
 });
 
 // The replay's length follows the run's distance, kept between 8 s and 15 s, and its speed-up is shown honestly.
@@ -1675,8 +1681,9 @@ test('7.4b says when there are no saved courses or they did not load', async () 
   expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
 });
 
-// S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
-test('Avatar shows the photo and falls back to the letter', async () => {
+// S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails shows the default
+// profile picture (S15P31E105-775) instead of the first letter.
+test('Avatar shows the photo and falls back to the default picture', async () => {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
@@ -1689,15 +1696,21 @@ test('Avatar shows the photo and falls back to the letter', async () => {
   const rendered = screen!;
   mounted = rendered;
   const photos = () => rendered.root.findAllByType(Image);
+  const defaults = () =>
+    rendered.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'default-avatar',
+    );
   expect(photos()).toHaveLength(1);
   expect(photos()[0].props.source).toEqual({ uri: 'https://img.test/9.jpg' });
-  expect(texts(rendered)).toBe('하');
+  expect(defaults()).toHaveLength(1);
+  expect(texts(rendered)).toBe('');
 
   await act(async () => {
     photos()[0].props.onError?.({ nativeEvent: { error: 'not found' } });
   });
   expect(photos()).toHaveLength(0);
-  expect(texts(rendered)).toContain('서');
+  expect(defaults()).toHaveLength(2);
 });
 
 // 7.4b → 2.1 기록 상세 → 7.3 기록 공유 with my 10.15 run.

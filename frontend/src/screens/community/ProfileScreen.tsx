@@ -28,11 +28,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PagerView from 'react-native-pager-view';
 import Svg, {
+  Circle,
   Defs,
   LinearGradient,
+  Path,
   Rect,
   Stop,
-  Text as SvgText,
 } from 'react-native-svg';
 import {
   AppText,
@@ -84,7 +85,7 @@ import { PhotoZoom, zoomablePhoto } from './PhotoZoom';
 // 같은 배경, S15P31E105-483), the name sits over its foot, then one wide navy button, a row of three numbers, a
 // glass card and the runs
 // as two-column photo tiles. The picture is the runner's profile photo; without one it is a mist-to-teal
-// gradient with the nickname's first letter large on it (담당자 결정). Only what the screen already showed is drawn.
+// gradient with the default profile picture's figure large on it (S15P31E105-775). Only what the screen already showed is drawn.
 const look = {
   // The picture without a photo: pale mist at the top, through steel and teal; the mist covers its foot.
   hero: [
@@ -165,36 +166,52 @@ const panelLead = 130;
 const blurAmount = 26;
 // The photo's blur once the page has scrolled (Image blurRadius).
 const photoBlur = 24;
-// The nickname's first letter, drawn huge so its lower half reaches behind the info area.
-const letterSize = 330;
-const letterTop = 70;
-// Where the sharp letter fades, as parts of its height: whole down to fadeFrom, gone by fadeTo.
+// The default profile picture's figure (S15P31E105-775), drawn huge so its shoulders reach behind the info area.
+const figureSize = 300;
+const figureTop = 90;
+// Where the sharp figure fades, as parts of its height: whole down to fadeFrom, gone by fadeTo.
 const fadeFrom = 0.5;
 const fadeTo = 0.86;
 
-// The letter as Svg text, so its fill can fade toward the foot. Both copies are drawn the same way, so
+// The figure as Svg lines, so its stroke can fade toward the foot. Both copies are drawn the same way, so
 // the sharp one lies exactly over the blurred one.
-function Letter({
-  initial,
+function Figure({
   id,
   width,
   fade,
 }: {
-  initial: string;
   id: string;
   width: number;
   fade: boolean;
 }) {
-  const height = letterSize * 1.25;
+  const stroke = fade ? `url(#${id})` : '#FFFFFF';
+  const line = {
+    fill: 'none',
+    stroke,
+    strokeOpacity: fade ? 1 : 0.92,
+    strokeWidth: 1.2,
+    strokeLinecap: 'round' as const,
+  };
   return (
     <Svg
+      testID="default-avatar"
       width={width}
-      height={height}
-      style={[styles.letter, { top: letterTop }]}
+      height={figureSize}
+      viewBox={`${12 - (12 * width) / figureSize} 0 ${
+        (24 * width) / figureSize
+      } 24`}
+      style={[styles.letter, { top: figureTop }]}
     >
       {fade ? (
         <Defs>
-          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <LinearGradient
+            id={id}
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="24"
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.92} />
             <Stop offset={fadeFrom} stopColor="#FFFFFF" stopOpacity={0.92} />
             <Stop offset={fadeTo} stopColor="#FFFFFF" stopOpacity={0} />
@@ -202,17 +219,8 @@ function Letter({
           </LinearGradient>
         </Defs>
       ) : null}
-      <SvgText
-        x={width / 2}
-        y={letterSize * 0.98}
-        textAnchor="middle"
-        fontFamily={fontFamily.bold}
-        fontSize={letterSize}
-        fill={fade ? `url(#${id})` : '#FFFFFF'}
-        fillOpacity={fade ? 1 : 0.92}
-      >
-        {initial}
-      </SvgText>
+      <Circle {...line} cx={12} cy={8.6} r={3.9} />
+      <Path {...line} d="M4.6 20.4c1.4-3.6 4.2-5.5 7.4-5.5s6 1.9 7.4 5.5" />
     </Svg>
   );
 }
@@ -221,21 +229,19 @@ function Letter({
 // the information scrolls up over it; the further it scrolls, the blurrier and darker the picture gets
 // (담당자 요청: 스크롤 내릴수록 흐려지게). React Native cannot blur what lies behind a view, so a blurred copy of the
 // picture (filter: blur, Android only; iOS stays sharp) fades in over the sharp one as the page scrolls.
-// The sharp letter's foot fades out so the info area starts calm, with a dark tint deepening below it.
+// The sharp figure's foot fades out so the info area starts calm, with a dark tint deepening below it.
 function HeroBackdrop({
-  initial,
   photo: address,
   heroHeight,
   scrollY,
 }: {
-  initial: string;
-  // The runner's photo (U21 profileImageUrl); without one the gradient and the letter stand in.
+  // The runner's photo (U21 profileImageUrl); without one the gradient and the default figure stand in.
   photo: string | null;
   heroHeight: number;
   scrollY: Animated.Value;
 }) {
   const { width, height } = useWindowDimensions();
-  // A photo that does not load leaves the gradient and the letter, as without one.
+  // A photo that does not load leaves the gradient and the figure, as without one.
   const [failed, setFailed] = useState<string | null>(null);
   const photo = address && address !== failed ? address : null;
   // Wider than the screen so the blur does not fade in at the sides.
@@ -303,20 +309,10 @@ function HeroBackdrop({
               },
             ]}
           >
-            <Letter
-              initial={initial}
-              id="profileLetterBlur"
-              width={blurWidth}
-              fade={false}
-            />
+            <Figure id="profileFigureBlur" width={blurWidth} fade={false} />
           </Animated.View>
           <Animated.View style={[styles.fill, { opacity: sharp }]}>
-            <Letter
-              initial={initial}
-              id="profileLetterSharp"
-              width={width}
-              fade
-            />
+            <Figure id="profileFigureSharp" width={width} fade />
           </Animated.View>
         </>
       )}
@@ -1076,7 +1072,6 @@ function Profile({
   return (
     <CardViewportContext.Provider value={viewport}>
       <HeroBackdrop
-        initial={profile.nickname.slice(0, 1)}
         photo={profile.profileImageUrl}
         heroHeight={heroHeight}
         scrollY={scrollY}
