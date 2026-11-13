@@ -402,6 +402,9 @@ export function CommentSheet({
   onCloseRef.current = onClose;
   const pan = useRef(
     PanResponder.create({
+      // The handle row has nothing to press, so it takes the touch as it starts (S15P31E105-812, TEAM QA T14):
+      // asked only once the finger moved, it was never asked on the phone and the sheet did not move at all.
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 6,
       onPanResponderMove: (_, gesture) =>
         drag.setValue(Math.max(0, gesture.dy)),
@@ -413,6 +416,9 @@ export function CommentSheet({
           Animated.spring(drag, { toValue: 0, useNativeDriver: true }).start();
         }
       },
+      // A drag the system takes away halfway lets the sheet settle back up instead of hanging where it was.
+      onPanResponderTerminate: () =>
+        Animated.spring(drag, { toValue: 0, useNativeDriver: true }).start(),
     }),
   ).current;
 
