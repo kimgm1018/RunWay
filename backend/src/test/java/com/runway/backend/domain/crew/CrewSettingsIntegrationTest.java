@@ -19,6 +19,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -508,6 +510,74 @@ class CrewSettingsIntegrationTest extends SharedContextIntegrationSupport {
             }
             return results;
         }
+    }
+
+    // S15P31E105-774: 정원은 JSON 정수만 받는다. 1.5를 1로 잘라 저장하거나 "20"을 숫자로 바꾸지 않고
+    // 자료형 오류(400 VALIDATION_ERROR)로 거절한다(crews.md M03·M12 오류 표).
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"1.5", "20.0", "1e1", "\"20\"", "true", "[20]", "2147483648", "-2147483649"})
+    void 생성시_정수가_아닌_정원은_400이고_크루를_만들지_않는다(String capacity) throws Exception {
+        long before = crewCountOf(ownerId);
+        mockMvc.perform(
+                        post("/api/v1/crews")
+                                .header("Authorization", bearer(ownerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":\"소수 크루\",\"capacity\":" + capacity + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(before, crewCountOf(ownerId));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"1.5", "20.0", "1e1", "\"20\"", "true", "[20]", "2147483648", "-2147483649"})
+    void 설정_변경시_정수가_아닌_정원은_400이고_정원을_바꾸지_않는다(String capacity)
+            throws Exception {
+        long crewId = createCrew(ownerId, "정수 크루", 30, null);
+        updateSettings(ownerId, crewId, "{\"capacity\":" + capacity + "}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(30, capacityOf(crewId));
+    }
+
+    // 리뷰 A-1·B-2: null·생략은 새 역직렬화기를 거치지 않고 기존 규칙(M03 필수, M12 보낸 필드만 변경)을 따른다.
+    @Test
+    void 생성시_정원이_없거나_null이면_400이다() throws Exception {
+        long before = crewCountOf(ownerId);
+        for (String body :
+                List.of("{\"name\":\"정원 없음\"}", "{\"name\":\"정원 없음\",\"capacity\":null}")) {
+            mockMvc.perform(
+                            post("/api/v1/crews")
+                                    .header("Authorization", bearer(ownerId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        assertEquals(before, crewCountOf(ownerId));
+    }
+
+    @Test
+    void 설정_변경시_정원_null은_정원을_두고_가입방식만_바꾸고_소수면_아무것도_바꾸지_않는다()
+            throws Exception {
+        long crewId = createCrew(ownerId, "부분 변경 크루", 30, null);
+        updateSettings(ownerId, crewId, "{\"capacity\":1.5,\"joinPolicy\":\"INSTANT\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(30, capacityOf(crewId));
+        assertEquals("APPROVAL", joinPolicyOf(crewId));
+
+        updateSettings(ownerId, crewId, "{\"capacity\":null,\"joinPolicy\":\"INSTANT\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capacity").value(30));
+        assertEquals(30, capacityOf(crewId));
+        assertEquals("INSTANT", joinPolicyOf(crewId));
+    }
+
+    private long crewCountOf(long owner) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crews WHERE owner_id = ?", Long.class, owner);
     }
 
     private ResultActions updateSettings(long userId, long crewId, String body) throws Exception {

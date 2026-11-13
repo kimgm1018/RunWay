@@ -4,6 +4,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 import { MyCrewsPage } from '../src/screens/group/GroupScreen';
+import { CrewRecruitPage } from '../src/screens/group/CrewRecruitScreen';
 
 // 6.0 내 크루, 6.1 크루 모집, 6.2 크루 상세·나가기, 6.2a 가입 신청, 6.3 크루 만들기 against the server (dataSource 'api').
 
@@ -487,6 +488,72 @@ test('6.1 → 6.2 sends a join request, and a full crew shows the full sheet', a
   await press(screen, '가입 신청 · 정원 마감');
   expect(texts(screen)).toContain('정원이 가득 찼어요');
   await act(async () => screen.unmount());
+});
+
+// S15P31E105-774: the recruit page and my crews both load again after a dissolve, so the crew is gone from both.
+test('a dissolved crew drops out of 크루 모집 and 내 크루 without leaving the tab', async () => {
+  const screen = await openGroup();
+  const pageText = (page: typeof CrewRecruitPage | typeof MyCrewsPage) =>
+    screen.root
+      .findByType(page)
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string')
+      .join(' ');
+  try {
+    await press(screen, '크루 모집');
+    expect(pageText(CrewRecruitPage)).toContain('민락 야경 러너스');
+    expect(pageText(MyCrewsPage)).toContain('민락 야경 러너스');
+    await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+    await press(screen, '크루 해산');
+    await press(screen, '해산');
+    expect(sent('DELETE')).toEqual(['/crews/42']);
+    await settle(100);
+    expect(pageText(MyCrewsPage)).not.toContain('민락 야경 러너스');
+    await press(screen, '크루 모집');
+    expect(pageText(CrewRecruitPage)).not.toContain('민락 야경 러너스');
+    expect(pageText(CrewRecruitPage)).toContain('광안리 새벽 크루');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+// S15P31E105-774: M04 answers 404 CREW_NOT_FOUND for a crew dissolved after its page opened.
+test('a join request to a dissolved crew says it is already dissolved', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '수영강 아침 크루, 모집 중 5/20명');
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((address, init) => {
+      if (
+        init.method === 'POST' &&
+        address.endsWith('/crews/44/join-requests')
+      ) {
+        crews = crews.filter(crew => crew.id !== 44);
+        return Promise.resolve(
+          respond(404, { code: 'CREW_NOT_FOUND', message: '', details: {} }),
+        );
+      }
+      return original(address, init);
+    });
+    await press(screen, '가입 신청');
+    await settle(100);
+    const page = texts(screen);
+    expect(page).toContain('이미 해산된 크루입니다');
+    expect(page).not.toContain('가입 신청을 보내지 못했어요');
+    expect(
+      screen.root
+        .findByType(CrewRecruitPage)
+        .findAll(
+          node =>
+            node.props.accessibilityLabel ===
+            '수영강 아침 크루, 모집 중 5/20명',
+        ),
+    ).toHaveLength(0);
+  } finally {
+    await act(async () => screen.unmount());
+  }
 });
 
 test('6.2 lets a member leave with M08', async () => {

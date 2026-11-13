@@ -629,6 +629,11 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
         // Asked from another device already: show where it stands.
         toast('이미 가입했거나 승인을 기다리는 크루예요');
         reload();
+      } else if (errorCode(error) === 'CREW_NOT_FOUND') {
+        // M04 404: the crew was dissolved after this page opened (S15P31E105-774). The lists drop it.
+        toast('이미 해산된 크루입니다');
+        changed();
+        if (navigation.canGoBack()) navigation.goBack();
       } else {
         toast('가입 신청을 보내지 못했어요. 잠시 후 다시 시도해 주세요');
       }
