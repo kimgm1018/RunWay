@@ -112,7 +112,7 @@ data class BpmChange(val target: RhythmBpm, val status: BpmChangeStatus)
 
 /**
  * A coaching guide as shown on the watch: guide pace, target rhythm BPM and a cue sentence made on the watch
- * (D-10). [dummy] marks guidance that does not come from the real AI yet.
+ * (D-10). [dummy] marks guidance that does not come from the real AI; real AI04 coaching has none (S15P31E105-768).
  */
 data class CoachingGuide(
     val paceSecondsPerKm: Int,
@@ -123,10 +123,10 @@ data class CoachingGuide(
 
 object Coaching {
     /**
-     * Every coaching is shown with the "더미 안내" badge while the server sends dummy coaching (D-10).
-     * Set to false (or remove) when the real AI coaching lands; this is the only switch.
+     * Whether coaching is shown with the "더미 안내" badge (D-10). Off since the server sends real AI04 coaching
+     * (S15P31E105-768); this is the only switch.
      */
-    const val DUMMY_GUIDE = true
+    const val DUMMY_GUIDE = false
 
     /** Rhythm BPM limits for SET_BPM (9.3 targetBpm 60~220) and the step of one −/+ press. */
     const val MIN_BPM = 60
