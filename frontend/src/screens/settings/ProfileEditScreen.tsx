@@ -43,6 +43,7 @@ import {
 } from '../onboarding/validation';
 import { ProfilePhoto, settingsLook } from './SettingsScreen';
 import { photoFailure, pickPhoto } from '../photoPicker';
+import { useTapLock } from '../useTapLock';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 // The same years as 1.5b (S15P31E105-520), newest first, so a date picked at sign-up always shows here.
@@ -155,15 +156,24 @@ function Form({
   const [shownPhoto, setShownPhoto] = useState(photo);
   const [pendingPhoto, setPendingPhoto] = useState<PhotoFile | null>(null);
 
+  // S15P31E105-796: a big original takes a while to shrink after it is chosen; the camera badge spins meanwhile, so
+  // the first pick no longer looks dead, and a refusal (over 5MB, wrong type, picker error) is always told.
+  const [picking, setPicking] = useState(false);
   const choosePhoto = async () => {
-    const picked = await pickPhoto('profile');
-    if (picked.kind === 'refused') {
-      toast(picked.message);
-    } else if (picked.kind === 'picked') {
-      setShownPhoto(picked.photo.uri);
-      setPendingPhoto(picked.photo);
+    setPicking(true);
+    try {
+      const picked = await pickPhoto('profile');
+      if (picked.kind === 'refused') {
+        toast(picked.message);
+      } else if (picked.kind === 'picked') {
+        setShownPhoto(picked.photo.uri);
+        setPendingPhoto(picked.photo);
+      }
+    } finally {
+      setPicking(false);
     }
   };
+  const once = useTapLock();
 
   const save = async () => {
     if (!valid) {
@@ -232,11 +242,17 @@ function Form({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="프로필 사진 바꾸기"
+              accessibilityState={{ busy: picking }}
+              disabled={picking}
               onPress={choosePhoto}
               hitSlop={6}
               style={styles.camera}
             >
-              <Icon name="camera" color="#FFFFFF" size={14} />
+              {picking ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Icon name="camera" color="#FFFFFF" size={14} />
+              )}
             </Pressable>
           </View>
           <View style={styles.photoText}>
@@ -380,7 +396,7 @@ function Form({
           accessibilityLabel="저장"
           accessibilityState={{ disabled: !valid || busy }}
           disabled={!valid || busy}
-          onPress={save}
+          onPress={once(save)}
           style={({ pressed }) => [
             styles.save,
             (!valid || busy) && styles.dim,

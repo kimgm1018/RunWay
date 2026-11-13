@@ -50,7 +50,8 @@ function describe(
     case 'PHONE_ALREADY_REGISTERED':
       return {
         field: 'phone',
-        message: '이미 가입된 전화번호예요. 로그인하거나 비밀번호를 찾아 주세요.',
+        message:
+          '이미 가입된 전화번호예요. 로그인하거나 비밀번호를 찾아 주세요.',
       };
     case 'VERIFICATION_CODE_MISMATCH': {
       const count = error instanceof DataError ? error.failedCount : null;
@@ -152,7 +153,7 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
     [phoneNumber],
   );
 
-  const request = useCallback(async () => {
+  const sendRequest = useCallback(async () => {
     // A code already on screen is still live on the server unless a new one replaces it (users.md U28).
     const hadCode = phase === 'sent' || phase === 'verifying';
     setPhase('requesting');
@@ -198,6 +199,21 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
       setPhase('idle');
     }
   }, [auth, phase, phoneNumber, purpose]);
+
+  // S15P31E105-796: `phase === 'requesting'` reaches the screen only on the next render, so fast taps on 인증번호
+  // 받기 sent several paid SMS. This ref closes at the first tap and opens when the call is over.
+  const requesting = useRef(false);
+  const request = useCallback(async () => {
+    if (requesting.current) {
+      return;
+    }
+    requesting.current = true;
+    try {
+      await sendRequest();
+    } finally {
+      requesting.current = false;
+    }
+  }, [sendRequest]);
 
   const verify = useCallback(
     async (value: string) => {

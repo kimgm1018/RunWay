@@ -9,10 +9,35 @@ const photoLimitBytes = 5 * 1024 * 1024;
 export type PickedPhoto =
   | { kind: 'picked'; photo: PhotoFile }
   | { kind: 'cancelled' }
-  // A photo F01 would turn down, with what to say.
-  | { kind: 'refused'; message: string };
+  // A photo F01 would turn down, or a picker that failed, with what to say.
+  | { kind: 'refused'; message: string }
+  // The picker is still open (or still shrinking the last photo): a second tap does nothing.
+  | { kind: 'busy' };
+
+// S15P31E105-796: a second launchImageLibrary while the first is open or still shrinking a big original made the
+// first pick look dead. One pick at a time; a picker that fails or throws says so instead of reading as 취소.
+let picking = false;
+
+const pickerFailure = (code: string | undefined) =>
+  code === 'permission'
+    ? '사진 접근 권한이 필요해요. 설정에서 허용해 주세요'
+    : '사진을 불러오지 못했어요. 다시 골라 주세요';
 
 export async function pickPhoto(baseName: string): Promise<PickedPhoto> {
+  if (picking) {
+    return { kind: 'busy' };
+  }
+  picking = true;
+  try {
+    return await pickOne(baseName);
+  } catch {
+    return { kind: 'refused', message: pickerFailure(undefined) };
+  } finally {
+    picking = false;
+  }
+}
+
+async function pickOne(baseName: string): Promise<PickedPhoto> {
   const result = await launchImageLibrary({
     mediaType: 'photo',
     selectionLimit: 1,
@@ -20,6 +45,9 @@ export async function pickPhoto(baseName: string): Promise<PickedPhoto> {
     maxHeight: 1080,
     quality: 0.8,
   });
+  if (result.errorCode) {
+    return { kind: 'refused', message: pickerFailure(result.errorCode) };
+  }
   const asset = result.assets?.[0];
   if (result.didCancel || !asset?.uri) {
     return { kind: 'cancelled' };

@@ -24,6 +24,7 @@ import {
 } from '../../theme';
 import { OnboardingBackdrop, onboardingLook, ProgressBar } from './look';
 import { BackButton } from '../../components/BackButton';
+import { useTapLock } from '../useTapLock';
 
 export { Logo, Segmented } from '../../components';
 export {
@@ -164,16 +165,18 @@ export function GoButton({
   disabled = false,
 }: {
   title: string;
-  onPress: () => void;
+  onPress: () => unknown;
   disabled?: boolean;
 }) {
+  // S15P31E105-796: the first tap locks at once; fast repeat taps no longer send the request or open the screen again.
+  const once = useTapLock();
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled }}
       disabled={disabled}
-      onPress={onPress}
+      onPress={once(onPress)}
       style={[styles.go, disabled && styles.goDisabled]}
     >
       <AppText style={styles.goLabel}>{title}</AppText>
