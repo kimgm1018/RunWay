@@ -158,7 +158,7 @@ def build_stream_router(state: DemoState) -> APIRouter:
         except KeyError:
             raise ApiError(404, "SESSION_NOT_FOUND", "시연 세션이 없습니다.") from None
         if not state.buffer.subscribe(session_id):
-            raise ApiError(429, "TOO_MANY_CONNECTIONS", "이 세션의 화면 연결이 이미 2개입니다.")
+            raise ApiError(429, "TOO_MANY_CONNECTIONS", "이 세션의 화면 연결이 가득 찼습니다(최대 5개).")
         course_version, route_course = state.buffer.course_state(session_id)
         course = route_course or (profile.course.summary() if profile.course else None)
         routes = state.routes

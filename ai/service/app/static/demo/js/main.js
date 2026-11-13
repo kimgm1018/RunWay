@@ -106,7 +106,7 @@
     try {
       data = await root.RunwayDemoStream.fetchSnapshot({token: state.token, session: 'h' + row.sessionId});
     } catch (error) {
-      root.RunwayDemoRender.setConnection('이전 기록을 불러오지 못했습니다');
+      root.RunwayDemoRender.setConnection('이전 기록 실패 · 목록에서 다시 누르기');
       return;
     }
     if (state.stream) { state.stream.close(); state.stream = null; }
@@ -243,14 +243,20 @@
       onStatus: function (status) {
         if (status === 'connected') root.RunwayDemoRender.setConnection('연결됨 · 판단 기록 대기');
         else if (status === 'waiting') root.RunwayDemoRender.setConnection('세션 대기 중');
-        else if (status === 'unauthorized') {
+        else if (status === 'full') {
+          root.RunwayDemoRender.setConnection('연결 가득(5개) · 다른 탭 닫기');
+          setBanner('stale', '연결 가득 · 다른 탭 닫기');
+        } else if (status === 'unavailable') {
+          root.RunwayDemoRender.setConnection('AI 준비 중 · 자동 재연결');
+          setBanner('stale', 'AI 준비 중 · 잠시 기다리기');
+        } else if (status === 'unauthorized') {
           sessionStorage.removeItem('runwayDemoToken');
           root.RunwayDemoRender.setConnection('보기 토큰이 맞지 않습니다');
           var input = byId('token-input');
           if (input) { input.value = ''; input.focus(); }
           show(byId('auth-error'), true);
           show(byId('auth-panel'), true);
-        } else { root.RunwayDemoRender.setConnection('연결 끊김 · 재접속 중'); updateBanner(); }
+        } else { root.RunwayDemoRender.setConnection('연결 끊김 · 자동 재연결(계속되면 새로고침)'); updateBanner(); }
       }});
     root.__demo = {reconnectNow: function () { if (state.stream) state.stream.reconnectNow(); }};
   }

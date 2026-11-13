@@ -25,6 +25,14 @@
           options.onStatus && options.onStatus('unauthorized');
           return;
         }
+        if (response.status === 429) {          // 747: 이 세션 화면 연결이 가득 참 → 안내하고 천천히 다시 시도
+          options.onStatus && options.onStatus('full');
+          throw new Error('full');
+        }
+        if (response.status === 503) {          // 747: AI 준비 중(재배포 직후·시연 꺼짐) → 안내하고 자동 재시도
+          options.onStatus && options.onStatus('unavailable');
+          throw new Error('unavailable');
+        }
         if (response.status === 404) {
           options.onStatus && options.onStatus('waiting');
           throw new Error('waiting');
@@ -44,7 +52,7 @@
           parsed.events.forEach(function (event) { options.onEvent && options.onEvent(event.event, event.data); });
         }
       } catch (error) {
-        if (!stopped && runGeneration === generation && error.name !== 'AbortError') options.onStatus && options.onStatus(error.message === 'waiting' ? 'waiting' : 'disconnected');
+        if (!stopped && runGeneration === generation && error.name !== 'AbortError' && error.message !== 'full' && error.message !== 'unavailable') options.onStatus && options.onStatus(error.message === 'waiting' ? 'waiting' : 'disconnected');
       }
       if (!stopped && runGeneration === generation) {
         var wait = root.RunwayDemoLogic.backoffMs(attempt++);

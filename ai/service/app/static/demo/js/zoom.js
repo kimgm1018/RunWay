@@ -5,17 +5,17 @@
   // 패널 DOM을 그대로 모달 안으로 옮기므로 기존 render.js·livemap.js가 id로 찾아 계속 갱신한다(실시간 유지).
   // 글자는 rem 기준이라 모달이 열린 동안 루트 글자 크기를 키우고(html.zoom-open), 그래프는 ResizeObserver로 다시 그려진다.
   var PANELS = [
-    {selector: '.guide-card', key: 'guide', title: '지금 갈 안내 페이스', scale: 2.1, wholeClick: true,
+    {selector: '.guide-card', key: 'guide', title: '지금 갈 안내 페이스', scale: 1.5, wholeClick: true,
      text: 'AI가 지금 러너(그룹)에게 보내는 페이스입니다. 후보 페이스마다 2분 뒤 심박을 예측해 허용 심박을 넘지 않는 페이스를 고릅니다. ' +
            "'실제'는 최근 60초 동안 실제로 뛴 페이스입니다."},
-    {selector: '.candidates-panel', key: 'candidates', title: '페이스 후보', scale: 1.7, wholeClick: true,
+    {selector: '.candidates-panel', key: 'candidates', title: '페이스 후보', scale: 1.4, wholeClick: true,
      text: '지금 페이스보다 30초 빠른 것부터 60초 느린 것까지 9개 후보를 놓고, 그 페이스로 2분 뛰면 심박이 얼마가 될지 AI(GRU)가 예측한 값입니다. ' +
            '빗금은 허용 심박을 넘는 후보, 검은 칸이 고른 페이스입니다.'},
-    {selector: '.chart-panel', key: 'chart', title: '심박 예측', scale: 1.7, wholeClick: true,
+    {selector: '.chart-panel', key: 'chart', title: '심박 예측', scale: 1.4, wholeClick: true,
      text: '왼쪽 선은 실제 심박, 오른쪽으로 뻗은 선은 고른 페이스로 뛸 때 2분 뒤까지의 예측입니다. 빨간 점선이 넘지 말아야 할 허용 심박입니다.'},
-    {selector: '.records-panel', key: 'records', title: '판단 기록', scale: 1.8, wholeClick: true,
+    {selector: '.records-panel', key: 'records', title: '판단 기록', scale: 1.45, wholeClick: true,
      text: 'AI가 판단할 때마다 남긴 기록입니다. ▲ 빠르게, ■ 유지, ▼ 느리게. 페이스를 바꾼 뒤 2분 동안은 위험할 때가 아니면 그대로 유지합니다.'},
-    {selector: '.map-panel', key: 'map', title: '지도', scale: 1.4, wholeClick: false,
+    {selector: '.map-panel', key: 'map', title: '지도', scale: 1.3, wholeClick: false,
      text: '대상 러너가 실제로 뛴 경로와 지금 위치입니다. 그룹런이면 사람마다 색이 다르고, 선두·후미와 둘 사이 간격을 보여 줍니다.'},
   ];
   var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';

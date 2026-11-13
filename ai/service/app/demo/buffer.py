@@ -19,7 +19,7 @@ MAX_SESSIONS = 40
 IDLE_EXPIRE_SEC = 7 * 24 * 3600.0 # 마지막 기록 뒤 7일 보관
 MAX_TOTAL_ROUTE_POINTS = 60000    # 시연 수집(inlet) 경로 점 전체 상한
 LIVE_AFTER_SEC = 120.0            # 마지막 기록이 이보다 최근이면 '진행 중'
-MAX_SUBSCRIBERS = 2
+MAX_SUBSCRIBERS = 5               # 747: 발표 화면·발표자 노트북·확인용 탭 등
 MAX_ROUTE_POINTS = 12000          # 세션당(1초 간격 약 3시간 20분)
 MAX_COURSE_SUMMARY_POINTS = 500
 # 그룹 러닝 스트림 키. Nginx 경로(/v1/demo/sessions/(latest|[0-9]+)/events)를 바꾸지 않도록 숫자 키를 쓰고,
