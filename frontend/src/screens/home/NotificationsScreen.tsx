@@ -35,6 +35,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, k1 } from '../../theme';
 import { BackButton } from '../../components/BackButton';
 import { FollowRequestSheet } from '../community/FollowRequestSheet';
+import { newerId, newestNotificationId } from './notificationRefresh';
 
 type Navigation = NavigationProp<RootStackParamList>;
 type Open = (navigation: Navigation, targetId: string) => void;
@@ -238,7 +239,8 @@ function EmptyBell() {
 
 // 2.9 알림 (담당자 레퍼런스: 알림 페이지 영상): a mist page (담당자 요청) that rises over 홈, 뒤로 and a large 알림 on one
 // line, then every notification in one list, newest first (담당자 결정: 오늘 · 이번 주 탭 없이, 지우기 없이 - the
-// server has no delete). No 모두 읽음: everything shown here counts as read once the screen is left (담당자 결정).
+// server has no delete). No 모두 읽음: everything shown here counts as read once the screen is left (담당자 결정) -
+// only up to the newest row shown, so one that arrived meanwhile stays unread (S15P31E105-801).
 // 2.9b 알림 없음 stays. N01 pages past the first 50 join with 더 보기.
 export function NotificationsScreen() {
   const navigation = useNavigation<Navigation>();
@@ -251,11 +253,14 @@ export function NotificationsScreen() {
   const [followRequestsOpen, setFollowRequestsOpen] = useState(false);
   // N01's count also covers what this page leaves out (older pages, kinds the app does not know).
   const unreadCount = useRef(0);
+  // S15P31E105-801: the newest server id among the pages loaded, including kinds the list leaves out.
+  const newestLoadedId = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (resource.status === 'ready') {
       setItems(resource.data.items);
       setNextCursor(resource.data.nextCursor);
       unreadCount.current = resource.data.unreadCount;
+      newestLoadedId.current = resource.data.newestId;
     }
   }, [resource.status, resource.data]);
   const now = repositories.clock.now();
@@ -264,16 +269,28 @@ export function NotificationsScreen() {
   unread.current =
     unreadCount.current > 0 || (items?.some(item => !item.read) ?? false);
   const { notifications } = repositories;
+  // S15P31E105-801: leaving marks read only up to the newest row this screen loaded (kinds it leaves out included), so
+  // one that arrived meanwhile stays unread. Rows without a numeric id (mock data) keep the old mark-everything call.
+  const loadedRows = useRef<typeof items>(null);
+  loadedRows.current = items;
   useFocusEffect(
     useCallback(
       () => () => {
         if (unread.current) {
+          const loaded = loadedRows.current;
+          const upToId = newerId(
+            newestLoadedId.current,
+            newestNotificationId(loaded),
+          );
+          if ((!loaded || loaded.length === 0) && upToId === undefined) {
+            return;
+          }
           unreadCount.current = 0;
           unread.current = false;
           setItems(current =>
             current ? current.map(item => ({ ...item, read: true })) : null,
           );
-          notifications.markAllRead().catch(() => {});
+          notifications.markAllRead(upToId).catch(() => {});
         }
       },
       [notifications],
@@ -298,6 +315,7 @@ export function NotificationsScreen() {
       });
       setNextCursor(page.nextCursor);
       unreadCount.current = page.unreadCount;
+      newestLoadedId.current = newerId(newestLoadedId.current, page.newestId);
     } catch {
       // Keep the page already shown; the next tap can try again.
     } finally {

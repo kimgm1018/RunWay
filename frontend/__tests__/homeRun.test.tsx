@@ -437,6 +437,55 @@ test('an empty inbox shows the 2.9b empty state', async () => {
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-801 AC-9: leaving 2.9 marks read only up to the newest id it loaded, a left-out kind included.
+async function leaveInbox(page: {
+  items: AppNotification[];
+  unreadCount: number;
+  newestId?: number;
+}) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.notifications.list = async () => ({ ...page, nextCursor: null });
+  const markAllRead = jest.fn(async (_upToId?: number) => {});
+  repositories.notifications.markAllRead = markAllRead;
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '알림');
+  await press(screen!, '뒤로');
+  await settle();
+  await act(async () => screen!.unmount());
+  return markAllRead;
+}
+
+test('S15P31E105-801 leaving 2.9 sends the newest loaded id once', async () => {
+  const row = (id: string): AppNotification => ({
+    id,
+    kind: 'POST_COMMENT',
+    message: `서연님이 댓글을 남겼어요 ${id}`,
+    createdAt: '2026-10-19T12:40:00+09:00',
+    read: false,
+    targetId: 'post-minjun-1015',
+  });
+  // 9 is a kind this app leaves out of the list; the rows shown stop at 7.
+  const markAllRead = await leaveInbox({
+    items: [row('7'), row('5')],
+    unreadCount: 3,
+    newestId: 9,
+  });
+  expect(markAllRead).toHaveBeenCalledTimes(1);
+  expect(markAllRead).toHaveBeenCalledWith(9);
+});
+
+test('S15P31E105-801 leaving 2.9 with nothing loaded sends nothing', async () => {
+  const markAllRead = await leaveInbox({ items: [], unreadCount: 2 });
+  expect(markAllRead).not.toHaveBeenCalled();
+});
+
 test('FOLLOW_REQUEST opens the approve/reject sheet, not only the runner profile', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const request: AppNotification = {

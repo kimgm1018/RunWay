@@ -71,13 +71,14 @@ public class SignupRepository {
                 input.healthGranted() ? "AGREE" : "DISAGREE");
     }
 
+    /** S15P31E105-801: group·community notifications start on so a new account receives its inbox rows. */
     public void insertSettings(long userId) {
         jdbc.update(
                 """
                 INSERT INTO user_settings(user_id,voice_coaching_enabled,bpm_guide_enabled,
                     group_notifications_enabled,community_notifications_enabled,
                     location_collection_mode,account_visibility)
-                VALUES (?,false,true,false,false,'OFF','PRIVATE')
+                VALUES (?,false,true,true,true,'OFF','PRIVATE')
                 """,
                 userId);
     }

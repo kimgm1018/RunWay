@@ -68,6 +68,7 @@ test('N01 reads the newest 50 with string ids, the target and the unread count',
     ],
     unreadCount: 7,
     nextCursor: 'abc',
+    newestId: 9001,
   });
   const [url, init] = fetchMock.mock.calls[0];
   expect(url).toBe(`${appConfig.apiBaseUrl}/notifications?limit=50`);
@@ -107,6 +108,7 @@ test('N01 sends the cursor for the next page', async () => {
     ],
     unreadCount: 0,
     nextCursor: null,
+    newestId: 8999,
   });
   expect(fetchMock.mock.calls[0][0]).toBe(
     `${appConfig.apiBaseUrl}/notifications?limit=50&cursor=abc`,
@@ -156,6 +158,16 @@ test('N02 posts read-all without a body and settles on 204', async () => {
   expect(init.body).toBeUndefined();
 });
 
+test('AC-9 N02 sends upToId as a query when given (S15P31E105-801)', async () => {
+  fetchMock.mockResolvedValue(respond(204));
+
+  await expect(notificationsApi.markAllRead(7)).resolves.toBeUndefined();
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe(`${appConfig.apiBaseUrl}/notifications/read-all?upToId=7`);
+  expect(init.method).toBe('POST');
+  expect(init.body).toBeUndefined();
+});
+
 // S15P31E105-678: the leader's 가입 신청 알림 is a known kind, so the inbox shows it with the crew as target.
 test('N01 keeps a CREW_JOIN_REQUESTED item with the crew id as target', async () => {
   fetchMock.mockResolvedValue(
@@ -183,4 +195,42 @@ test('N01 keeps a CREW_JOIN_REQUESTED item with the crew id as target', async ()
     kind: 'CREW_JOIN_REQUESTED',
     targetId: '42',
   });
+});
+
+test('S15P31E105-801 the newest id counts a kind the app leaves out, so leaving 2.9 marks it read too', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [
+        {
+          id: 12,
+          kind: 'POST_MENTION',
+          message: '새 종류',
+          createdAt: '2026-11-06T02:00:00Z',
+          read: false,
+          targetId: 5,
+        },
+        {
+          id: 11,
+          kind: 'NEW_FOLLOWER',
+          message: '러너님이 나를 팔로우했어요',
+          createdAt: '2026-11-06T01:00:00Z',
+          read: false,
+          targetId: 101,
+        },
+      ],
+      nextCursor: null,
+      hasNext: false,
+      unreadCount: 2,
+    }),
+  );
+  const page = await notificationsApi.list();
+  expect(page.items.map(item => item.id)).toEqual(['11']);
+  expect(page.newestId).toBe(12);
+});
+
+test('S15P31E105-801 an empty page has no newest id', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, { items: [], nextCursor: null, hasNext: false, unreadCount: 0 }),
+  );
+  expect((await notificationsApi.list()).newestId).toBeUndefined();
 });

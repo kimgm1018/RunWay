@@ -924,8 +924,12 @@ export function createMockRepositories(
           options,
         );
       },
-      markAllRead: () => {
-        notifications = notifications.map(item => ({ ...item, read: true }));
+      markAllRead: upToId => {
+        notifications = notifications.map(item =>
+          upToId === undefined || Number(item.id) <= upToId
+            ? { ...item, read: true }
+            : item,
+        );
         return respond(undefined, options);
       },
     },
