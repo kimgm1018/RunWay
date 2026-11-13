@@ -5,7 +5,7 @@ import {
   useFocusEffect,
   useNavigation,
 } from '@react-navigation/native';
-import { AppText, useToast } from '../../components';
+import { useToast } from '../../components';
 import { useRepositories } from '../../data';
 import {
   formatDuration,
@@ -228,19 +228,15 @@ export function RunProgressScreen() {
       key: 'coaching',
       title: '코칭',
       content: (
-        <View>
-          {control.recordingMode === 'PHONE_ONLY' ? (
-            <AppText>워치가 없어 심박·케이던스 기반 코칭은 제공되지 않아요. 페이스 안내만 확인할 수 있어요.</AppText>
-          ) : null}
-          <CoachingPage
-            pace={sample.paceSecPerKm}
-            goalPace={goalPace}
-            coaching={control.coaching}
-            currentBpm={control.currentBpm}
-            cadence={sample.cadence}
-            now={clock.now()}
-          />
-        </View>
+        <CoachingPage
+          pace={sample.paceSecPerKm}
+          goalPace={goalPace}
+          coaching={control.coaching}
+          currentBpm={control.currentBpm}
+          cadence={sample.cadence}
+          now={clock.now()}
+          phoneOnly={control.recordingMode === 'PHONE_ONLY'}
+        />
       ),
     });
   }

@@ -1,10 +1,14 @@
 import React from 'react';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { createApiRepositories, createMockRepositories } from '../src/data';
 import type { RunGuidance, RunSample } from '../src/data';
 import { RunLiveFrame } from '../src/screens/run/live/RunLiveFrame';
-import { CoachingPage, metricPages } from '../src/screens/run/live/RunLivePages';
+import {
+  CoachingPage,
+  metricPages,
+} from '../src/screens/run/live/RunLivePages';
+import { lastCoaching } from '../src/screens/run/runControl';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -100,6 +104,48 @@ test('an expired coaching is marked, and without coaching or measures nothing is
   expect(empty).not.toContain('추천 페이스');
 });
 
+// S15P31E105-782: the 코칭 tab was put in a View with no height, so the page (flex: 1) had none and drew empty
+// tiles. The page is the pager's page itself and carries the phone-only line inside.
+test('코칭 is the page itself and says why a phone-only run has no heart-rate coaching', () => {
+  const root = render(
+    <CoachingPage
+      pace={350}
+      goalPace={null}
+      coaching={null}
+      currentBpm={null}
+      cadence={null}
+      now={now}
+      phoneOnly
+    />,
+  );
+  const page = root.findByType(View);
+  expect(StyleSheet.flatten(page.props.style)).toMatchObject({ flex: 1 });
+  expect(texts(root)).toContain(
+    '워치가 없어 심박·케이던스 기반 코칭은 제공되지 않아요',
+  );
+  const watch = texts(
+    render(
+      <CoachingPage
+        pace={350}
+        goalPace={null}
+        coaching={coaching}
+        currentBpm={null}
+        cadence={null}
+        now={now}
+      />,
+    ),
+  );
+  expect(watch).not.toContain('워치가 없어');
+});
+
+test('the last coaching stays within the session after the server stops sending it', () => {
+  expect(lastCoaching(null, coaching, true)).toBe(coaching);
+  expect(lastCoaching(undefined, coaching, true)).toBe(coaching);
+  expect(lastCoaching(null, coaching, false)).toBeNull();
+  const next = { ...coaching, coachingId: 'co-2', targetBpm: 170 };
+  expect(lastCoaching(next, coaching, true)).toBe(next);
+});
+
 test('페이스 · 거리 · 심박 · 케이던스 each get a page, with their own averages and no made-up values', () => {
   const pages = metricPages({
     pace: 330,
@@ -118,7 +164,12 @@ test('페이스 · 거리 · 심박 · 케이던스 each get a page, with their 
     rival: null,
     guidance: null,
   });
-  expect(pages.map(page => page.title)).toEqual(['페이스', '거리', '심박', '케이던스']);
+  expect(pages.map(page => page.title)).toEqual([
+    '페이스',
+    '거리',
+    '심박',
+    '케이던스',
+  ]);
   const shown = texts(
     render(
       <View>
@@ -176,16 +227,22 @@ test('in API mode the run tracking counts time only and makes up no numbers or t
     const seen = (repositories: ReturnType<typeof createMockRepositories>) => {
       const guidance: (RunGuidance | null)[] = [];
       samples.length = 0;
-      const stop = repositories.run.startTracking(start, route, (sample, line) => {
-        guidance.push(line);
-        samples.push(sample);
-      });
+      const stop = repositories.run.startTracking(
+        start,
+        route,
+        (sample, line) => {
+          guidance.push(line);
+          samples.push(sample);
+        },
+      );
       jest.advanceTimersByTime(3000);
       stop();
       return guidance;
     };
     // The mock (demo) keeps its lines; the API repositories drop them.
-    expect(seen(createMockRepositories({ latencyMs: 0 })).some(Boolean)).toBe(true);
+    expect(seen(createMockRepositories({ latencyMs: 0 })).some(Boolean)).toBe(
+      true,
+    );
     const api = seen(createApiRepositories({ latencyMs: 0 }));
     expect(api.length).toBeGreaterThan(0);
     expect(api.every(line => line === null)).toBe(true);
@@ -224,13 +281,17 @@ test('the frame measures its top, foot and screen from layout events that are cl
     );
   });
   const handlers = root.root.findAll(
-    node => typeof node.props.onLayout === 'function' && typeof node.type === 'string',
+    node =>
+      typeof node.props.onLayout === 'function' &&
+      typeof node.type === 'string',
   );
   expect(handlers.length).toBeGreaterThanOrEqual(3);
   expect(() =>
     act(() => {
       for (const node of handlers) {
-        const event: { nativeEvent: unknown } = { nativeEvent: { layout: { height: 100, width: 100 } } };
+        const event: { nativeEvent: unknown } = {
+          nativeEvent: { layout: { height: 100, width: 100 } },
+        };
         node.props.onLayout(event);
         event.nativeEvent = null;
       }
