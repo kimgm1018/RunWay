@@ -101,11 +101,12 @@ const here: PhoneFix = {
 function withLocation(
   repositories: Repositories,
   current: () => Promise<PhoneFix> = async () => here,
+  tracking = false,
 ): Repositories {
   return {
     ...repositories,
     phoneLocation: {
-      start: async () => false,
+      start: async () => tracking,
       stop: async () => undefined,
       subscribe: () => () => undefined,
       requestPermission: async () => true,
@@ -133,6 +134,66 @@ async function openTodayRun(
   await press(screen!, '코스 설정');
   return screen!;
 }
+
+test.each([
+  ['default', 'WATCH'],
+  ['watchDisconnected', 'PHONE_ONLY'],
+] as const)(
+  '755: a fractional-distance recommended course starts with %s',
+  async (scenario, recordingMode) => {
+    // PHONE_ONLY records with the phone's GPS, so its tracker has to start.
+    const repositories = withLocation(
+      createMockRepositories({ latencyMs: 0, scenario }),
+      undefined,
+      true,
+    );
+    const getPlan = repositories.courses.getTodayPlan;
+    repositories.courses.getTodayPlan = async options => {
+      const plan = await getPlan(options);
+      return plan ? { ...plan, distanceM: 5023.78 } : null;
+    };
+    const createSession = repositories.session.create;
+    let sessionId = '';
+    const create = jest
+      .spyOn(repositories.session, 'create')
+      .mockImplementation(request => {
+        // S01 rejects a fractional targetDistanceM; C03 returns decimal metres.
+        if (
+          request.goal.targetDistanceM !== null &&
+          !Number.isInteger(request.goal.targetDistanceM)
+        ) {
+          return Promise.reject(
+            new DataError('VALIDATION_ERROR', 'integer distance required'),
+          );
+        }
+        return createSession(request).then(view => {
+          sessionId = view.sessionId;
+          return view;
+        });
+      });
+    const screen = await openTodayRun('default', repositories);
+    try {
+      await press(screen, '코스 추천 받기');
+      await press(screen, '이 코스로 달리기');
+      await settle(900);
+      await act(async () => {
+        labelled(screen, '러닝 시작').props.onPress();
+        labelled(screen, '러닝 시작').props.onPress();
+      });
+      await waitForText(screen, '운동 시간');
+      const request = create.mock.calls[create.mock.calls.length - 1][0];
+      expect(request.goal.courseId).toBeTruthy();
+      expect(request.goal.targetDistanceM).toBe(5024);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(await repositories.session.get(sessionId)).toMatchObject({
+        state: 'RUNNING',
+        recordingMode,
+      });
+    } finally {
+      await act(async () => screen.unmount());
+    }
+  },
+);
 
 test('today’s run works out pace and finish time from the distance', async () => {
   const screen = await openTodayRun();
