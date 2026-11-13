@@ -134,9 +134,10 @@ function Tile({
       }
       disabled={disabled}
       onPress={onPress}
+      // Disabled prevents concurrent saves but deliberately keeps the tile opaque: dimming every
+      // settings switch for the duration of one request looks like a full-screen flash.
       style={({ pressed }) => [
         styles.tile,
-        disabled && styles.leaving,
         pressed && !disabled && styles.pressed,
       ]}
     >
@@ -161,6 +162,16 @@ function Tiles({ children }: { children: React.ReactNode }) {
   return <View style={styles.tiles}>{children}</View>;
 }
 
+// The SVG mist is static. Settings switches update several small state values, so keeping the
+// background outside those renders avoids redrawing a full-screen native SVG on every tap.
+const SettingsBackdrop = React.memo(function SettingsBackdrop() {
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Backdrop tail />
+    </View>
+  );
+});
+
 const loadAll = (repositories: Repositories) =>
   Promise.all([
     repositories.settings.get(),
@@ -183,16 +194,26 @@ export function SettingsScreen() {
     consents: consentsApi,
   } = useRepositories();
   const loaded = useResource(loadAll);
-  const { reload } = loaded;
-  // Coming back from 1.7 shows the watch connected again, and from 8.1b the location mode.
-  useFocusEffect(useCallback(() => reload(), [reload]));
+  const { reload, refresh } = loaded;
+  const focusedOnce = useRef(false);
+  // useResource already loads on mount. Only later focuses need a quiet refresh; starting a second
+  // initial request used to bounce the screen through loading and made the full-screen mist flash.
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
+      void refresh({ keepOnError: true });
+    }, [refresh]),
+  );
   useFocusEffect(
     useCallback(() => {
       const subscription = AppState.addEventListener('change', state => {
-        if (state === 'active') reload();
+        if (state === 'active') void refresh({ keepOnError: true });
       });
       return () => subscription.remove();
-    }, [reload]),
+    }, [refresh]),
   );
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
@@ -361,9 +382,7 @@ export function SettingsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop tail />
-      </View>
+      <SettingsBackdrop />
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <BackButton onPress={() => navigation.goBack()} />
         <AppText style={styles.title} accessibilityRole="header">

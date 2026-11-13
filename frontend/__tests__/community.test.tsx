@@ -1287,6 +1287,14 @@ test('7.4b answers follow requests in the sheet and the counts follow', async ()
   expect(page).toContain('승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.');
   expect(page).toContain('dohyun_r');
   expect(page).toContain('jiwoo.runs');
+  const approve = StyleSheet.flatten(
+    labelled(screen, 'dohyun_r 승인').props.style,
+  );
+  const reject = StyleSheet.flatten(
+    labelled(screen, 'dohyun_r 거절').props.style,
+  );
+  expect(approve).toMatchObject({ width: 64, flexShrink: 0 });
+  expect(reject).toMatchObject({ width: 64, flexShrink: 0 });
 
   await press(screen, 'dohyun_r 승인');
   await settle(50);

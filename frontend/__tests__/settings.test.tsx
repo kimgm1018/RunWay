@@ -85,6 +85,14 @@ async function openSettings(
 const stateOf = (screen: Screen, label: string) =>
   labelled(screen, label).props.accessibilityValue?.text as string;
 
+test('8.1 loads once on first focus instead of restarting its initial request', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const read = jest.spyOn(repositories.settings, 'get');
+  const screen = await openSettings(repositories);
+  expect(read).toHaveBeenCalledTimes(1);
+  await act(async () => screen.unmount());
+});
+
 test('8.1 tiles switch at once and 8.1b picks where the location is recorded', async () => {
   const screen = await openSettings();
   const page = texts(screen);

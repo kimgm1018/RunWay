@@ -109,7 +109,8 @@ export function LocationSettingScreen() {
               onPress={() => choose(item)}
               style={({ pressed }) => [
                 styles.row,
-                saving && styles.pressed,
+                // Saving still blocks every row, but it must not dim the whole list.
+                // Applying the pressed opacity to all three rows made the screen flash.
                 pressed && !saving && styles.pressed,
               ]}
             >

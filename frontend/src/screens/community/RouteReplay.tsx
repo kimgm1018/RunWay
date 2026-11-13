@@ -156,7 +156,7 @@ function clock(seconds: number) {
   const whole = Math.floor(seconds);
   const minutes = Math.floor(whole / 60);
   const rest = whole % 60;
-  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+  return rest ? `${minutes}m\u00a0${rest}s` : `${minutes}m`;
 }
 
 // The map does not change while the camera moves, so it draws once.
@@ -1493,32 +1493,42 @@ function ReplayChrome({
 
 // Darker toward the foot, so the counters read over the map (레퍼런스).
 const ReplayBands = memo(function Bands() {
-  const { width, height } = useWindowDimensions();
+  const [size, setSize] = useState({ width: 0, height: 0 });
   return (
-    <Svg
+    <View
       pointerEvents="none"
-      width={width}
-      height={height}
       style={StyleSheet.absoluteFill}
+      onLayout={({ nativeEvent }) => {
+        const { width, height } = nativeEvent.layout;
+        setSize(current =>
+          current.width === width && current.height === height
+            ? current
+            : { width, height },
+        );
+      }}
     >
-      <Defs>
-        <LinearGradient id="replayTop" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset={0} stopColor="#000000" stopOpacity={0.6} />
-          <Stop offset={1} stopColor="#000000" stopOpacity={0} />
-        </LinearGradient>
-        <LinearGradient id="replayFoot" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset={0} stopColor="#000000" stopOpacity={0} />
-          <Stop offset={1} stopColor="#000000" stopOpacity={0.92} />
-        </LinearGradient>
-      </Defs>
-      <Rect width={width} height={180} fill="url(#replayTop)" />
-      <Rect
-        y={height * 0.55}
-        width={width}
-        height={height * 0.45}
-        fill="url(#replayFoot)"
-      />
-    </Svg>
+      {size.width > 0 && size.height > 0 ? (
+        <Svg width={size.width} height={size.height}>
+          <Defs>
+            <LinearGradient id="replayTop" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset={0} stopColor="#000000" stopOpacity={0.6} />
+              <Stop offset={1} stopColor="#000000" stopOpacity={0} />
+            </LinearGradient>
+            <LinearGradient id="replayFoot" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset={0} stopColor="#000000" stopOpacity={0} />
+              <Stop offset={1} stopColor="#000000" stopOpacity={0.92} />
+            </LinearGradient>
+          </Defs>
+          <Rect width={size.width} height={180} fill="url(#replayTop)" />
+          <Rect
+            y={size.height * 0.55}
+            width={size.width}
+            height={size.height * 0.45}
+            fill="url(#replayFoot)"
+          />
+        </Svg>
+      ) : null}
+    </View>
   );
 });
 

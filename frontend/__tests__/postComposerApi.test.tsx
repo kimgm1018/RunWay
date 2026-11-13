@@ -1,7 +1,9 @@
 import React from 'react';
-import { ScrollView, Text, TextInput } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { InlineRunReplay } from '../src/screens/community/RouteReplay';
+import { feedLook } from '../src/screens/community/FeedPage';
+import { communityLook } from '../src/screens/community/look';
 import { ToastProvider } from '../src/components/Toast';
 import {
   createMockRepositories,
@@ -286,6 +288,21 @@ test('the focused draft stays in view when the keyboard shrinks the viewport or 
     scroll.props.onLayout?.({ nativeEvent: { layout: { height: 700 } } });
   });
   expect(scrollToEnd).not.toHaveBeenCalled();
+});
+
+test('the post body caret follows the text line height on Android', async () => {
+  serve();
+  mockParams = { recordId: '55' };
+  const screen = await render(PostWriteScreen);
+  const input = screen.root.findByType(TextInput);
+  expect(StyleSheet.flatten(input.props.style)).toMatchObject({
+    fontSize: 16,
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'top',
+  });
+  expect(input.props.selectionColor).toBe(communityLook.selection);
+  expect(input.props.cursorColor).toBe(feedLook.route);
 });
 
 test('7.3 previews the measured route of a free run and always requests course sharing without a toggle', async () => {
