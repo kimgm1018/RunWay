@@ -439,7 +439,7 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 |---|---|:---:|---|
 | `nickname` | string | X | U15와 동일: 코드포인트 2~10·공백 불가·중복 불가 |
 | `gender` | string | X | MALE / FEMALE |
-| `birthDate` | string (YYYY-MM-DD) | X | 오늘(UTC) 이하 |
+| `birthDate` | string (YYYY-MM-DD) | X | 1950-01-01 이상(앱 생년 휠과 같음, S15P31E105-779), 오늘(UTC) 이하 |
 | `profileImageId` | string (UUID) / null | X | F01 PROFILE 업로드 ID. null이면 사진 삭제. 생략 시 유지 |
 
 ```json
@@ -1024,7 +1024,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | loginId | string | O | 영문·숫자 4~16자, 대소문자 구분. trim·정규화 없음. 탈퇴 계정 포함 중복 불가 |
 | password | string | O | 공통 비밀번호 정책: Unicode 코드포인트 8~20자, 공백·고립 surrogate 불가, 특수문자 허용 |
 | nickname | string | O | Unicode 코드포인트 2~10자, 공백·고립 surrogate 불가. 대소문자 구분·정규화 없음, ACTIVE 회원 대상 부분 UNIQUE로 중복 불가. 탈퇴한 회원의 기존 닉네임은 재사용 허용 |
-| birthDate | string | O | YYYY-MM-DD의 유효한 날짜, 미래 불가. 나이 제한 없음 |
+| birthDate | string | O | YYYY-MM-DD의 유효한 날짜, 1950-01-01 이상(앱 생년 휠과 같음, S15P31E105-779), 미래 불가 |
 | gender | string | O | MALE 또는 FEMALE |
 | phoneNumber | string | O | 국내 휴대전화 010으로 시작하는 숫자 11자리. 하이픈·공백 거절. U28·U29로 인증한 번호여야 하며 ACTIVE 회원이 쓰는 번호는 가입 불가(S15P31E105-560) |
 | phoneVerificationToken | string | 조건부 | U29가 `SIGN_UP` 목적으로 발급한 인증 증명. 운영에서는 필수. 개발·테스트 환경에서 서버 설정 `BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED=true`일 때만 생략할 수 있다 |

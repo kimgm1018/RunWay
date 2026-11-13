@@ -12,8 +12,8 @@ import jakarta.validation.constraints.Size;
  * joinPolicy는 선택이며 생략하면 APPROVAL이다(S15P31E105-570).
  */
 public record CreateCrewRequest(
-        @NotBlank @Size(max = 100) String name,
-        @Size(max = 10000) String description,
+        @NotBlank @Size(max = 30) String name,
+        @Size(max = 200) String description,
         @Size(max = 1024) String imageKey,
         @Size(max = 40) String regionCode,
         @NotNull @Min(1) @Max(200) Integer capacity,

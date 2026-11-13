@@ -69,6 +69,13 @@ public class UserProfileService {
 
             var birthDate = current.birthDate();
             if (patch.birthDatePresent()) {
+                // S15P31E105-779: 앱 생년 휠과 같은 1950년부터. 앱 프로필 화면은 저장할 때마다 생년을 다시 보내므로,
+                // 저장된 값과 같은 생년(이전 서버가 받은 1950년 이전 값 포함)은 다시 막지 않는다.
+                if (!patch.birthDate().equals(birthDate)
+                        && patch.birthDate().getYear()
+                                < com.runway.backend.domain.auth.validation.SignupValidator.MIN_BIRTH_YEAR) {
+                    throw new ApiException(ErrorCode.INVALID_PROFILE);
+                }
                 birthDate = patch.birthDate();
             }
 

@@ -232,7 +232,7 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
                 {
                   "title":"적합도 그룹런",
                   "crewId":%d,
-                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "scheduledAt":"%s",
                   "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                   "meetingPlaceName":"집결지",
                   "targetDistanceM":5000,
@@ -240,7 +240,7 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
                   "targetDurationSec":1800
                 }
                 """
-                        .formatted(crewId);
+                        .formatted(crewId, GroupRunTestTimes.validScheduledAt());
         return mapper.readTree(
                         mockMvc.perform(
                                         post("/api/v1/group-runs")

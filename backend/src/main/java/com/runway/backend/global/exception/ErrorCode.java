@@ -27,6 +27,12 @@ public enum ErrorCode {
     NOT_AUTHOR(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 {0}할 수 있습니다."),
     SESSION_INVALID_STATE(HttpStatus.CONFLICT, "INVALID_STATE", "현재 상태에서는 {0}할 수 없습니다."),
     VALIDATION_REQUIRED_FIELD(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "{0}은 필수입니다."),
+    VALIDATION_ERROR_COMMENT_TOO_LONG(
+            HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "댓글은 500자까지 쓸 수 있습니다."),
+    VALIDATION_ERROR_GROUPRUN_SCHEDULE(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "출발 시각은 지금 이후 13일 안, 05:00~22:00(한국 시간)이어야 합니다."),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다."),
     IMAGE_PURPOSE_INVALID(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "purpose는 PROFILE, CREW, POST 중 하나여야 합니다."),
@@ -278,6 +284,8 @@ public enum ErrorCode {
             "INVALID_GOAL",
             "TIME 목표는 양수 targetDurationSec이 필요합니다."),
     GOAL_DISTANCE_INVALID(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_GOAL", "목표 거리는 양수여야 합니다."),
+    GOAL_DURATION_OUT_OF_RANGE(
+            HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_GOAL", "목표 시간은 5분 이상 180분 이하여야 합니다."),
     GOAL_INPUT_TYPE_INVALID(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_GOAL", "goalInputType은 TIME 또는 PACE여야 합니다."),
     GOAL_INPUT_TYPE_REQUIRED(

@@ -311,8 +311,8 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `name` | string | O | `crews.name` (VARCHAR(100)). 비어 있지 않은 문자열 |
-| `description` | string | X | `crews.description` (TEXT). 생략 또는 null 허용 |
+| `name` | string | O | `crews.name` (VARCHAR(100)). 비어 있지 않은 문자열, 최대 30자(앱 만들기 화면과 같음). 넘으면 `400 VALIDATION_ERROR`(S15P31E105-779) |
+| `description` | string | X | `crews.description` (TEXT). 생략 또는 null 허용, 최대 200자(앱과 같음) |
 | `imageKey` | string | X | `crews.image_key` (VARCHAR(1024)). 생략 또는 null 허용. 본인이 CREW 용도로 올린 실제 정규 원본 경로만 연결(246번 후속 확정) |
 | `regionCode` | string | X | `crews.region_code` (VARCHAR(40)). `regions.region_code` 참조. 생략 또는 null 허용. 저장됨 |
 | `capacity` | integer | O | `crews.capacity`. 1~200의 정수. 자동 기본값은 두지 않는다 |

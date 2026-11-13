@@ -1166,6 +1166,33 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
         org.junit.jupiter.api.Assertions.assertEquals(message, row.get("message"));
     }
 
+    // S15P31E105-779: 크루 이름·소개는 앱 만들기 화면과 같은 30자·200자까지.
+    @Test
+    void 크루이름_30자_소개_200자까지_넘으면_400() throws Exception {
+        for (String body :
+                new String[] {
+                    "{\"name\":\"%s\",\"capacity\":10}".formatted("가".repeat(31)),
+                    "{\"name\":\"소개 긴 크루\",\"description\":\"%s\",\"capacity\":10}"
+                            .formatted("가".repeat(201))
+                }) {
+            mockMvc.perform(
+                            post("/api/v1/crews")
+                                    .header("Authorization", SecurityTestSupport.bearer(userId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        mockMvc.perform(
+                        post("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"name\":\"%s\",\"description\":\"%s\",\"capacity\":10}"
+                                                .formatted("가".repeat(30), "가".repeat(200))))
+                .andExpect(status().isCreated());
+    }
+
     private long createCrew(long ownerId, String name, int capacity) throws Exception {
         MvcResult created =
                 mockMvc.perform(

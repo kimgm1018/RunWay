@@ -76,7 +76,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 `posts`에 컬럼이 없어 저장하지 않음 |
-| `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용 |
+| `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용. 최대 500자(앱 작성 화면과 같음), 넘으면 `400 VALIDATION_ERROR`(S15P31E105-779) |
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
 | `imageKey` | string | X | 최대 1024자. 본인이 F01(`purpose=POST`)로 올린 파일 키 `images/post/{userId}/{uuid}.jpg|png`만 받는다(크루 사진과 같은 규칙). 다른 폴더·남의 경로·외부 URL·없는 파일은 `403 RESOURCE_NOT_OWNED`(S15P31E105-778). 앱은 현재 보내지 않는다 |
@@ -510,7 +510,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 저장하지 않음 |
-| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움 |
+| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움. 최대 500자 |
 | `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없고 `true`이면 CMT01과 같은 변환을 시도한다. 변환 후에도 코스가 없으면(GPS·경사 자료 부족 등) 게시물은 유지하고 `false`로 저장한다(응답은 `courseShared`만 반환하며 실패 사유 필드는 없다) |
 
 ```json
@@ -886,7 +886,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `body` | string | O | `comments.body`에 저장. 비어 있거나 공백만이면 `422 EMPTY_COMMENT` |
+| `body` | string | O | `comments.body`에 저장. 비어 있거나 공백만이면 `422 EMPTY_COMMENT`. 앞뒤 공백을 뺀 길이가 500자를 넘으면 `400 VALIDATION_ERROR`(앱 입력창과 같음, S15P31E105-779) |
 | `parentCommentId` | integer (int64) | X | 대댓글 대상 부모. 생략·null이면 루트 댓글. 같은 게시물·미삭제·루트(`parent_comment_id` NULL)만 허용. 아니면 `422 INVALID_PARENT_COMMENT` |
 
 ```json
@@ -1012,7 +1012,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `body` | string | O | `comments.body` 수정. 비어 있거나 공백만이면 `422 EMPTY_COMMENT` |
+| `body` | string | O | `comments.body` 수정. 비어 있거나 공백만이면 `422 EMPTY_COMMENT`. 500자 초과면 `400 VALIDATION_ERROR` |
 
 ```json
 {

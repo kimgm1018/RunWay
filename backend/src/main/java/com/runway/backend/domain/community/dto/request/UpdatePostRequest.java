@@ -2,6 +2,7 @@ package com.runway.backend.domain.community.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import jakarta.validation.constraints.Size;
 
 /**
  * CMT04 수정 요청. 생략한 필드는 기존 값을 유지한다. {@code body: null}은 본문을 비운다. courseShared는 세션에 코스가 없으면
@@ -10,6 +11,8 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class UpdatePostRequest {
 
+    /** CMT01과 같은 500자 상한(S15P31E105-779). */
+    @Size(max = 500)
     private String body;
     private boolean bodyPresent;
 

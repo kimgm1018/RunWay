@@ -976,7 +976,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
                 {
                   "title":"종료결과 그룹런",
                   "crewId":%d,
-                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "scheduledAt":"%s",
                   "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                   "meetingPlaceName":"집결지",
                   "meetingAddress":"부산",
@@ -985,7 +985,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
                   "targetDurationSec":1800
                 }
                 """
-                .formatted(crewId);
+                .formatted(crewId, GroupRunTestTimes.validScheduledAt());
     }
 
     /** START를 APPLIED로 확정하고 세션을 RUNNING(버전 2)으로 만든 것과 같은 상태로 맞춘다. */

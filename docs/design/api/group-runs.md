@@ -88,7 +88,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `description` | string / object (확인 필요) | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
 | `crewId` | integer (int64) | O | 그룹런을 여는 크루 ID. 화면 6.8은 크루 안에서만 생성 |
 | `courseId` | integer (int64) / null | X | 선택한 코스 식별자. 개인·그룹 자유러닝은 null/생략 가능 |
-| `scheduledAt` | string (ISO 8601) | X | 그룹런 예정 시작시각(UTC) |
+| `scheduledAt` | string (ISO 8601) | O | 그룹런 예정 시작시각(UTC). 지금 이후, 한국 날짜로 오늘부터 13일 뒤까지, 한국 시간 05:00~22:00(앱 6.8과 같음). 밖이면 `400 VALIDATION_ERROR`(S15P31E105-779) |
 | `meetingPosition` | GeoJSON | O | 만나는 곳 좌표(6.9 지도 핀) |
 | `meetingPlaceName` | string | O | 장소 이름(주소에서 자동 채움, 수정 가능) |
 | `meetingAddress` | string | X | 만나는 곳 주소 |
@@ -98,7 +98,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `recurrence` | object | X | 반복 설정(6.8 '+ 반복'). 형식 미정 |
 | `targetDistanceM` | number | 조건부 | 목표 거리, 미터, 양수. 코스 러닝은 코스 거리, 자유 러닝은 시간 목표만 둘 수 있음 |
 | `goalInputType` | string (제안) | O | TIME/PACE 중 하나 |
-| `targetDurationSec` | number | X | 목표 완주 시간, 초, 양수 |
+| `targetDurationSec` | number | X | 목표 완주 시간, 초. TIME 목표는 300~10800초(앱 5~180분). 밖이면 `422 INVALID_GOAL`(S15P31E105-779) |
 | `targetPaceSecPerKm` | number | X | 목표 페이스, 초/km, 양수 |
 
 ```json
@@ -519,11 +519,11 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 |---|---|:---:|---|
 | `targetDistanceM` | integer / null | X | 수정할 목표 거리(m). 양수. 자유러닝의 목표 해제는 null; 생략은 기존 값 유지. |
 | `goalInputType` | string | 조건부 | TIME/PACE. 거리·시간·페이스 환산이 필요한 목표 변경 시 기준을 명시한다. |
-| `targetDurationSec` | integer / null | 조건부 | TIME 기준 목표 시간(초). 양수. 자유러닝의 해당 목표 해제는 null. |
+| `targetDurationSec` | integer / null | 조건부 | TIME 기준 목표 시간(초). 300~10800초(G01과 같음, 밖이면 `422 INVALID_GOAL`). 자유러닝의 해당 목표 해제는 null. |
 | `targetPaceSecPerKm` | number / null | 조건부 | PACE 기준 목표 페이스(초/km). 양수. 자유러닝의 해당 목표 해제는 null. |
 | `title` | string | X | 최대 100자(G01과 같음). 공백만이면 `400 VALIDATION_ERROR` |
 | `description` | string / null | X | 최대 10000자(G01과 같음) |
-| `scheduledAt` | string (ISO 8601) | X | 그룹런 예정 시작시각(UTC) |
+| `scheduledAt` | string (ISO 8601) | X | 그룹런 예정 시작시각(UTC). 값을 바꿀 때만 G01과 같은 범위(지금 이후, 한국 날짜로 13일 뒤까지, 한국 시간 05:00~22:00)를 확인하고, 밖이면 `400 VALIDATION_ERROR`. 지금 값을 그대로 보내면 확인하지 않는다(S15P31E105-779) |
 | `meetingPosition` | GeoJSON | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
 | `meetingPlaceName` | string | X | 최대 200자(G01과 같음) |
 | `meetingAddress` | string / null | X | 최대 255자(G01과 같음) |
