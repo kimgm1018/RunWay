@@ -83,6 +83,9 @@ def naverMapClientId = localProperties.getProperty('MOBILE_NAVER_MAP_CLIENT_ID')
 if (!naverMapClientId?.trim()) { throw new GradleException('Set MOBILE_NAVER_MAP_CLIENT_ID in android/local.properties. See frontend/README.md.') }
 
 android {
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
@@ -129,6 +132,7 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.9.0'
     implementation 'com.google.android.gms:play-services-wearable:18.0.0'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
     testImplementation 'org.json:json:20240303'
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")

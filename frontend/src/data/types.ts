@@ -472,8 +472,9 @@ export type CurrentPlace = {
   position: [number, number] | null;
 };
 
-// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. The server has no pace plan yet,
-// so a server course leaves segmentPacesSecPerKm empty and strategy and targetPaceSecPerKm null (S15P31E105-635).
+// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. A server course fills them from
+// C12's pre-run plan (S15P31E105-733); when that plan cannot be had they stay empty and strategy and
+// targetPaceSecPerKm null, as before (S15P31E105-635).
 export type CoursePlan = {
   courseId: string;
   name: string;
@@ -482,6 +483,8 @@ export type CoursePlan = {
   // C03 unmeasuredEdges: the edges after pauses or GPS gaps; the course map draws them grey (S15P31E105-715).
   unmeasuredEdges?: number[];
   segmentPacesSecPerKm: number[];
+  // Where the km paces come from: my own records (PERSONAL) or the average runner (AVERAGE). null without a plan.
+  planSource?: 'PERSONAL' | 'AVERAGE' | null;
   strategy: string | null;
   targetPaceSecPerKm: number | null;
   expectedDurationSec: number;
@@ -854,7 +857,10 @@ export type MusicState = {
   services: Record<MusicService, MusicServiceStatus>;
   // 2.7b: the link between RunWay and the music app dropped.
   linked: boolean;
-  nowPlaying: (Track & { positionSec: number; playing: boolean }) | null;
+  // buffering: 재생하려고 곡을 받는 중. playing으로 보이지만 위치는 아직 움직이지 않는다(S15P31E105-717).
+  nowPlaying:
+    | (Track & { positionSec: number; playing: boolean; buffering?: boolean })
+    | null;
   library: MusicLibrary | null;
   // Spotify plays chosen tracks only with Premium (2.7S).
   premium: boolean;
@@ -1077,6 +1083,7 @@ export type SessionGoalDraft = {
 };
 
 export type RunningSessionView = {
+  plan?: SessionPacePlan | null;
   sessionId: string;
   controlDeviceId: string | null;
   relayDeviceId: string | null;
@@ -1084,7 +1091,7 @@ export type RunningSessionView = {
   stateVersion: number;
   startedAt: string | null;
   endedAt: string | null;
-  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | 'PHONE_ONLY' | null;
   pendingCommand: SessionCommand | null;
   lastCommand: SessionCommand | null;
   analysisStatus: string;
@@ -1103,6 +1110,18 @@ export type RunningSessionView = {
   // S02 rhythmCueEnabled(S15P31E105-706): BPM 안내 설정을 끈 사용자는 false이며 워치가 리듬을 재생하지 않는다. 서버가 아직
   // 주지 않으면 기존처럼 재생한다(true로 본다).
   rhythmCueEnabled?: boolean;
+};
+
+// S01/S02 persisted pace plan. Kept separate from the pre-start course selection plan.
+export type SessionPacePlan = {
+  planId: string;
+  recommendedPaceSecPerKm: number;
+  segments: {
+    sequence: number;
+    startDistanceM: number;
+    endDistanceM: number;
+    recommendedPaceSecPerKm: number;
+  }[];
 };
 
 // STATE_RESULT analysis.summary(S15P31E105-663): H02 값을 그대로 옮긴다. 폰·워치는 계산하지 않는다.
@@ -1393,7 +1412,8 @@ export type Repositories = {
     getSaved: () => Promise<SavedCourse[]>;
     // 2.0's plan for the course picked last with choose(). The server version answers null until a course is
     // picked (and after the app restarts); the mock keeps a default course for the prototype.
-    getTodayPlan: () => Promise<CoursePlan | null>;
+    // pacePlan: also ask C12 for the km paces (2.0 only; S15P31E105-733). Others (group create) skip the AI call.
+    getTodayPlan: (options?: { pacePlan?: boolean }) => Promise<CoursePlan | null>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,
@@ -1523,7 +1543,10 @@ export type Repositories = {
     getRoute: (postId: string) => Promise<CourseMapData | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
-    create: (recordId: string, draft: PostDraft) => Promise<{
+    create: (
+      recordId: string,
+      draft: PostDraft,
+    ) => Promise<{
       id: string;
       courseShared: boolean;
       courseShareFailureReason: string | null;
@@ -1694,6 +1717,7 @@ export type Repositories = {
   // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
   watchSession: {
     getLinkedDevices: () => Promise<LinkedDevices | null>;
+    getPhoneDeviceId?: () => Promise<string>;
     // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
     prepare: (
       sessionId: string,

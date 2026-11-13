@@ -469,7 +469,6 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         String[] bodies = {
             "{\"controlDeviceId\":" + otherWatchId + ",\"relayDeviceId\":" + phoneId + "}",
             "{\"controlDeviceId\":" + watchId + ",\"relayDeviceId\":" + unlinkedPhone + "}",
-            "{\"controlDeviceId\":" + phoneId + ",\"relayDeviceId\":" + phoneId + "}",
             "{\"controlDeviceId\":" + watchId + ",\"relayDeviceId\":" + watchId + "}",
             "{\"controlDeviceId\":999999,\"relayDeviceId\":" + phoneId + "}"
         };

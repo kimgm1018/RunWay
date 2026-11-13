@@ -86,7 +86,8 @@ export function withMelon(
       // 메타데이터에 앨범 아트가 없으면 null이라 2.7은 기본 커버를 그린다.
       artworkUrl: track.artworkUri,
       positionSec: Math.round(track.positionMs / 1000),
-      playing: playback.playing,
+      playing: playback.playing || playback.buffering === true,
+      ...(playback.buffering ? { buffering: true } : {}),
     };
   }
 
@@ -151,6 +152,19 @@ export function withMelon(
       }
       const before = state.nowPlaying?.id ?? null;
       const startedAt = state.nowPlaying?.positionSec ?? 0;
+      // 꺼져 있다 깬 멜론은 곡을 아직 알리지 않아도 재생하면 마지막 대기열을 이어 튼다. 기본 목록을 먼저 보내면
+      // 멜론이 "재생 가능한 곡이 없습니다"를 띄우므로(S15P31E105-717 실기기 확인) 재생을 먼저 보내 본다.
+      if (
+        name === 'play' &&
+        !playback.track &&
+        playback.commands.includes('play')
+      ) {
+        await send('play');
+        const resumed = await settle(state, isPlaying);
+        if (isPlaying(resumed)) {
+          return resumed;
+        }
+      }
       // MUS-003: 재생할 곡이 없으면 기본 재생목록, 없으면 TOP100을 처음부터 재생한다.
       if (name === 'play' && !playback.track) {
         if ((await melon.playDefault()) === 'NONE') {

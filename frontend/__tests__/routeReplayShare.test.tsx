@@ -1,5 +1,6 @@
 import React from 'react';
-import { Share, StyleSheet } from 'react-native';
+import { Modal, Share, StyleSheet } from 'react-native';
+import { NaverMapView } from '@mj-studio/react-native-naver-map';
 import TestRenderer, { act } from 'react-test-renderer';
 import ShareSheet from 'react-native-share';
 import { captureRef } from 'react-native-view-shot';
@@ -180,6 +181,24 @@ const run: ReplayRun = {
   shape: [],
   parts: [street],
 };
+
+// TextureView needs a hardware accelerated window, including after Android recreates its surface on resume.
+test('the real-map replay enables hardware acceleration in its own modal window', async () => {
+  let screen!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <RouteReplay run={run} visible onClose={() => undefined} />,
+    );
+  });
+  try {
+    expect(
+      screen.root.findByType(NaverMapView).props.isUseTextureViewAndroid,
+    ).toBe(true);
+    expect(screen.root.findByType(Modal).props.hardwareAccelerated).toBe(true);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
 
 test('공유 on the replay takes the picture without its buttons and shares it', async () => {
   let screen!: TestRenderer.ReactTestRenderer;

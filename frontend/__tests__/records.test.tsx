@@ -3,6 +3,8 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories } from '../src/data';
+import { PostWriteScreen } from '../src/screens/community/PostWriteScreen';
+import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -112,6 +114,55 @@ async function pickDay(screen: Screen, month: number, day: number) {
   await press(screen, `${month}월 ${day}일 선택`);
   await settle();
 }
+
+test('a saved run opens the composer after relaunch, and cancel preserves the selected record', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const shareable = jest.spyOn(repositories.community, 'getShareable');
+  const create = jest.spyOn(repositories.community, 'create');
+  const remove = jest.spyOn(repositories.records, 'remove');
+  let screen = await render(repositories);
+  await press(screen, '월별 기록');
+  await waitForText(screen, '10월 기록');
+  await press(screen, '남천 해변 언덕길, 10.08 목');
+  await waitForText(screen, '2026.10.08 · 07:00');
+  await press(screen, '기록 공유');
+  await waitForText(screen, '기록 공유');
+  const selectedId = shareable.mock.calls[0][0];
+  expect(selectedId).toBeTruthy();
+  expect(screen.root.findByType(PostWriteScreen).props.route.params).toEqual({
+    recordId: selectedId,
+    fromRecords: true,
+  });
+  await press(screen, '취소');
+  expect(create).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  await act(async () => screen.unmount());
+
+  screen = await render(repositories);
+  await press(screen, '월별 기록');
+  await waitForText(screen, '10월 기록');
+  await press(screen, '남천 해변 언덕길, 10.08 목');
+  await waitForText(screen, '2026.10.08 · 07:00');
+  await press(screen, '기록 공유');
+  await waitForText(screen, '기록 공유');
+  expect(shareable.mock.calls.at(-1)?.[0]).toBe(selectedId);
+  await press(screen, '게시');
+  await waitForText(screen, '첫 댓글을 남겨 보세요');
+  expect(create).toHaveBeenCalledWith(
+    selectedId,
+    expect.objectContaining({ courseShared: true }),
+  );
+  const created = await create.mock.results[0].value;
+  expect(screen.root.findByType(PostDetailScreen).props.route.params).toEqual({
+    postId: created.id,
+  });
+  expect(screen.root.findAllByType(PostWriteScreen)).toHaveLength(0);
+  expect((await repositories.community.get(created.id)).record.id).toBe(
+    selectedId,
+  );
+  expect(remove).not.toHaveBeenCalled();
+  await act(async () => screen.unmount());
+});
 
 test('2.1 러닝 분석 shows the day on the date line, a week back by swipe and any day by the calendar', async () => {
   const screen = await render();

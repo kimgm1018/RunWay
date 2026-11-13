@@ -143,3 +143,38 @@ test('724 그룹 판정판 행에 러너별 실제 페이스', () => {
   const matrix = m.groupMatrix(group);
   assert.deepEqual(matrix.rows.map(r => r.actual.text), ['정지', '7\'02"']);
 });
+
+test('738 이전 기록 목록 한 줄', () => {
+  const start = new Date(2026, 10, 12, 14, 7).toISOString();
+  assert.equal(m.historyRowText({startedAt: start, kind: 'GROUP', durationSec: 725, traceCount: 24, live: false}),
+    '14:07 · 그룹 · 12분 · 판단 24건');
+  assert.equal(m.historyRowText({startedAt: start, kind: 'PERSONAL', durationSec: 20, traceCount: 3, live: true}),
+    '14:07 · 개인 · 1분 미만 · 판단 3건 · 진행 중');
+  assert.equal(m.historyRowText({startedAt: 'x', kind: 'PERSONAL', durationSec: null, traceCount: null}), '— · 개인 · 1분 미만 · 판단 0건');
+  assert.equal(m.historyRowText(null), '');
+});
+
+test('736 그룹은 30초 판단 간격 안에서 입력 부족 배너가 뜨지 않고 50초 넘으면 판단 지연', () => {
+  const now = Date.parse('2026-11-12T09:00:00Z');
+  const at = sec => new Date(now - sec * 1000).toISOString();
+  const group = sec => m.bannerFor({trace: {kind: 'GROUP', status: 'OK', inputAsOf: at(sec)}, nowMs: now, serverOffsetMs: 0,
+                                    lastMessageAtMs: now, stage: 'L1A'});
+  assert.equal(group(25), null);                              // 예전에는 20초부터 '입력 부족'이 켜졌다
+  assert.equal(group(49), null);
+  assert.deepEqual(group(65), {kind: 'stale', text: '판단 지연 65초 · 새 기록 없음'});
+  const personal = m.bannerFor({trace: {status: 'OK', inputAsOf: at(25)}, nowMs: now, lastMessageAtMs: now, stage: 'L1A'});
+  assert.equal(personal.kind, 'insufficient');               // 개인(AI04)은 그대로 20초
+  const insufficient = m.bannerFor({trace: {kind: 'GROUP', status: 'INPUT_INSUFFICIENT', inputAsOf: at(1)}, nowMs: now,
+                                    lastMessageAtMs: now, stage: 'L1A'});
+  assert.equal(insufficient.kind, 'insufficient');
+  assert.equal(m.bannerFor({trace: {kind: 'GROUP', status: 'OK', inputAsOf: at(300)}, nowMs: now, lastMessageAtMs: now, stage: 'L3'}), null);
+});
+
+test('736 마지막 판단 N초 전', () => {
+  const now = Date.parse('2026-11-12T09:00:00Z');
+  assert.equal(m.lastDecisionText({decidedAt: new Date(now - 12000).toISOString()}, now, 0), '마지막 판단 12초 전');
+  assert.equal(m.lastDecisionText({inputAsOf: new Date(now - 125000).toISOString()}, now, 0), '마지막 판단 2분 5초 전');
+  assert.equal(m.lastDecisionText({decidedAt: new Date(now + 3000).toISOString()}, now, 0), '마지막 판단 0초 전');
+  assert.equal(m.lastDecisionText(null, now, 0), '');
+  assert.equal(m.lastDecisionText({}, now, 0), '');
+});

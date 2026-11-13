@@ -30,6 +30,7 @@ import {
 import { recordScreens } from '../screens/records';
 import { runScreens } from '../screens/run';
 import { RunSessionProvider, useRunResume } from '../screens/run/RunSession';
+import { useRunForeground } from '../screens/run/useRunForeground';
 import { RunGoalDraftProvider } from '../screens/run/goal/RunGoalDraft';
 import { useSession } from '../session/SessionProvider';
 import { fontFamily, useTheme } from '../theme';
@@ -218,13 +219,14 @@ function MainTabs() {
 // 앱을 다시 열었을 때 진행 중인 개인 러닝이 있으면 그 화면으로 돌아간다.
 function useResumeRun() {
   const navigation = useNavigation();
+  const foreground = useRunForeground();
   const { target, consume } = useRunResume();
   React.useEffect(() => {
-    if (target) {
+    if (foreground && target) {
       consume();
       navigateTo(navigation, target);
     }
-  }, [consume, navigation, target]);
+  }, [consume, foreground, navigation, target]);
 }
 
 export function RootNavigator() {

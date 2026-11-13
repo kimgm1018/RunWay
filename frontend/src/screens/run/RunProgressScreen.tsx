@@ -5,13 +5,8 @@ import {
   useFocusEffect,
   useNavigation,
 } from '@react-navigation/native';
-import { useToast } from '../../components';
-import {
-  spotifyFailureMessage,
-  SpotifyStateError,
-  useRepositories,
-  type MusicState,
-} from '../../data';
+import { AppText, useToast } from '../../components';
+import { useRepositories } from '../../data';
 import {
   formatDuration,
   formatKm,
@@ -34,12 +29,13 @@ import {
   LiveNotice,
   metricPages,
   useRunHistory,
-  type MusicCommand,
 } from './live/RunLivePages';
 import { liveDelayNotice } from './liveDelay';
 import { comparisonLine } from './recordComparison';
+import { useLiveMusic } from './useLiveMusic';
 import type { RunControlState } from './runControl';
 import { goalPaceOf, useRunControlState, useRunSession } from './RunSession';
+import { useRunForeground } from './useRunForeground';
 
 const noSample = {
   elapsedSec: 0,
@@ -74,7 +70,7 @@ export function controlModeOf(
 // The line under the title only when the phone records (after a takeover). With the watch recording it stays
 // empty: the status pill already says 기록 중 (담당자 결정).
 export function recordingDevice(control: RunControlState | null) {
-  if (control?.recordingMode === 'PHONE_FALLBACK') {
+  if (control?.recordingMode === 'PHONE_FALLBACK' || control?.recordingMode === 'PHONE_ONLY') {
     return control.phoneGps === 'off'
       ? '폰으로 기록 중 · 위치 권한이 없어 경로는 남지 않아요'
       : '폰으로 기록 중';
@@ -123,36 +119,25 @@ export function RunProgressScreen() {
   const control = useRunControlState();
   const [view, setView] = useState<LiveView>('numbers');
   const [page, setPage] = useState(0);
-  const [player, setPlayer] = useState<MusicState | null>(null);
-  const [musicBusy, setMusicBusy] = useState(false);
-  const runMusic = async (command: MusicCommand) => {
-    setMusicBusy(true);
-    try {
-      setPlayer(await music[command]());
-    } catch (error) {
-      if (error instanceof SpotifyStateError) {
-        setPlayer(error.state);
-      }
-      const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
-      if (message) {
-        toast(message);
-      }
-    }
-    setMusicBusy(false);
-  };
+  const {
+    player,
+    busy: musicBusy,
+    command: runMusic,
+  } = useLiveMusic(music, toast);
 
   const history = useRunHistory(
     run?.sample ?? noSample,
     run?.startedAt ?? 'none',
   );
   const status = useRef(run?.status);
+  const foreground = useRunForeground();
   status.current = run?.status;
   const latest = useRef({ pause, toast });
   latest.current = { pause, toast };
 
   // 워치에서 종료해도 결과로 넘어간다. 결과는 진행 화면을 대신하므로 뒤로 가도 끝난 러닝이 다시 열리지 않는다.
   useEffect(() => {
-    if (run?.status === 'finished') {
+    if (foreground && run?.status === 'finished') {
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
@@ -160,7 +145,7 @@ export function RunProgressScreen() {
         }),
       );
     }
-  }, [navigation, run?.status]);
+  }, [foreground, navigation, run?.status]);
 
   // The back key never leaves or resumes a run: while running it asks to pause, while paused it stays.
   useFocusEffect(
@@ -189,29 +174,6 @@ export function RunProgressScreen() {
     }
   }, [run, start]);
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      music.getState().then(
-        state => active && setPlayer(state),
-        error => {
-          if (active && error instanceof SpotifyStateError) {
-            setPlayer(error.state);
-          }
-        },
-      );
-      const stop = music.subscribe?.(state => {
-        if (active) {
-          setPlayer(state);
-        }
-      });
-      return () => {
-        active = false;
-        stop?.();
-      };
-    }, [music]),
-  );
-
   if (!run) {
     return <View style={styles.empty} />;
   }
@@ -239,8 +201,6 @@ export function RunProgressScreen() {
     takeover && (takeover.offer || control?.pending?.action === 'TAKE_OVER')
       ? takeover
       : null;
-  const showPlayer =
-    player?.source && player.source !== 'NONE' && player.linked;
   // 마지막으로 받은 실측값이 오래되면 알린다(S15P31E105-528). 화면은 시계 틱마다 다시 그려져 초가 갱신된다.
   const delay = liveDelayNotice(
     control?.live ?? null,
@@ -268,14 +228,19 @@ export function RunProgressScreen() {
       key: 'coaching',
       title: '코칭',
       content: (
-        <CoachingPage
-          pace={sample.paceSecPerKm}
-          goalPace={goalPace}
-          coaching={control.coaching}
-          currentBpm={control.currentBpm}
-          cadence={sample.cadence}
-          now={clock.now()}
-        />
+        <View>
+          {control.recordingMode === 'PHONE_ONLY' ? (
+            <AppText>워치가 없어 심박·케이던스 기반 코칭은 제공되지 않아요. 페이스 안내만 확인할 수 있어요.</AppText>
+          ) : null}
+          <CoachingPage
+            pace={sample.paceSecPerKm}
+            goalPace={goalPace}
+            coaching={control.coaching}
+            currentBpm={control.currentBpm}
+            cadence={sample.cadence}
+            now={clock.now()}
+          />
+        </View>
       ),
     });
   }
@@ -339,7 +304,7 @@ export function RunProgressScreen() {
         </>
       }
       music={
-        showPlayer && player ? (
+        player ? (
           <LiveMusicRow music={player} busy={musicBusy} onCommand={runMusic} />
         ) : null
       }

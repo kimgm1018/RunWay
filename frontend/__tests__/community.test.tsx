@@ -155,6 +155,10 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
 // S15P31E105-567: H01 · CMT02 summaries carry no route (shape []); 7.1 · 7.4 · 7.4b open and the run tiles draw no made-up line.
 test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
+  const clearShape = <T extends { shape: unknown }>(item: T): T => ({
+    ...item,
+    shape: [],
+  });
   const getProfile = repositories.runners.getProfile;
   repositories.runners.getProfile = async userId => {
     const profile = await getProfile(userId);
@@ -162,10 +166,14 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       ...profile,
       records: profile.records.map(item => ({
         ...item,
-        record: { ...item.record, shape: [] },
+        record: clearShape(item.record),
       })),
     };
   };
+  // S15P31E105-732: 7.4b 기록 reads H01 getRecent, not only U21's short records list.
+  const getRecent = repositories.records.getRecent;
+  repositories.records.getRecent = async (sort, limit) =>
+    (await getRecent(sort, limit)).map(clearShape);
   // 7.4b 저장한 코스 draws its own course outlines (S15P31E105-682); this test is about runs only.
   repositories.courses.getSaved = async () => [];
   const listFeed = repositories.community.listFeed;
@@ -176,7 +184,32 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       items: page.items.map(post => ({
         ...post,
         courseShared: true,
-        record: { ...post.record, shape: [] },
+        record: clearShape(post.record),
+      })),
+    };
+  };
+  const listAuthorPosts = repositories.community.listAuthorPosts;
+  repositories.community.listAuthorPosts = async (userId, cursor) => {
+    const page = await listAuthorPosts(userId, cursor);
+    return {
+      ...page,
+      items: page.items.map(post => ({
+        ...post,
+        courseShared: true,
+        record: clearShape(post.record),
+      })),
+    };
+  };
+  // S15P31E105-732: 7.4b 스크랩 tiles stay mounted in the pager; clear their shapes too.
+  const listMyBookmarks = repositories.community.listMyBookmarks;
+  repositories.community.listMyBookmarks = async cursor => {
+    const page = await listMyBookmarks(cursor);
+    return {
+      ...page,
+      items: page.items.map(post => ({
+        ...post,
+        courseShared: true,
+        record: clearShape(post.record),
       })),
     };
   };
@@ -1372,7 +1405,10 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run
   await press(screen, 'minjun.run 프로필');
   await settle(50);
   page = texts(screen);
-  expect(page).toContain('최근 기록');
+  // S15P31E105-732: my profile lists 기록 · 스크랩 · 저장된 코스.
+  expect(page).toContain('기록');
+  expect(page).toContain('스크랩');
+  expect(page).toContain('저장된 코스');
   // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
   expect(page).not.toContain('공개 계정');
   // My run opens on 2.1 러닝 분석 on its day (S15P31E105-594: 기록 상세 and its 기록 공유 are gone).
@@ -1396,29 +1432,27 @@ const runTiles = (screen: Screen) =>
       typeof node.props.onPress === 'function',
   );
 
-// S15P31E105-682: 7.4b shows four runs and four saved courses, 더보기 only when there are more.
-test('7.4b shows four recent runs and four saved courses with 더보기, and a course opens its run', async () => {
+// S15P31E105-732: 7.4b tabs 기록 · 스크랩 · 저장된 코스; two-column tiles, no 더보기.
+test('7.4b shows 기록 · 스크랩 · 저장된 코스 tabs and a course opens its run', async () => {
   const screen = await openCommunity();
   await press(screen, '프로필');
   await settle(50);
   const page = texts(screen);
-  expect(page).toContain('최근 기록');
-  expect(page).toContain('저장한 코스');
-  // The mock has more than four runs and five saved courses.
-  expect(runTiles(screen)).toHaveLength(4);
+  expect(page).toContain('기록');
+  expect(page).toContain('스크랩');
+  expect(page).toContain('저장된 코스');
+  // 기록 is selected first; the pager keeps neighbouring pages mounted for swipe.
+  expect(runTiles(screen).length).toBeGreaterThan(0);
+  expect(() => labelled(screen, '최근 기록 더보기')).toThrow();
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+
+  await press(screen, '스크랩');
+  await settle(50);
+  expect(texts(screen)).toContain('스크랩');
+
+  await press(screen, '저장된 코스');
+  await settle(50);
   expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
-
-  await press(screen, '최근 기록 더보기');
-  await settle(50);
-  expect(texts(screen)).toContain('내 기록');
-  await press(screen, '프로필');
-  await settle(50);
-
-  await press(screen, '저장한 코스 더보기');
-  await settle(50);
-  expect(() => labelled(screen, '민락수변 왕복, 5.4km 33분')).not.toThrow();
-  await press(screen, '프로필');
-  await settle(50);
 
   // A course tile opens its course run.
   await press(screen, '민락수변 왕복, 5.4km · 33분');
@@ -1431,14 +1465,8 @@ test('7.4b shows four recent runs and four saved courses with 더보기, and a c
   expect(texts(screen)).toContain('민락수변 왕복 5.4km');
 });
 
-test('7.4b shows 더보기 only past four runs and four saved courses', async () => {
+test('7.4b 저장된 코스 lists every saved course without 더보기', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
-  const getProfile = repositories.runners.getProfile;
-  repositories.runners.getProfile = async userId => {
-    const profile = await getProfile(userId);
-    return { ...profile, records: profile.records.slice(0, 4) };
-  };
-  // The mock answers on a timer, and this file runs fake timers.
   const pending = repositories.courses.getSaved();
   await settle(50);
   const courses = await pending;
@@ -1452,28 +1480,10 @@ test('7.4b shows 더보기 only past four runs and four saved courses', async ()
   const screen = await openCommunity(repositories);
   await press(screen, '프로필');
   await settle(50);
-  expect(runTiles(screen)).toHaveLength(4);
-  expect(() => labelled(screen, '최근 기록 더보기')).toThrow();
+  await press(screen, '저장된 코스');
+  await settle(50);
   expect(texts(screen)).toContain('코스 4');
-  expect(texts(screen)).not.toContain('코스 5');
-
-  await press(screen, '저장한 코스 더보기');
-  await settle(50);
   expect(texts(screen)).toContain('코스 5');
-});
-
-test('7.4b shows no 저장한 코스 더보기 for four saved courses or fewer', async () => {
-  const repositories = createMockRepositories({ latencyMs: 0 });
-  const pending = repositories.courses.getSaved();
-  await settle(50);
-  const courses = await pending;
-  jest
-    .spyOn(repositories.courses, 'getSaved')
-    .mockResolvedValue(courses.slice(0, 4));
-  const screen = await openCommunity(repositories);
-  await press(screen, '프로필');
-  await settle(50);
-  expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
   expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
 });
 
@@ -1485,6 +1495,8 @@ test('7.4b says when there are no saved courses or they did not load', async () 
     .mockRejectedValue(new DataError('NETWORK_ERROR', '연결 없음'));
   const screen = await openCommunity(repositories);
   await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '저장된 코스');
   await settle(50);
   expect(texts(screen)).toContain('저장한 코스를 불러오지 못했어요');
   expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
@@ -1558,39 +1570,26 @@ const courseSwitch = (screen: Screen) =>
       typeof node.props.onPress === 'function',
   )[0];
 
-test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () => {
+test('7.3 always requests course sharing on a course run without a toggle', async () => {
   const { repositories, created } = withRun(true);
   const screen = await openShare(repositories);
-  expect(courseSwitch(screen).props.accessibilityState).toEqual({
-    checked: true,
-    disabled: false,
-  });
-
-  await act(async () => courseSwitch(screen).props.onPress());
+  expect(courseSwitch(screen)).toBeUndefined();
   await press(screen, '게시');
   await settle(100);
 
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: null,
   });
 });
 
-test('7.3 lets a free run request course sharing', async () => {
+test('7.3 also requests course sharing on a free run without a toggle', async () => {
   const { repositories, created } = withRun(false);
   const screen = await openShare(repositories);
 
-  expect(courseSwitch(screen).props.accessibilityState).toEqual({
-    checked: false,
-    disabled: false,
-  });
-  expect(courseSwitch(screen).props.disabled).toBe(false);
-  expect(texts(screen)).toContain(
-    '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.',
-  );
-
-  await act(async () => courseSwitch(screen).props.onPress());
+  expect(courseSwitch(screen)).toBeUndefined();
+  expect(texts(screen)).not.toContain('코스도 함께 공유');
 
   await press(screen, '게시');
   await settle(100);
@@ -1635,21 +1634,20 @@ test('7.3 shows 지역 for a shared course and sends it with the post', async ()
   });
 });
 
-test('7.3 keeps 지역 and sends it once the course is not shared', async () => {
+test('7.3 keeps 지역 when sharing is fixed on without a toggle', async () => {
   const { repositories, created } = withCourseStart();
   const screen = await openShare(repositories);
   await settle(50);
   expect(texts(screen)).toContain('지역: 부산 수영구');
 
-  await act(async () => courseSwitch(screen).props.onPress());
-  await settle(50);
+  expect(courseSwitch(screen)).toBeUndefined();
   expect(texts(screen)).toContain('지역: 부산 수영구');
 
   await press(screen, '게시');
   await settle(100);
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: '26500',
   });
 });
@@ -1666,7 +1664,7 @@ test('7.3 asks the measured start region for a free run and shows none when none
   await settle(100);
   expect(free.created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: '26500',
   });
   await act(async () => screen.unmount());

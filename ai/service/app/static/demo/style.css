@@ -558,6 +558,48 @@ input[type="range"] { accent-color: var(--ink); }
 .auth-panel .auth-error { color: var(--red-light); font-size: .9rem; }
 .auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--red-light); }
 
+/* 이전 기록(738): 머리글 버튼·목록·보는 중 칩 */
+.history-box { position: relative; flex: none; }
+.history-toggle { font-size: .85rem; font-weight: 500; padding: .35rem .9rem; background: var(--card-bg); border: 1px solid var(--panel-line); }
+.history-toggle[aria-expanded="true"] { background: var(--ink); color: var(--ice); border-color: var(--ink); }
+.history-panel { position: absolute; top: calc(100% + .4rem); left: 0; z-index: 40; width: 26rem; max-height: 60vh; overflow: auto;
+  padding: .6rem; border-radius: 1rem; background: var(--card-bg); border: 1px solid var(--panel-line); box-shadow: 0 1rem 2.5rem rgb(2 5 14 / 25%); }
+.history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.history-item { width: 100%; text-align: left; font-size: .88rem; padding: .5rem .8rem; border-radius: .7rem; background: var(--field); border: 0; }
+.history-item:hover, .history-item:focus-visible { background: var(--ink); color: var(--ice); outline: none; }
+.history-item.live::before { content: "●"; color: var(--red); margin-right: .4rem; font-size: .7em; vertical-align: .1em; }
+.history-item.current { outline: 2px solid #4DFFD2; }
+.history-empty { color: var(--muted); font-size: .85rem; padding: .4rem .6rem; }
+.history-note { margin: .5rem .2rem 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.history-chip { display: inline-flex; align-items: center; gap: .5rem; padding: .25rem .3rem .25rem .8rem; border-radius: 999px;
+  background: var(--ink); color: var(--ice); font-size: .82rem; white-space: nowrap; }
+.history-chip button { font-size: .8rem; padding: .2rem .7rem; background: #4DFFD2; color: #02050E; border: 0; }
+/* 패널 확대 모달(736): 발표장 큰 화면용. 열린 동안 루트 글자 크기를 키워 rem 기준 글자·그래프가 함께 커진다 */
+html.zoom-open { font-size: calc(max(11px, min(1.5vh, 0.84vw)) * var(--zoom-scale, 1.6)); }
+.zoomable { cursor: zoom-in; }
+.zoomable:hover { box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), 0 0 0 2px rgb(77 255 210 / 55%); }
+.zoom-open-btn { flex: none; margin-left: .5rem; width: 1.9rem; height: 1.9rem; padding: 0; border-radius: 999px; font-size: 1rem; line-height: 1;
+  background: rgb(var(--fg-rgb) / 8%); color: var(--text); border: 1px solid var(--panel-line); }
+.zoom-open-btn:hover, .zoom-open-btn:focus-visible { background: #4DFFD2; color: #02050E; border-color: #4DFFD2; outline: none; }
+.guide-card .kicker .zoom-open-btn { margin-left: auto; }
+.zoom-modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgb(2 5 14 / 72%); backdrop-filter: blur(4px); }
+.zoom-dialog { width: 94vw; height: 90vh; display: flex; flex-direction: column; gap: .6rem; padding: .9rem 1.1rem 1.1rem;
+  border-radius: var(--radius-card); border: 1px solid rgb(255 255 255 / 14%);
+  background: linear-gradient(170deg, #253649, #02050E 70%); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 50%); }
+.zoom-head { display: flex; align-items: flex-start; gap: 1rem; }
+.zoom-head-text { flex: 1; min-width: 0; }
+.zoom-head h2 { margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--ice); }
+.zoom-head p { margin: .25rem 0 0; font-size: .95rem; line-height: 1.45; color: rgb(232 238 244 / 82%); }
+.zoom-close { flex: none; font-size: .9rem; padding: .35rem .9rem; background: var(--ice); color: var(--ink); border: 0; }
+.zoom-close:focus-visible { outline: 3px solid #4DFFD2; outline-offset: 2px; }
+.zoom-body { flex: 1; min-height: 0; display: flex; }
+.zoom-body > .is-zoomed { flex: 1; width: 100%; height: 100%; min-height: 0; cursor: default; }
+.zoom-body > .is-zoomed:hover { box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); }
+.zoom-body > .is-zoomed .zoom-open-btn { display: none; }
+.zoom-body > .tone-light { color: var(--text); }
+.zoom-body > .guide-card.is-zoomed { align-content: center; }
+.record-age { font-size: .78rem; margin-left: auto; margin-right: .6rem; }
+.record-age.late { color: var(--red); font-weight: 700; }
 /* 선두·후미(727): 점 이름표 배지와 지도 아래 간격 줄. 오래된 위치는 흐리게 */
 .live-map .tip-badge { font-style: normal; font-family: var(--ui); font-size: .68rem; font-weight: 700; margin-left: .35rem;
   padding: .02rem .4rem; border-radius: 999px; }

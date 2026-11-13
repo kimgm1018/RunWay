@@ -50,7 +50,8 @@ const ocean = ['#2F5174', '#22446A', '#1A3A5C', '#12304D'];
 
 // Spotify and 멜론 play outside RunWay, so a linked card re-reads the state every few seconds.
 const pollMs = 5000;
-// A new song whose length has not come in yet (멜론 buffers for about a second) is read again this soon.
+// A new song whose length has not come in yet (멜론 buffers for about a second), or one still buffering after
+// 재생 (about 3 s when 멜론 wakes, S15P31E105-717), is read again this soon.
 const lengthPollMs = 300;
 
 function useMusicState() {
@@ -65,7 +66,9 @@ function useMusicState() {
       (state?.source === 'SPOTIFY' && !music.subscribe)) &&
     state.linked;
   const lengthMissing = Boolean(
-    polling.current && state?.nowPlaying && !state.nowPlaying.durationSec,
+    polling.current &&
+      state?.nowPlaying &&
+      (!state.nowPlaying.durationSec || state.nowPlaying.buffering),
   );
   useEffect(() => {
     if (!lengthMissing) {

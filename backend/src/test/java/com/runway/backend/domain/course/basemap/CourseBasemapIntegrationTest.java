@@ -173,6 +173,18 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
         }
     }
 
+    private String previousBasemap(long courseId) throws Exception {
+        String key = "images/course-basemap/" + courseId + "/00000000-0000-4000-8000-000000000001.png";
+        Path oldPng = volume.resolve(key);
+        Files.createDirectories(oldPng.getParent());
+        ImageIO.write(new BufferedImage(600, 900, BufferedImage.TYPE_INT_RGB), "png", oldPng.toFile());
+        jdbc.update(
+                "INSERT INTO course_basemaps(course_id, image_key, render_version) VALUES (?, ?, 'flat-v2')",
+                courseId,
+                key);
+        return key;
+    }
+
     private static CourseBasemapProperties properties(boolean backfill, int limit) {
         CourseBasemapProperties properties = new CourseBasemapProperties();
         properties.setBackfillOnStartup(backfill);
@@ -239,11 +251,9 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
-    void 이전_그리기_버전_행은_다시_그려_바꾼다() throws Exception {
+    void 이전_flat_v2_이미지는_flat_v3로_교체하고_현재_버전은_다시_그리지_않는다() throws Exception {
         long courseId = course("ACTIVE");
-        jdbc.update(
-                "INSERT INTO course_basemaps(course_id, image_key, render_version) VALUES (?, NULL, 'old-v0')",
-                courseId);
+        String oldKey = previousBasemap(courseId);
         ScriptedPort port = new ScriptedPort();
 
         assertThat(repository.findActiveCourseIdsNeedingRender(CourseBasemapRunService.RENDER_VERSION, 10))
@@ -255,10 +265,43 @@ class CourseBasemapIntegrationTest extends SharedContextIntegrationSupport {
         assertThat(rows(courseId)).isEqualTo(1);
         Map<String, Object> row = row(courseId);
         assertThat(row.get("render_version")).isEqualTo(CourseBasemapRunService.RENDER_VERSION);
-        assertThat((String) row.get("image_key")).startsWith("images/course-basemap/" + courseId + "/");
-        assertThat(pngFiles()).isEqualTo(1);
+        assertThat(row.get("render_version")).isEqualTo("flat-v3");
+        String newKey = (String) row.get("image_key");
+        assertThat(newKey).startsWith("images/course-basemap/" + courseId + "/").isNotEqualTo(oldKey);
+        BufferedImage image = ImageIO.read(volume.resolve(newKey).toFile());
+        assertThat(image.getWidth()).isEqualTo(600);
+        assertThat(image.getHeight()).isEqualTo(900);
+        assertThat(Files.readAllBytes(volume.resolve(newKey))).isNotEqualTo(Files.readAllBytes(volume.resolve(oldKey)));
+        assertThat(repository.find(courseId)).hasValueSatisfying(stored -> assertThat(stored.imageKey()).isEqualTo(newKey));
+        // 이전 이미지의 물리적 정리는 기존 정책을 유지한다. 새 이미지는 정확히 하나만 생성한다.
+        assertThat(pngFiles()).isEqualTo(2);
         assertThat(repository.findActiveCourseIdsNeedingRender(CourseBasemapRunService.RENDER_VERSION, 10))
                 .isEmpty();
+        assertThat(service(port).run(courseId)).isEqualTo(Outcome.ALREADY_SAVED);
+        assertThat(port.calls).containsExactly(courseId);
+        assertThat(pngFiles()).isEqualTo(2);
+    }
+
+    @Test
+    void 이전_이미지가_있을_때_Route_실패는_기존_이미지를_보존하고_재시도에서_교체한다() throws Exception {
+        long courseId = course("ACTIVE");
+        String oldKey = previousBasemap(courseId);
+        ScriptedPort port = new ScriptedPort();
+        port.result = new CourseBasemapPort.Failure("HTTP_503_NOT_READY");
+
+        assertThat(service(port).run(courseId)).isEqualTo(Outcome.FAILED_RETRYABLE);
+        assertThat(row(courseId).get("image_key")).isEqualTo(oldKey);
+        assertThat(row(courseId).get("render_version")).isEqualTo("flat-v2");
+        assertThat(storage.exists(oldKey)).isTrue();
+        assertThat(pngFiles()).isEqualTo(1);
+
+        port.result = new CourseBasemapPort.Success(FEATURES, OSM_TIME, true, BUILDINGS_TIME);
+        assertThat(service(port).run(courseId)).isEqualTo(Outcome.SAVED);
+        assertThat(row(courseId).get("image_key")).isNotEqualTo(oldKey);
+        assertThat(row(courseId).get("render_version")).isEqualTo("flat-v3");
+        assertThat(port.calls).containsExactly(courseId, courseId);
+        assertThat(rows(courseId)).isEqualTo(1);
+        assertThat(pngFiles()).isEqualTo(2);
     }
 
     @Test

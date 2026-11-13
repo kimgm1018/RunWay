@@ -40,7 +40,7 @@ import { settingsApi } from './settings';
 import { uploadSyncBatch } from './syncBatches';
 import { createApiSessionRepository } from './sessionApi';
 import { createSessionEvents } from './sessionEvents';
-import { createLinkedDevices } from './sessionDevices';
+import { createLinkedDevices, createPhoneDeviceId } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
 import {
@@ -76,6 +76,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
   const watchSession = {
     ...createNativeWatchSession(),
     getLinkedDevices: createLinkedDevices(serverRequest),
+    getPhoneDeviceId: createPhoneDeviceId(serverRequest),
   };
   // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464)과 러닝 시작 화면의 현재 위치(S15P31E105-635)가 같은 모듈을 쓴다.
   const phoneLocation = createPhoneLocation();

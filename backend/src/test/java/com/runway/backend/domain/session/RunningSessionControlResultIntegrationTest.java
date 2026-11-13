@@ -11,6 +11,31 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 class RunningSessionControlResultIntegrationTest extends RunningSessionIntegrationSupport {
 
+    @Test
+    void phoneOnlyControls() throws Exception {
+        String created = mockMvc.perform(createRequest(userId,
+                        "{\"controlDeviceId\":" + phoneId + ",\"relayDeviceId\":" + phoneId + "}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.recordingMode").value("PHONE_ONLY"))
+                .andReturn().getResponse().getContentAsString();
+        long sessionId = Long.parseLong(created.replaceAll(".*\"sessionId\":(\\d+).*", "$1"));
+        assertThat(jdbc.queryForObject("SELECT phone_only FROM running_sessions WHERE id=?",
+                Boolean.class, sessionId)).isTrue();
+        String[] paths = {"start", "pause", "resume", "finish"};
+        String[] states = {"RUNNING", "PAUSED", "RUNNING", "COMPLETED"};
+        for (int i = 0; i < paths.length; i++) {
+            long commandId = approve(sessionId, paths[i], phoneId, i + 1);
+            String body = i == 3 ? finishBody(commandId, phoneId, T2)
+                    : resultBody(commandId, phoneId, "APPLIED", T1);
+            mockMvc.perform(postControl(userId, sessionId, paths[i], body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.state").value(states[i]))
+                    .andExpect(jsonPath("$.recordingMode").value("PHONE_ONLY"))
+                    .andExpect(jsonPath("$.stateVersion").value(i + 2));
+        }
+        assertThat(commandCount(sessionId)).isEqualTo(4);
+    }
+
     private static final String T1 = "2026-10-28T01:00:01Z";
     private static final String T2 = "2026-10-28T01:30:00Z";
 

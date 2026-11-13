@@ -292,6 +292,9 @@ export function RunResultScreen() {
             </StatBlock>
             {goalBlock}
           </View>
+          {control?.recordingMode === 'PHONE_ONLY' ? (
+            <AppText style={styles.courseMessage}>휴대폰으로 기록했어요. 심박수와 케이던스는 측정되지 않았어요.</AppText>
+          ) : null}
           {rivalResult ? (
             <AppText style={styles.rival}>{rivalResult}</AppText>
           ) : null}

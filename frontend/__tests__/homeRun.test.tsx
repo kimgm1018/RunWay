@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { AppState, Platform, StyleSheet, Text, type AppStateStatus } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import {
@@ -578,6 +578,88 @@ test('the run map leads to course recommendations and saved courses, and starts 
   await waitForText(free, '현재 페이스');
   expect(texts(free)).toContain('현재 페이스');
   await act(async () => free.unmount());
+});
+
+test.each([false, true])('a start confirmed while the phone is locked opens the latest run state only after foregrounding (paused=%s)', async paused => {
+  const os = jest.replaceProperty(Platform, 'OS', 'android');
+  let state: AppStateStatus = 'active';
+  const descriptor = Object.getOwnPropertyDescriptor(AppState, 'currentState')!;
+  Object.defineProperty(AppState, 'currentState', { configurable: true, get: () => state });
+  const listeners = new Set<(next: AppStateStatus) => void>();
+  const focusListeners = new Set<(next: AppStateStatus) => void>();
+  const blurListeners = new Set<(next: AppStateStatus) => void>();
+  const original = AppState.addEventListener;
+  AppState.addEventListener = (type, listener) => {
+    if (type === 'focus' || type === 'blur') {
+      const list = type === 'focus' ? focusListeners : blurListeners;
+      list.add(listener);
+      return { remove: () => { list.delete(listener); } };
+    }
+    if (type !== 'change') {
+      return original.call(AppState, type, listener);
+    }
+    listeners.add(listener);
+    return { remove: () => listeners.delete(listener) };
+  };
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let screen!: Screen;
+  const create = repositories.session.create;
+  let createdId: string | null = null;
+  repositories.session.create = async request => {
+    const session = await create(request);
+    createdId = session.sessionId;
+    return session;
+  };
+  try {
+    await act(async () => {
+      screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
+    });
+    await settle();
+    await press(screen, '러닝');
+    await press(screen, '러닝 시작');
+    await act(async () => {
+      state = 'background';
+      blurListeners.forEach(listener => listener(state));
+      listeners.forEach(listener => listener(state));
+    });
+    const deadline = Date.now() + 12_000;
+    let running = false;
+    while (!running && Date.now() < deadline) {
+      await settle(50);
+      running = !!createdId && (await repositories.session.get(createdId)).state === 'RUNNING';
+    }
+    expect(running).toBe(true);
+    if (paused) {
+      const view = await repositories.session.get(createdId!);
+      (repositories.watchSession as unknown as { emit: (event: unknown) => void }).emit({
+        type: 'COMMAND_REQUEST', sessionId: createdId, action: 'PAUSE', expectedVersion: view.stateVersion,
+      });
+      const pauseDeadline = Date.now() + 3000;
+      while ((await repositories.session.get(createdId!)).state !== 'PAUSED' && Date.now() < pauseDeadline) {
+        await settle(50);
+      }
+      expect((await repositories.session.get(createdId!)).state).toBe('PAUSED');
+    }
+    await settle();
+    expect(texts(screen)).not.toContain('현재 페이스');
+    await act(async () => {
+      state = 'active';
+      listeners.forEach(listener => listener(state));
+    });
+    await settle();
+    expect(texts(screen)).not.toContain('현재 페이스');
+    await act(async () => {
+      focusListeners.forEach(listener => listener(state));
+    });
+    await waitForText(screen, '현재 페이스');
+  } finally {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+    AppState.addEventListener = original;
+    Object.defineProperty(AppState, 'currentState', descriptor);
+    os.restore();
+  }
 });
 
 test('a picked course shows on the same map: its chip beside the goal and today’s strategy, by day and after sunset', async () => {

@@ -2,6 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 import {
   speakCoaching,
   stopCoaching,
+  voiceIsQuiet,
 } from '../src/screens/run/coachingVoiceOutput';
 
 // S15P31E105-579: TTS가 없거나 실패해도 러닝을 막지 않는다.
@@ -56,4 +57,15 @@ test('stop cuts the sentence and survives a failing module', () => {
     throw new Error('gone');
   });
   expect(() => stopCoaching()).not.toThrow();
+});
+
+// S15P31E105-735: 그룹 뒤처짐 안내는 코칭 문장을 끊지 않는다. 읽는 동안(글자 수로 어림)은 조용하지 않다.
+test('a coaching sentence keeps the voice busy for about its length, and stop frees it', async () => {
+  speak.mockResolvedValue(true);
+  const before = Date.now();
+  await speakCoaching('조금 빨라요. 6분 페이스로 맞춰 주세요.');
+  expect(voiceIsQuiet(before + 100)).toBe(false);
+  expect(voiceIsQuiet(before + 60_000)).toBe(true);
+  stopCoaching();
+  expect(voiceIsQuiet()).toBe(true);
 });

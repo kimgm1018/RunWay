@@ -26,3 +26,13 @@ export function createLinkedDevices(request: ApiRequest) {
     return { watchDeviceId: String(watch.id), phoneDeviceId: String(phone.id) };
   };
 }
+
+// A personal run can use the registered phone even when no watch is linked.
+export function createPhoneDeviceId(request: ApiRequest) {
+  return async (): Promise<string> => {
+    const { items } = await request<{ items: DeviceItem[] }>('GET', '/devices');
+    const phone = items.find(item => item.deviceType === 'PHONE') ??
+      (await request<DeviceItem>('POST', '/devices', { deviceType: 'PHONE' }));
+    return String(phone.id);
+  };
+}

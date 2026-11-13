@@ -195,7 +195,8 @@ test('5.1 draws the record route on the map in its parts and plays it back from 
     node =>
       node.type === NaverMapPathOverlay && node.props.passedColor !== undefined,
   );
-  expect(lines).toHaveLength(2);
+  // Each part has two opaque outline layers and its mint core, all confined to that part.
+  expect(lines).toHaveLength(6);
   expect(
     screen.root.findAll(
       node =>

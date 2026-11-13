@@ -11,7 +11,7 @@ export function takeoverNotice(
   if (state.pending?.action === 'TAKE_OVER') {
     return { text: '워치 기록을 저장하고 폰으로 옮기는 중', offer: false };
   }
-  if (state.recordingMode === 'PHONE_FALLBACK') {
+  if (state.recordingMode === 'PHONE_FALLBACK' || state.recordingMode === 'PHONE_ONLY') {
     if (state.status !== 'RUNNING' && state.status !== 'PAUSED') {
       return null;
     }

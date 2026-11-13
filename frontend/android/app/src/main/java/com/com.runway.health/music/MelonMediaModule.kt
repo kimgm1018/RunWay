@@ -397,6 +397,8 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
     val state = controller.playbackState
     val metadata = controller.metadata
     val playing = state?.state == PlaybackState.STATE_PLAYING
+    // 멜론(media3)은 재생하려는 동안에만 버퍼링을 알린다. 꺼져 있다 깨면 약 3초 걸린다(S15P31E105-717).
+    val buffering = state?.state == PlaybackState.STATE_BUFFERING
     val actions = state?.actions ?: 0L
     val loginRequired = state != null && MelonPolicy.loginRequired(state.state, errorCode(state))
     val title = metadata?.getText(MediaMetadata.METADATA_KEY_TITLE)?.toString()
@@ -419,7 +421,7 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
       )
     }
     if (track != null) MelonHistory.record(app, metadata)
-    return MelonSnapshot(true, playing, loginRequired, MelonPolicy.commandsOf(actions), track)
+    return MelonSnapshot(true, playing, loginRequired, MelonPolicy.commandsOf(actions), track, buffering)
   }
 
   // 플랫폼 PlaybackState는 오류 코드를 공개하지 않는다. 기기에 있으면 읽고, 없으면 0(로그인 필요로 보지 않음).

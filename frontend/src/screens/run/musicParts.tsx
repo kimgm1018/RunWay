@@ -26,7 +26,8 @@ export function useLivePosition(track: Playing | null | undefined) {
   }
   const readAt = read.current.at;
   const [now, setNow] = useState(readAt);
-  const playing = track?.playing === true;
+  // 버퍼링 중에는 재생 중으로 보이지만 위치는 다음 읽기까지 멈춰 둔다(S15P31E105-717).
+  const playing = track?.playing === true && !track.buffering;
   useEffect(() => {
     if (!playing) {
       return;

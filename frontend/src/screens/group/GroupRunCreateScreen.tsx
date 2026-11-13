@@ -7,7 +7,8 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, { Polyline, Rect } from 'react-native-svg';
+import Svg, { Rect } from 'react-native-svg';
+import { RouteStroke } from '../../components/RouteStroke';
 import {
   StackActions,
   useFocusEffect,
@@ -109,7 +110,10 @@ const loadOptions = (repositories: Repositories) =>
 function Label({ title, note }: { title: string; note?: string }) {
   return (
     <View style={styles.label}>
-      <AppText style={[standType.label, styles.flex]} accessibilityRole="header">
+      <AppText
+        style={[standType.label, styles.flex]}
+        accessibilityRole="header"
+      >
         {title}
       </AppText>
       {note ? <AppText style={styles.note}>{note}</AppText> : null}
@@ -147,13 +151,9 @@ function CourseThumb({ shape }: { shape: [number, number][] }) {
   return (
     <View style={styles.thumb}>
       <Svg width={72} height={46}>
-        <Polyline
+        <RouteStroke
           points={points.map(point => point.join(',')).join(' ')}
-          fill="none"
-          stroke={stand.mint}
-          strokeWidth={2.4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          scale={0.3}
         />
         {first ? (
           <Rect
@@ -611,7 +611,11 @@ export function GroupRunCreateScreen() {
 
   const chooseCourse = (item: SavedCourse) => {
     // SYS-002: only ACTIVE saved courses may start a new group run, and no private one (S15P31E105-696).
-    if (item.status === 'MERGED' || item.status === 'BLOCKED' || item.isPrivate) {
+    if (
+      item.status === 'MERGED' ||
+      item.status === 'BLOCKED' ||
+      item.isPrivate
+    ) {
       return;
     }
     setCourse({
@@ -745,7 +749,11 @@ export function GroupRunCreateScreen() {
               {crewName}
             </AppText>
             {crewId ? (
-              <ColorBar color={crewColor(crewId)} height={14} style={styles.crewBar} />
+              <ColorBar
+                color={crewColor(crewId)}
+                height={14}
+                style={styles.crewBar}
+              />
             ) : null}
           </View>
         ) : null}

@@ -32,7 +32,7 @@ import org.springframework.stereotype.Service;
 public class CourseBasemapRunService {
 
     /** 그리기 방식 버전. 바꾸면 기동 시 일괄 채우기가 기존 썸네일을 다시 그린다(최대 40자). */
-    public static final String RENDER_VERSION = "flat-v2";
+    public static final String RENDER_VERSION = "flat-v3";
 
     /** 이미지 볼륨 키 앞부분. 키는 {@code images/course-basemap/{courseId}/{uuid}.png}다. */
     public static final String IMAGE_KEY_PREFIX = ImageStorage.COURSE_BASEMAP_KEY_PREFIX;

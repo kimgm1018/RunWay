@@ -29,7 +29,7 @@ import { useCourseSearch } from '../course/CourseSearch';
 import { courseGoalOf, useRunGoalDraft } from './goal/RunGoalDraft';
 
 const loadPlan = (repositories: Repositories) =>
-  repositories.courses.getTodayPlan();
+  repositories.courses.getTodayPlan({ pacePlan: true });
 // Looked up apart from the plan, so a slow or failed GPS fix never holds the course back.
 const loadPlace = (repositories: Repositories) =>
   repositories.run.getCurrentPlace();
@@ -145,6 +145,12 @@ export function CourseRunScreen() {
   const resource = useResource(useCallback(loadPlan, []));
   const placeResource = useResource(useCallback(loadPlace, []));
   const plan = resource.status === 'ready' ? resource.data : null;
+  // The plan's pace per km as map labels (S15P31E105-748). Missing or bad values leave the map without labels.
+  const kmPaces = plan?.segmentPacesSecPerKm ?? [];
+  const kmLabels =
+    kmPaces.length > 0 && kmPaces.every(pace => Number.isFinite(pace) && pace > 0)
+      ? kmPaces.map(pace => formatPace(pace))
+      : undefined;
   // Loaded, but no course was picked yet (or the app restarted since): 2.0 asks for one (S15P31E105-635).
   const noCourse = resource.status === 'ready' && !plan;
   const place =
@@ -298,6 +304,37 @@ export function CourseRunScreen() {
               <AppText style={styles.caution}>{` · ${plan.caution}`}</AppText>
             ) : null}
           </AppText>
+          {plan.segmentPacesSecPerKm.length ? (
+            // km별 추천 페이스 (S15P31E105-733): one small pill a km, and where the plan comes from.
+            <>
+              <View style={styles.kmRow} accessibilityLabel="km별 추천 페이스">
+                {plan.segmentPacesSecPerKm.map((value, index) => (
+                  <View key={index} style={styles.kmPill}>
+                    <AppText style={styles.kmLabel}>
+                      {/* The last pill of a course that does not end on a whole km is labelled by its end (5.3km). */}
+                      {index === plan.segmentPacesSecPerKm.length - 1 &&
+                      plan.distanceM % 1000 !== 0
+                        ? `${(plan.distanceM / 1000).toFixed(1)}km`
+                        : `${index + 1}km`}
+                    </AppText>
+                    <AppText style={styles.kmPace}>{formatPace(value)}</AppText>
+                  </View>
+                ))}
+              </View>
+              {plan.planSource ? (
+                <AppText
+                  style={[
+                    styles.planSource,
+                    night && { color: colors.textSecondary },
+                  ]}
+                >
+                  {plan.planSource === 'PERSONAL'
+                    ? '내 기록으로 만든 AI 계획'
+                    : '평균 러너 기준 AI 계획'}
+                </AppText>
+              ) : null}
+            </>
+          ) : null}
         </View>
       ) : (
         // A server course has no pace plan yet: only its own figures, no strategy (S15P31E105-635).
@@ -337,8 +374,10 @@ export function CourseRunScreen() {
         <MapScreenFrame
           renderMap={logo => (
             <RunMap
-              // One mint line, the same as 2.0F's map (S15P31E105-683); the plan's km paces stay in 오늘의 전략.
+              // One mint line, the same as 2.0F's map (S15P31E105-683), with the plan's pace on each km
+              // (S15P31E105-748). No km paces (first run, no server plan): the line alone.
               route={plan?.route}
+              paceLabels={kmLabels}
               unmeasuredEdges={plan?.unmeasuredEdges}
               position={place?.position ?? undefined}
               placeLabel={
@@ -349,9 +388,9 @@ export function CourseRunScreen() {
                     }
                   : undefined
               }
-              // The camera frames the course's start, not me: far from the course the fit of both zoomed out
-              // and lost the start (S15P31E105-715).
-              fitTo={plan?.route?.length ? [plan.route[0]] : undefined}
+              // The camera frames the whole course so every km label shows (S15P31E105-748), not me: far from
+              // the course a fit of both zoomed out and lost it (S15P31E105-715).
+              fitTo={plan?.route?.length ? plan.route : undefined}
               area={{ top: 0.19, bottom: 0.56 }}
               logo={logo}
               view="lean"
@@ -458,6 +497,35 @@ const styles = StyleSheet.create({
     color: '#67696E',
   },
   caution: { fontFamily: fontFamily.bold, color: '#D44A4A' },
+  kmRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  kmPill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: k1.light,
+  },
+  kmLabel: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#67696E',
+  },
+  kmPace: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    color: ink,
+  },
+  planSource: {
+    marginTop: 4,
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: grey,
+  },
   choices: { gap: 10 },
   choice: {
     paddingHorizontal: 18,

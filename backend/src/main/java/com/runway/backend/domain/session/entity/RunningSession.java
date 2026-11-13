@@ -67,6 +67,9 @@ public class RunningSession {
     @Column(name = "relay_device_id")
     private Long relayDeviceId;
 
+    @Column(name = "phone_only", nullable = false)
+    private boolean phoneOnly;
+
     @Column(name = "state_version", nullable = false)
     private long stateVersion;
 
@@ -122,6 +125,7 @@ public class RunningSession {
         session.userId = userId;
         session.controlDeviceId = controlDeviceId;
         session.relayDeviceId = relayDeviceId;
+        session.phoneOnly = controlDeviceId == relayDeviceId;
         session.status = RunningSessionStatus.READY;
         session.stateVersion = 1;
         session.analysisStatus = AnalysisStatus.PENDING;
@@ -147,7 +151,15 @@ public class RunningSession {
     }
 
     public boolean isPhoneFallback() {
+        return !phoneOnly && isPhoneControlled();
+    }
+
+    public boolean isPhoneControlled() {
         return controlDeviceId != null && controlDeviceId.equals(relayDeviceId);
+    }
+
+    public boolean isPhoneOnly() {
+        return phoneOnly;
     }
 
     /** S08 UPDATE_GOAL. 실제로 달라진 목표만 반영하며 버전을 1 올린다. */

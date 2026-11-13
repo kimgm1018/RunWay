@@ -69,5 +69,30 @@
     };
   }
 
-  root.RunwayDemoStream = {connect: connect};
+  // 738: '이전 기록' 다시 보기. 'h<id>' 스트림에서 첫 SNAPSHOT만 받고 닫는다.
+  async function fetchSnapshot(options) {
+    var response = await fetch('/v1/demo/sessions/' + encodeURIComponent(options.session) + '/events', {
+      headers: {Authorization: 'Bearer ' + options.token, Accept: 'text/event-stream'}, cache: 'no-store'
+    });
+    if (!response.ok || !response.body) throw new Error('history ' + response.status);
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var rest = '';
+    try {
+      while (true) {
+        var item = await reader.read();
+        if (item.done) break;
+        var parsed = root.RunwayDemoLogic.parseSseChunk(rest + decoder.decode(item.value, {stream: true}));
+        rest = parsed.rest;
+        for (var i = 0; i < parsed.events.length; i += 1) {
+          if (parsed.events[i].event === 'SNAPSHOT') return parsed.events[i].data;
+        }
+      }
+    } finally {
+      try { reader.cancel(); } catch (error) { /* 이미 닫힘 */ }
+    }
+    throw new Error('history empty');
+  }
+
+  root.RunwayDemoStream = {connect: connect, fetchSnapshot: fetchSnapshot};
 }(typeof window !== 'undefined' ? window : globalThis));

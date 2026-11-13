@@ -4,6 +4,8 @@ import {
   Animated,
   Image,
   type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -18,6 +20,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import PagerView from 'react-native-pager-view';
 import Svg, {
   Defs,
   LinearGradient,
@@ -40,6 +43,7 @@ import {
   type CourseMapData,
   type FollowListKind,
   useResource,
+  type Post,
   type Repositories,
   type RunnerProfile,
   type RunRecordSummary,
@@ -63,6 +67,7 @@ import {
 import { communityLook } from './look';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
+import { usePostPages } from './usePostPages';
 
 // 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into the mist (홈 · 러닝과
 // 같은 배경, S15P31E105-483), the name sits over its foot, then one wide navy button, a row of three numbers, a
@@ -449,37 +454,6 @@ function RunTile({
   );
 }
 
-// A section title with 더보기 at its right end, when there is a full list to open (S15P31E105-682).
-function SectionHeader({
-  title,
-  onMore,
-}: {
-  title: string;
-  onMore?: () => void;
-}) {
-  return (
-    <View style={styles.sectionRow}>
-      <AppText
-        style={[styles.section, styles.sectionInRow]}
-        accessibilityRole="header"
-      >
-        {title}
-      </AppText>
-      {onMore ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${title} 더보기`}
-          hitSlop={8}
-          onPress={onMore}
-          style={({ pressed }) => pressed && styles.tilePressed}
-        >
-          <AppText style={styles.more}>더보기</AppText>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 // A saved course as a tile beside the runs: the course on its map, its name and distance · time.
 function CourseTile({
   course,
@@ -526,58 +500,476 @@ function CourseTile({
   );
 }
 
-// 7.4b shows this many of my runs and saved courses; 더보기 shows only when there are more
-// (5.1 전체 기록 · 3.1c 저장한 코스, S15P31E105-682).
-const shownMyRuns = 4;
-const shownCourses = 4;
+// S15P31E105-732: my profile lists 기록 · 스크랩 · 저장된 코스 as left-to-right tabs.
+type ProfileTab = 'records' | 'scraps' | 'courses';
+const myTabs: { id: ProfileTab; label: string }[] = [
+  { id: 'records', label: '기록' },
+  { id: 'scraps', label: '스크랩' },
+  { id: 'courses', label: '저장된 코스' },
+];
+const recordPageSize = 20;
+
+function ProfileTabs({
+  value,
+  onChange,
+}: {
+  value: ProfileTab;
+  onChange: (tab: ProfileTab) => void;
+}) {
+  return (
+    <View style={styles.tabs} accessibilityRole="tablist">
+      {myTabs.map(tab => {
+        const on = tab.id === value;
+        return (
+          <Pressable
+            key={tab.id}
+            accessibilityRole="tab"
+            accessibilityLabel={tab.label}
+            accessibilityState={{ selected: on }}
+            onPress={() => onChange(tab.id)}
+            style={[styles.tab, on && styles.tabOn]}
+          >
+            <AppText style={[styles.tabText, on && styles.tabTextOn]}>
+              {tab.label}
+            </AppText>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function ListStatus({
+  loading,
+  errorLabel,
+  retryLabel,
+  empty,
+  onRetry,
+  loadingMore,
+  moreError,
+  onRetryMore,
+}: {
+  loading: boolean;
+  errorLabel: string | null;
+  retryLabel?: string;
+  empty: string | null;
+  onRetry?: () => void;
+  loadingMore?: boolean;
+  moreError?: string | null;
+  onRetryMore?: () => void;
+}) {
+  if (loading) {
+    return <ActivityIndicator color={look.ink} />;
+  }
+  if (errorLabel) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={retryLabel ?? errorLabel}
+        onPress={onRetry}
+      >
+        <AppText style={styles.empty}>{errorLabel}</AppText>
+      </Pressable>
+    );
+  }
+  if (empty) {
+    return <AppText style={styles.empty}>{empty}</AppText>;
+  }
+  return (
+    <>
+      {loadingMore ? (
+        <ActivityIndicator color={look.ink} style={styles.moreSpinner} />
+      ) : null}
+      {moreError ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={moreError}
+          onPress={onRetryMore}
+        >
+          <AppText style={styles.empty}>{moreError}</AppText>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
+// My runs for the 기록 tab: H01 newest page, then the next chunk when the profile scrolls near the foot.
+function useMyRecords(active: boolean) {
+  const { records } = useRepositories();
+  const [items, setItems] = useState<RunRecordSummary[]>([]);
+  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const busy = useRef(false);
+
+  const loadFirst = useCallback(() => {
+    busy.current = true;
+    setStatus('loading');
+    setMoreError(false);
+    records
+      .getRecent('recent', recordPageSize)
+      .then(next => {
+        setItems(next);
+        setHasMore(next.length >= recordPageSize);
+        setStatus('ready');
+      })
+      .catch(() => setStatus('error'))
+      .finally(() => {
+        busy.current = false;
+      });
+  }, [records]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (active) {
+        loadFirst();
+      }
+    }, [active, loadFirst]),
+  );
+
+  const loadMore = useCallback(() => {
+    if (!active || busy.current || !hasMore || status !== 'ready') {
+      return;
+    }
+    busy.current = true;
+    setLoadingMore(true);
+    setMoreError(false);
+    const limit = items.length + recordPageSize;
+    records
+      .getRecent('recent', limit)
+      .then(next => {
+        setItems(next);
+        setHasMore(next.length >= limit);
+      })
+      .catch(() => setMoreError(true))
+      .finally(() => {
+        busy.current = false;
+        setLoadingMore(false);
+      });
+  }, [active, hasMore, items.length, records, status]);
+
+  return {
+    items,
+    status,
+    hasMore,
+    loadingMore,
+    moreError,
+    loadMore,
+    retry: loadFirst,
+    retryMore: loadMore,
+  };
+}
+
 const loadSaved = (repositories: Repositories) =>
   repositories.courses.getSaved();
 
-// 7.4b 저장한 코스 under 최근 기록 (S15P31E105-682): my bookmarked courses, newest first; one opens the course run.
-function SavedCoursesSection({ tileWidth }: { tileWidth: number }) {
+// S15P31E105-732: 기록 · 스크랩 · 저장된 코스 share the same two-column tiles; swipe or tap to change.
+function MyProfileLists({
+  tileWidth,
+  onNearEnd,
+}: {
+  tileWidth: number;
+  onNearEnd: (loadMore: (() => void) | null) => void;
+}) {
   const navigation = useNavigation();
-  const open = useOpenSavedCourse();
+  const openCourse = useOpenSavedCourse();
+  const { records: recordsRepo, community } = useRepositories();
+  const pager = useRef<PagerView>(null);
+  const [page, setPage] = useState(0);
+  const tab = myTabs[page]?.id ?? 'records';
+  const [pageHeights, setPageHeights] = useState([0, 0, 0]);
+  const records = useMyRecords(page === 0);
+  const loadScraps = useCallback(
+    (cursor: string | null) => community.listMyBookmarks(cursor),
+    [community],
+  );
+  const scraps = usePostPages(loadScraps);
   const saved = useResource(useCallback(loadSaved, []));
-  const { reload } = saved;
-  // A course saved or unsaved elsewhere shows on coming back.
-  useFocusEffect(useCallback(() => reload(), [reload]));
-  const items = saved.status === 'ready' ? saved.data : null;
+  const { reload: reloadSaved } = saved;
+  useFocusEffect(useCallback(() => reloadSaved(), [reloadSaved]));
+
+  // react-native-pager-view 8 on Android can start with swiping off; turn it on once mounted.
+  useEffect(() => {
+    pager.current?.setScrollEnabled(true);
+  }, []);
+
+  const selectTab = useCallback((next: ProfileTab) => {
+    const index = myTabs.findIndex(item => item.id === next);
+    if (index < 0) {
+      return;
+    }
+    pager.current?.setPage(index);
+    setPage(index);
+  }, []);
+
+  const setPageHeight = useCallback((index: number, height: number) => {
+    setPageHeights(current => {
+      if (current[index] === height) {
+        return current;
+      }
+      const next = [...current];
+      next[index] = height;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'records') {
+      onNearEnd(
+        records.moreError
+          ? records.retryMore
+          : records.hasMore
+          ? records.loadMore
+          : null,
+      );
+      return;
+    }
+    if (tab === 'scraps') {
+      onNearEnd(
+        scraps.moreError
+          ? scraps.retry
+          : scraps.hasMore
+          ? scraps.loadMore
+          : null,
+      );
+      return;
+    }
+    onNearEnd(null);
+  }, [
+    tab,
+    records.hasMore,
+    records.loadMore,
+    records.moreError,
+    records.retryMore,
+    scraps.hasMore,
+    scraps.loadMore,
+    scraps.moreError,
+    scraps.retry,
+    onNearEnd,
+  ]);
+
+  const courses = saved.status === 'ready' ? saved.data : null;
+  const pagerHeight = Math.max(pageHeights[page] || 120, 120);
+
   return (
     <>
-      <SectionHeader
-        title="저장한 코스"
-        onMore={
-          items && items.length > shownCourses
-            ? () => navigateTo(navigation, 'SavedCourses')
-            : undefined
-        }
-      />
-      {saved.status === 'error' ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="저장한 코스 다시 불러오기"
-          onPress={reload}
-        >
-          <AppText style={styles.empty}>
-            저장한 코스를 불러오지 못했어요 · 다시 시도
-          </AppText>
-        </Pressable>
-      ) : !items ? (
-        <ActivityIndicator color={look.ink} />
-      ) : items.length === 0 ? (
-        <AppText style={styles.empty}>아직 저장한 코스가 없어요</AppText>
-      ) : (
+      <ProfileTabs value={tab} onChange={selectTab} />
+      <PagerView
+        ref={pager}
+        style={[styles.pager, { height: pagerHeight }]}
+        initialPage={0}
+        // The tab follows the page that covers most of the screen while dragging.
+        onPageScroll={event => {
+          const { position, offset } = event.nativeEvent;
+          const shown = offset > 0.5 ? position + 1 : position;
+          setPage(current =>
+            current === shown || !myTabs[shown] ? current : shown,
+          );
+        }}
+        onPageSelected={event => setPage(event.nativeEvent.position)}
+      >
+        <View key="records" style={styles.pagerPage} collapsable={false}>
+          <View
+            onLayout={event =>
+              setPageHeight(0, event.nativeEvent.layout.height)
+            }
+          >
+            {records.status === 'ready' && records.items.length > 0 ? (
+              <View style={styles.tiles}>
+                {records.items.map(record => (
+                  <RunTile
+                    key={record.id}
+                    record={record}
+                    width={tileWidth}
+                    loadRoute={() =>
+                      recordsRepo
+                        .getDetail(record.id)
+                        .then(detail =>
+                          detail.route
+                            ? { route: detail.route, basemap: null }
+                            : null,
+                        )
+                    }
+                    onPress={() => openRecord(navigation, record.id)}
+                  />
+                ))}
+              </View>
+            ) : null}
+            <ListStatus
+              loading={records.status === 'loading'}
+              errorLabel={
+                records.status === 'error'
+                  ? '기록을 불러오지 못했어요 · 다시 시도'
+                  : null
+              }
+              retryLabel="기록 다시 불러오기"
+              empty={
+                records.status === 'ready' && records.items.length === 0
+                  ? '아직 기록이 없어요'
+                  : null
+              }
+              onRetry={records.retry}
+              loadingMore={records.loadingMore}
+              moreError={
+                records.moreError
+                  ? '더 불러오지 못했어요 · 다시 시도'
+                  : null
+              }
+              onRetryMore={records.retryMore}
+            />
+          </View>
+        </View>
+        <View key="scraps" style={styles.pagerPage} collapsable={false}>
+          <View
+            onLayout={event =>
+              setPageHeight(1, event.nativeEvent.layout.height)
+            }
+          >
+            {scraps.status === 'ready' && scraps.posts.length > 0 ? (
+              <View style={styles.tiles}>
+                {scraps.posts.map((post: Post) => (
+                  <RunTile
+                    key={post.id}
+                    record={post.record}
+                    width={tileWidth}
+                    loadRoute={() => community.getRoute(post.id)}
+                    onPress={() =>
+                      navigation.navigate('PostDetail', { postId: post.id })
+                    }
+                  />
+                ))}
+              </View>
+            ) : null}
+            <ListStatus
+              loading={scraps.status === 'loading'}
+              errorLabel={
+                scraps.status === 'error'
+                  ? '스크랩을 불러오지 못했어요 · 다시 시도'
+                  : null
+              }
+              retryLabel="스크랩 다시 불러오기"
+              empty={
+                scraps.empty ? '아직 스크랩한 게시물이 없어요' : null
+              }
+              onRetry={scraps.retry}
+              loadingMore={scraps.loadingMore}
+              moreError={
+                scraps.moreError
+                  ? '더 불러오지 못했어요 · 다시 시도'
+                  : null
+              }
+              onRetryMore={scraps.retry}
+            />
+          </View>
+        </View>
+        <View key="courses" style={styles.pagerPage} collapsable={false}>
+          <View
+            onLayout={event =>
+              setPageHeight(2, event.nativeEvent.layout.height)
+            }
+          >
+            {courses && courses.length > 0 ? (
+              <View style={styles.tiles}>
+                {courses.map(course => (
+                  <CourseTile
+                    key={course.id}
+                    course={course}
+                    width={tileWidth}
+                    onPress={() => openCourse(course)}
+                  />
+                ))}
+              </View>
+            ) : null}
+            <ListStatus
+              loading={saved.status !== 'ready' && saved.status !== 'error'}
+              errorLabel={
+                saved.status === 'error'
+                  ? '저장한 코스를 불러오지 못했어요 · 다시 시도'
+                  : null
+              }
+              retryLabel="저장한 코스 다시 불러오기"
+              empty={
+                courses && courses.length === 0
+                  ? '아직 저장한 코스가 없어요'
+                  : null
+              }
+              onRetry={reloadSaved}
+            />
+          </View>
+        </View>
+      </PagerView>
+    </>
+  );
+}
+
+// Someone else's shared runs as the same two-column tiles, loaded with CMT02 author pages.
+function SharedRunsList({
+  userId,
+  tileWidth,
+  onNearEnd,
+}: {
+  userId: string;
+  tileWidth: number;
+  onNearEnd: (loadMore: (() => void) | null) => void;
+}) {
+  const navigation = useNavigation();
+  const { community } = useRepositories();
+  const load = useCallback(
+    (cursor: string | null) => community.listAuthorPosts(userId, cursor),
+    [community, userId],
+  );
+  const pages = usePostPages(load);
+  useEffect(() => {
+    onNearEnd(
+      pages.moreError
+        ? pages.retry
+        : pages.hasMore
+        ? pages.loadMore
+        : null,
+    );
+  }, [
+    pages.hasMore,
+    pages.loadMore,
+    pages.moreError,
+    pages.retry,
+    onNearEnd,
+  ]);
+  return (
+    <>
+      <AppText style={styles.section} accessibilityRole="header">
+        공유한 러닝 결과
+      </AppText>
+      {pages.status === 'ready' && pages.posts.length > 0 ? (
         <View style={styles.tiles}>
-          {items.slice(0, shownCourses).map(course => (
-            <CourseTile
-              key={course.id}
-              course={course}
+          {pages.posts.map(post => (
+            <RunTile
+              key={post.id}
+              record={post.record}
               width={tileWidth}
-              onPress={() => open(course)}
+              loadRoute={() => community.getRoute(post.id)}
+              onPress={() =>
+                navigation.navigate('PostDetail', { postId: post.id })
+              }
             />
           ))}
         </View>
-      )}
+      ) : null}
+      <ListStatus
+        loading={pages.status === 'loading'}
+        errorLabel={
+          pages.status === 'error'
+            ? '공유한 러닝을 불러오지 못했어요 · 다시 시도'
+            : null
+        }
+        empty={pages.empty ? '아직 기록이 없어요' : null}
+        onRetry={pages.retry}
+        loadingMore={pages.loadingMore}
+        moreError={
+          pages.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
+        }
+        onRetryMore={pages.retry}
+      />
     </>
   );
 }
@@ -599,13 +991,29 @@ function Profile({
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { records: recordsRepo, community } = useRepositories();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const locked = !profile.accessible;
   const heroHeight = Math.round(screenHeight * 0.48);
   const tileWidth = Math.floor((screenWidth - 32 - tileGap) / 2);
   // The page's scroll drives the picture's blur behind it.
   const scrollY = useRef(new Animated.Value(0)).current;
+  const loadMoreRef = useRef<(() => void) | null>(null);
+  const onNearEnd = useCallback((loadMore: (() => void) | null) => {
+    loadMoreRef.current = loadMore;
+  }, []);
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } =
+        event.nativeEvent;
+      if (
+        layoutMeasurement.height + contentOffset.y >=
+        contentSize.height - 320
+      ) {
+        loadMoreRef.current?.();
+      }
+    },
+    [],
+  );
   const [requestsOpen, setRequestsOpen] = useState(false);
   // 팔로우 요청 N건, or N건+ when U24 has more pages.
   const requestText = profile.followRequests
@@ -649,7 +1057,7 @@ function Profile({
         }}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true },
+          { useNativeDriver: true, listener: onScroll },
         )}
         scrollEventThrottle={16}
       >
@@ -759,58 +1167,18 @@ function Profile({
                   }`}
                 </AppText>
               </View>
-              {/* 7.4b: four of my runs, 더보기 to 5.1 전체 기록 when there are more (S15P31E105-682). */}
-              <SectionHeader
-                title={profile.isMe ? '최근 기록' : '공유한 러닝 결과'}
-                onMore={
-                  profile.isMe && profile.records.length > shownMyRuns
-                    ? () => navigateTo(navigation, 'Records')
-                    : undefined
-                }
-              />
-              {profile.records.length === 0 ? (
-                <AppText style={styles.empty}>아직 기록이 없어요</AppText>
-              ) : (
-                <View style={styles.tiles}>
-                  {(profile.isMe
-                    ? profile.records.slice(0, shownMyRuns)
-                    : profile.records
-                  ).map(({ record, postId }) => (
-                    <RunTile
-                      key={record.id}
-                      record={record}
-                      width={tileWidth}
-                      // H01 carries no points: a shared run asks its post (CMT, with the course's map image),
-                      // my own run its record (H02, no basemap: the outline only).
-                      loadRoute={
-                        postId
-                          ? () => community.getRoute(postId)
-                          : profile.isMe
-                          ? () =>
-                              recordsRepo
-                                .getDetail(record.id)
-                                .then(detail =>
-                                  detail.route
-                                    ? { route: detail.route, basemap: null }
-                                    : null,
-                                )
-                          : undefined
-                      }
-                      onPress={() =>
-                        postId
-                          ? navigation.navigate('PostDetail', { postId })
-                          : // My own run opens on 2.1 러닝 분석 (S15P31E105-594).
-                          profile.isMe
-                          ? openRecord(navigation, record.id)
-                          : undefined
-                      }
-                    />
-                  ))}
-                </View>
-              )}
               {profile.isMe ? (
-                <SavedCoursesSection tileWidth={tileWidth} />
-              ) : null}
+                <MyProfileLists
+                  tileWidth={tileWidth}
+                  onNearEnd={onNearEnd}
+                />
+              ) : (
+                <SharedRunsList
+                  userId={profile.userId}
+                  tileWidth={tileWidth}
+                  onNearEnd={onNearEnd}
+                />
+              )}
             </>
           )}
         </View>
@@ -1059,20 +1427,40 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: look.ink,
   },
-  sectionRow: {
+  // S15P31E105-732: 기록 · 스크랩 · 저장된 코스 across the profile width.
+  tabs: {
     marginTop: 28,
     marginBottom: 12,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
   },
-  sectionInRow: { marginTop: 0, marginBottom: 0 },
-  more: {
+  tab: {
+    flex: 1,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: look.lightGlassEdge,
+  },
+  tabOn: {
+    backgroundColor: look.ink,
+    borderColor: look.ink,
+  },
+  tabText: {
     fontFamily: fontFamily.medium,
     fontSize: 13,
     lineHeight: 18,
     color: look.inkSub,
   },
+  tabTextOn: {
+    fontFamily: fontFamily.bold,
+    color: look.white,
+  },
+  pager: { width: '100%' },
+  pagerPage: { flex: 1 },
+  moreSpinner: { marginTop: 16 },
   empty: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
