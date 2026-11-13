@@ -1,5 +1,6 @@
 import { appConfig } from '../../config';
 import { apiRequest } from './http';
+import { tokenStore } from './tokenStore';
 
 export type ImagePurpose = 'PROFILE' | 'CREW' | 'POST';
 
@@ -39,3 +40,14 @@ export const imageAddress = (path: string | null | undefined) =>
   path == null || /^https?:\/\//.test(path)
     ? path ?? null
     : serverOrigin + path;
+
+// S15P31E105-756 (ADR-0024): an image only its owner may see (own run-route thumbnail, H01 routePreviewImageUrl).
+// F02 checks the viewer's token, so <Image> gets the signed-in user's Authorization header. Without a session the
+// request goes without it and the server answers 404, which the card treats as no picture.
+// The token goes only to the API server itself (its origin and a path below it), never to another host or scheme.
+export function ownImageSource(uri: string) {
+  const token = tokenStore.current()?.accessToken;
+  return token && uri.startsWith(serverOrigin + '/')
+    ? { uri, headers: { Authorization: `Bearer ${token}` } }
+    : { uri };
+}

@@ -7,8 +7,11 @@ import { routeProjector, shapeOfRoute } from '../../../geo';
 import {
   basemapImage,
   basemapImageFrame,
+  CardViewportContext,
+  createCardViewport,
   CourseGlyph,
   CourseMapThumb,
+  maxCardMaps,
   drawableShape,
   glyphBox,
   kmMarks,
@@ -435,25 +438,20 @@ describe('CourseMapThumb', () => {
 
   test('only a few cards hold a map at a time and a leaving card gives its place back', async () => {
     const screens: TestRenderer.ReactTestRenderer[] = [];
-    for (let card = 0; card < 4; card += 1) {
+    for (let card = 0; card <= maxCardMaps; card += 1) {
       screens.push(
         await render(
           <CourseMapThumb {...props} route={route} basemap={null} />,
         ),
       );
     }
-    expect(screens.map(card => runMaps(card).length > 0)).toEqual([
-      true,
-      true,
-      true,
-      false,
-    ]);
+    expect(screens.map(card => runMaps(card).length > 0)).toEqual(
+      screens.map((_, card) => card < maxCardMaps),
+    );
     await act(async () => screens[0].unmount());
     mounted.splice(mounted.indexOf(screens[0]), 1);
-    const fifth = await render(
-      <CourseMapThumb {...props} route={route} basemap={null} />,
-    );
-    expect(runMaps(fifth).length).toBeGreaterThan(0);
+    // The place goes to the card that was waiting (S15P31E105-756).
+    expect(runMaps(screens[maxCardMaps]).length).toBeGreaterThan(0);
   });
 
   test('a card with a loaded image keeps the image and draws no map', async () => {
@@ -474,6 +472,35 @@ describe('CourseMapThumb', () => {
     expect(images(screen)).toHaveLength(0);
     const [glyph] = glyphs(screen);
     expect(glyph.props.shape).toEqual(shape);
+  });
+
+  // S15P31E105-756: only a confirmed "no route" (null) says 경로 기록 없음; a failed ask keeps the plain card.
+  test('the no-route label follows a null answer, not a failed ask', async () => {
+    const empty = (screen: TestRenderer.ReactTestRenderer) =>
+      screen.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'course-thumb-empty',
+      );
+    const failed = await render(
+      <CourseMapThumb
+        {...props}
+        shape={[]}
+        emptyLabel="경로 기록 없음"
+        load={() => Promise.reject(new Error('x'))}
+      />,
+    );
+    const none = await render(
+      <CourseMapThumb
+        {...props}
+        shape={[]}
+        emptyLabel="경로 기록 없음"
+        load={() => Promise.resolve(null)}
+      />,
+    );
+    await act(async () => undefined);
+    expect(empty(failed)).toHaveLength(0);
+    expect(empty(none)).toHaveLength(1);
   });
 });
 
@@ -626,4 +653,98 @@ describe('route projection', () => {
       expect(shape[north][1]).toBeCloseTo(minY, 10);
     },
   );
+});
+
+// S15P31E105-756: cards share a few real maps. A place given back goes to a card still waiting, and inside a scroll
+// that reports its viewport a card off screen gives its place back, so cards scrolled to get their maps.
+describe('card map places', () => {
+  const route: [number, number][] = [
+    [129.13, 35.15],
+    [129.14, 35.16],
+  ];
+  const props = {
+    route,
+    shape: [] as [number, number][],
+    area: { top: 0.1, bottom: 0.5 },
+    shadeFrom: 0.4,
+  };
+  const withMap = (screen: TestRenderer.ReactTestRenderer) =>
+    screen.root
+      .findAllByType(CourseMapThumb)
+      .filter(
+        card =>
+          card.findAll(
+            node =>
+              typeof node.type !== 'string' && node.props.compact === true,
+          ).length > 0,
+      )
+      .map(card => card.props.testKey as string);
+
+  test('a card waiting for a map gets the place another card gives back', async () => {
+    const keys = Array.from({ length: maxCardMaps + 1 }, (_, i) => `c${i}`);
+    const Cards = ({ shown }: { shown: string[] }) => (
+      <>
+        {shown.map(key => (
+          <CourseMapThumb key={key} {...props} {...{ testKey: key }} />
+        ))}
+      </>
+    );
+    const screen = await render(<Cards shown={keys} />);
+    expect(withMap(screen)).toEqual(keys.slice(0, maxCardMaps));
+    await act(async () => screen.update(<Cards shown={keys.slice(1)} />));
+    expect(withMap(screen)).toEqual(keys.slice(1));
+  });
+
+  test('inside a reported viewport, a card off screen gives its map to one on screen', async () => {
+    const count = maxCardMaps + 1;
+    const viewport = createCardViewport(
+      () => 800,
+      () => 400,
+    );
+    const screen = await render(
+      <CardViewportContext.Provider value={viewport}>
+        {Array.from({ length: count }, (_, i) => (
+          <CourseMapThumb key={i} {...props} {...{ testKey: `c${i}` }} />
+        ))}
+      </CardViewportContext.Provider>,
+    );
+    // Every card counts as on screen until it has been measured.
+    expect(withMap(screen)).toEqual(
+      Array.from({ length: maxCardMaps }, (_, i) => `c${i}`),
+    );
+    // Window y of each card's view; 1000 is below an 800-high window.
+    const views = screen.root
+      .findAll(
+        node =>
+          typeof node.type !== 'string' &&
+          node.props?.testID === 'course-thumb' &&
+          !!node.instance,
+      )
+      .map(node => node.instance);
+    expect(views).toHaveLength(count);
+    const ys = new Map<unknown, number>(views.map(view => [view, 100]));
+    const xs = new Map<unknown, number>();
+    const measure = views[0].measureInWindow as jest.Mock;
+    measure.mockImplementation(function (
+      this: unknown,
+      done: (x: number, y: number, w: number, h: number) => void,
+    ) {
+      done(xs.get(this) ?? 0, ys.get(this) ?? 0, 170, 200);
+    });
+    try {
+      // Scrolled: the first card leaves the top and the last comes into view.
+      ys.set(views[0], -900);
+      ys.set(views[count - 1], 300);
+      await act(async () => viewport.changed());
+      expect(withMap(screen)).toEqual(
+        Array.from({ length: maxCardMaps }, (_, i) => `c${i + 1}`),
+      );
+      // A card on the pager page beside the shown one (x past the window) gives its map back too.
+      xs.set(views[1], 400);
+      await act(async () => viewport.changed());
+      expect(withMap(screen)).not.toContain('c1');
+    } finally {
+      measure.mockReset();
+    }
+  });
 });

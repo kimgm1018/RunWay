@@ -1,5 +1,7 @@
 package com.runway.backend.domain.runningrecord.service;
 
+import com.runway.backend.domain.course.basemap.RunRouteBasemapRepository;
+import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordDetailResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordGroupResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordHeartRateZoneResponse;
@@ -68,6 +70,7 @@ public class RunningRecordService {
 
     private final RunningRecordJdbcRepository runningRecordJdbcRepository;
     private final RunningRecordAccessHelper runningRecordAccessHelper;
+    private final RunRouteBasemapRepository runRouteBasemapRepository;
 
     /**
      * H01 목록. {@code from}/{@code to}는 ISO-8601 Instant이며, 둘 다 있으면 {@code started_at >= from AND
@@ -109,8 +112,14 @@ public class RunningRecordService {
         boolean hasMore = rows.size() > pageSize;
         List<ListItemRow> pageRows = hasMore ? rows.subList(0, pageSize) : rows;
 
+        // One lookup for the page's run-route thumbnails (S15P31E105-756), not one per row.
+        Map<Long, String> thumbnails =
+                runRouteBasemapRepository.findImageKeys(
+                        pageRows.stream().map(ListItemRow::id).toList());
         List<RunningRecordListItemResponse> items =
-                pageRows.stream().map(RunningRecordService::toListItem).toList();
+                pageRows.stream()
+                        .map(row -> toListItem(row, ImageService.publicUrlFromKey(thumbnails.get(row.id()))))
+                        .toList();
 
         String nextPage =
                 hasMore ? encodeCursor(sortType, pageRows.get(pageRows.size() - 1)) : null;
@@ -118,7 +127,7 @@ public class RunningRecordService {
     }
 
     /** 그룹런 연결(group_run_participants.session_id)이 있으면 GROUP, 없으면 SOLO. */
-    private static RunningRecordListItemResponse toListItem(ListItemRow row) {
+    private static RunningRecordListItemResponse toListItem(ListItemRow row, String routePreviewImageUrl) {
         RunningRecordGroupResponse group =
                 row.groupRunId() == null || row.crewName() == null
                         ? null
@@ -135,7 +144,8 @@ public class RunningRecordService {
                 row.averagePace(),
                 row.goalAchieved(),
                 group == null ? "SOLO" : "GROUP",
-                group);
+                group,
+                routePreviewImageUrl);
     }
 
     @Transactional(readOnly = true)
@@ -156,7 +166,9 @@ public class RunningRecordService {
                 session.courseId(),
                 session.courseFromFreeRun(),
                 session.goalPace(),
-                session.comparisonSessionId());
+                session.comparisonSessionId(),
+                ImageService.publicUrlFromKey(
+                        runRouteBasemapRepository.findImageKeys(List.of(session.id())).get(session.id())));
     }
 
     @Transactional(readOnly = true)

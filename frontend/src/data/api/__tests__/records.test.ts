@@ -127,6 +127,47 @@ test('H01 recent runs ask for solo and group runs in the chosen order', async ()
   });
 });
 
+// S15P31E105-756: H01 takes at most 50 a page, so 7.4b's 더 불러오기 (60, 80, …) follows the cursor instead of asking
+// for more than 50 at once.
+test('H01 recent runs past 50 follow the cursor, asking at most 50 a page', async () => {
+  const runs = (from: number, count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      ...solo,
+      id: from + i,
+      startedAt: new Date(
+        Date.parse('2026-10-28T22:10:00Z') - (from + i) * 60000,
+      ).toISOString(),
+    }));
+  serve(url => {
+    if (url.searchParams.get('runType') === 'GROUP') {
+      return respond(200, { items: [] });
+    }
+    return url.searchParams.get('cursor') === 'next'
+      ? respond(200, {
+          items: runs(1050, Number(url.searchParams.get('limit'))),
+          page: 'last',
+        })
+      : respond(200, { items: runs(1000, 50), page: 'next' });
+  });
+  const { records } = createRecordsApi();
+
+  const recent = await records.getRecent('recent', 60);
+
+  const limits = requested().map(url => Number(url.searchParams.get('limit')));
+  expect(Math.max(...limits)).toBeLessThanOrEqual(50);
+  expect(
+    requested().some(
+      url =>
+        url.searchParams.get('runType') === 'SOLO' &&
+        url.searchParams.get('cursor') === 'next' &&
+        url.searchParams.get('limit') === '10',
+    ),
+  ).toBe(true);
+  expect(recent).toHaveLength(60);
+  expect(recent[0].id).toBe('1000');
+  expect(recent[59].id).toBe('1059');
+});
+
 test('H01 month covers the Korean month, keeps run types and follows the cursor', async () => {
   serve(url => {
     if (url.pathname.endsWith('/statistics')) {
@@ -468,4 +509,16 @@ test('H01 rows keep their own run type and group run link for 6.7 (S15P31E105-63
     ['103', 'GROUP', null],
     ['101', 'SOLO', null],
   ]);
+});
+
+// S15P31E105-756: S11 says "no route" only with 404 or no segments; a failed read is an error, so a card does not
+// show 경로 기록 없음 for a moment's outage. The record detail still treats both as no route.
+test('S11 getRoute is null without a route and rejects when it cannot be read', async () => {
+  const { records } = createRecordsApi();
+  serve(() => respond(404, { code: 'SESSION_NOT_FOUND', message: '없음' }));
+  await expect(records.getRoute('301')).resolves.toBeNull();
+  serve(() => respond(200, { sessionId: 301, segments: [] }));
+  await expect(records.getRoute('301')).resolves.toBeNull();
+  serve(() => respond(503, { code: 'UNAVAILABLE', message: '잠시 후' }));
+  await expect(records.getRoute('301')).rejects.toMatchObject({ status: 503 });
 });

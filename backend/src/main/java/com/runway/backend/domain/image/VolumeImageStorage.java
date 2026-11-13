@@ -97,7 +97,8 @@ public class VolumeImageStorage implements ImageStorage {
         try {
             // Never recurse or enumerate a different owner's directory. Keeping the
             // canonical source until its by-id copy is gone makes retries discoverable.
-            for (String purpose : new String[] {"profile", "post"}) {
+            // run-route: the owner's server-rendered run thumbnails (S15P31E105-756), which have no by-id copy.
+            for (String purpose : new String[] {"profile", "post", "run-route"}) {
                 Path directory = resolve("images/" + purpose + "/" + userId);
                 if (!safeDirectory(directory)) continue;
                 try (var files = Files.newDirectoryStream(directory)) {
@@ -125,9 +126,23 @@ public class VolumeImageStorage implements ImageStorage {
                     Pattern.quote(COURSE_BASEMAP_KEY_PREFIX)
                             + "[1-9][0-9]{0,18}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.png");
 
+    private static final Pattern RUN_ROUTE_KEY =
+            Pattern.compile(
+                    Pattern.quote(RUN_ROUTE_KEY_PREFIX)
+                            + "[1-9][0-9]{0,18}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.png");
+
     @Override
     public void deleteCourseBasemap(String imageKey) {
-        if (imageKey == null || !COURSE_BASEMAP_KEY.matcher(imageKey).matches()) {
+        deleteRendered(imageKey, COURSE_BASEMAP_KEY);
+    }
+
+    @Override
+    public void deleteRunRouteBasemap(String imageKey) {
+        deleteRendered(imageKey, RUN_ROUTE_KEY);
+    }
+
+    private void deleteRendered(String imageKey, Pattern format) {
+        if (imageKey == null || !format.matcher(imageKey).matches()) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR_IMAGE_RESOLVE);
         }
         Path target = resolve(imageKey);

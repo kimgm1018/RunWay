@@ -56,6 +56,22 @@ public class ImageAccessRepository {
     // readable whatever the course's status or the viewer; unreferenced keys stay 404.
     // The file-name match uses idx_course_basemaps_image_file (V32) instead of scanning the table;
     // the full-key match keeps only canonical keys of the row's own course.
+    // Own run-route thumbnails (S15P31E105-756, ADR-0024, F02): only the session's owner, an active user, sees the
+    // picture of a run that is not deleted. Anyone else, and anonymous requests, get no key (404, like a missing file).
+    // The file-name match uses idx_running_session_basemaps_image_file (V40); the full-key match keeps only the
+    // canonical key under the session owner's directory.
+    public List<String> findOwnRunRouteKeys(long viewerId, String fileName) {
+        return jdbc.query("""
+                    SELECT b.image_key FROM running_session_basemaps b
+                    JOIN running_sessions s ON s.id=b.running_session_id
+                    JOIN users u ON u.id=s.user_id
+                    WHERE split_part(b.image_key, '/', 4) = ?
+                      AND s.user_id = ? AND s.deleted_at IS NULL
+                      AND u.account_status='ACTIVE' AND u.withdrawn_at IS NULL
+                      AND b.image_key = 'images/run-route/' || s.user_id || '/' || ?
+                """, (rs, row) -> rs.getString(1), fileName, viewerId, fileName);
+    }
+
     public List<String> findCourseBasemapKeys(String fileName) {
         return jdbc.query("""
                     SELECT b.image_key FROM course_basemaps b

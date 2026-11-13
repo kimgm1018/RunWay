@@ -23,6 +23,9 @@ import org.springframework.stereotype.Component;
  * 않는다. 제한 시간 안에 준비되지 않으면 로그만 남기고 건너뛴다(다음 기동 때 다시 시도).
  *
  * <p>조회 실패는 기동을 막지 않도록 로그만 남긴다.
+ *
+ * <p>S15P31E105-756: 코스를 넣은 뒤 같은 그리기 버전의 경로 썸네일이 없는 완료 러닝 기록을 최신순으로 {@code run-backfill-limit}개까지
+ * 같은 일괄 채우기 대기열에 넣는다.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,6 +36,7 @@ public class CourseBasemapBackfill implements DisposableBean {
     private static final Logger log = LoggerFactory.getLogger(CourseBasemapBackfill.class);
 
     private final CourseBasemapRepository repository;
+    private final RunRouteBasemapRepository runRouteRepository;
     private final CourseBasemapDispatcher dispatcher;
     private final CourseBasemapPort port;
     private final CourseBasemapProperties properties;
@@ -111,23 +115,51 @@ public class CourseBasemapBackfill implements DisposableBean {
     }
 
     /**
-     * 대상 코스를 실행기에 넣는다. Route 준비는 확인하지 않는다.
+     * 대상 코스와 러닝 기록(S15P31E105-756)을 실행기에 넣는다. Route 준비는 확인하지 않는다. 코스 대상 조회가 실패해도 기록은 넣고, 그
+     * 실패를 마지막에 다시 던진다.
      *
-     * @return 실행기에 새로 넣은 코스 수
+     * @return 실행기에 새로 넣은 코스·기록 수
      */
     public int submit() {
         if (!enabled()) {
             return 0;
         }
-        List<Long> courseIds = repository.findActiveCourseIdsNeedingRender(
-                        CourseBasemapRunService.RENDER_VERSION, properties.getBackfillLimit());
         int submitted = 0;
-        for (long courseId : courseIds) {
-            if (dispatcher.dispatchBackfill(courseId)) {
-                submitted++;
+        RuntimeException courseFailure = null;
+        if (properties.getBackfillLimit() > 0) {
+            try {
+                List<Long> courseIds = repository.findActiveCourseIdsNeedingRender(
+                        CourseBasemapRunService.RENDER_VERSION, properties.getBackfillLimit());
+                int courses = 0;
+                for (long courseId : courseIds) {
+                    if (dispatcher.dispatchBackfill(courseId)) {
+                        courses++;
+                    }
+                }
+                log.info("바탕 지도 일괄 채우기 시작 (targets={}, submitted={})", courseIds.size(), courses);
+                submitted += courses;
+            } catch (RuntimeException e) {
+                // A failed course lookup does not skip the run thumbnails below (S15P31E105-756 B-8). Logged here so a
+                // later run lookup failure cannot hide it.
+                log.error("바탕 지도 일괄 채우기 코스 대상 조회 실패 ({})", e.getClass().getSimpleName());
+                courseFailure = e;
             }
         }
-        log.info("바탕 지도 일괄 채우기 시작 (targets={}, submitted={})", courseIds.size(), submitted);
+        if (properties.getRunBackfillLimit() > 0) {
+            List<Long> sessionIds = runRouteRepository.findSessionIdsNeedingRender(
+                    RunRouteBasemapRunService.RENDER_VERSION, properties.getRunBackfillLimit());
+            int runs = 0;
+            for (long sessionId : sessionIds) {
+                if (dispatcher.dispatchRunBackfill(sessionId)) {
+                    runs++;
+                }
+            }
+            log.info("기록 썸네일 일괄 채우기 시작 (targets={}, submitted={})", sessionIds.size(), runs);
+            submitted += runs;
+        }
+        if (courseFailure != null) {
+            throw courseFailure;
+        }
         return submitted;
     }
 
@@ -139,7 +171,7 @@ public class CourseBasemapBackfill implements DisposableBean {
             log.info("바탕 지도 일괄 채우기 생략: Route 주소가 설정되지 않음");
             return false;
         }
-        return properties.getBackfillLimit() > 0;
+        return properties.getBackfillLimit() > 0 || properties.getRunBackfillLimit() > 0;
     }
 
     @Override

@@ -1,7 +1,18 @@
-import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
+  type ImageSourcePropType,
   Pressable,
   ScrollView,
   StatusBar,
@@ -304,23 +315,102 @@ export function basemapImageFrame(
 
 // S15P31E105-715: a card with no server image (a private course made from a free run) or with grey connectors (the
 // server's single-colour image cannot draw them) is drawn on a real compact RunMap. Native maps are heavy, so only a
-// few cards on screen hold one at a time; the rest keep the outline, and a card gives its place back when it leaves.
-const maxCardMaps = 3;
+// few cards hold one at a time; the rest keep the outline. A card gives its place back when it leaves (unmounts, or
+// scrolls off screen inside a CardViewport), and the place goes to a card still waiting for one (S15P31E105-756).
+// Six covers the cards one screen of the two-column grid shows with a route.
+export const maxCardMaps = 6;
 let cardMapsInUse = 0;
+const cardMapWaiters = new Set<() => void>();
 export function useCardMapSlot(wanted: boolean) {
   const [held, setHeld] = useState(false);
+  const [tries, setTries] = useState(0);
   useEffect(() => {
-    if (!wanted || cardMapsInUse >= maxCardMaps) {
+    if (!wanted) {
       setHeld(false);
       return;
+    }
+    if (cardMapsInUse >= maxCardMaps) {
+      setHeld(false);
+      const wake = () => setTries(count => count + 1);
+      cardMapWaiters.add(wake);
+      return () => {
+        cardMapWaiters.delete(wake);
+      };
     }
     cardMapsInUse += 1;
     setHeld(true);
     return () => {
       cardMapsInUse -= 1;
+      const [next] = cardMapWaiters;
+      if (next) {
+        cardMapWaiters.delete(next);
+        next();
+      }
     };
-  }, [wanted]);
+  }, [wanted, tries]);
   return held;
+}
+
+// A scroll of cards tells them when it has moved (S15P31E105-756), so each card wanting a map can check whether it
+// is on screen. Without one (a page that does not scroll far) every card counts as on screen.
+export type CardViewport = {
+  subscribe: (listener: () => void) => () => void;
+  changed: () => void;
+  height: () => number;
+  width: () => number;
+};
+export function createCardViewport(
+  height = () => Dimensions.get('window').height,
+  width = () => Dimensions.get('window').width,
+): CardViewport {
+  const listeners = new Set<() => void>();
+  return {
+    subscribe: listener => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    changed: () => listeners.forEach(listener => listener()),
+    height,
+    width,
+  };
+}
+export const CardViewportContext = createContext<CardViewport | null>(null);
+
+// Whether the view is on screen, checked when the viewport says it moved and when the view is laid out (`laidOut`).
+function useOnScreen(
+  box: React.RefObject<View | null>,
+  watching: boolean,
+  laidOut: unknown,
+) {
+  const viewport = useContext(CardViewportContext);
+  const [onScreen, setOnScreen] = useState(true);
+  useEffect(() => {
+    if (!viewport || !watching) {
+      return;
+    }
+    let live = true;
+    const check = () =>
+      box.current?.measureInWindow((x, y, width, height) => {
+        if (live) {
+          // A card on a pager page beside the one shown is off screen too.
+          setOnScreen(
+            y + height > 0 &&
+              y < viewport.height() &&
+              x + width > 0 &&
+              x < viewport.width(),
+          );
+        }
+      });
+    check();
+    const stop = viewport.subscribe(check);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [box, viewport, watching, laidOut]);
+  return !viewport || onScreen;
 }
 
 // A course card's map (S15P31E105-612, replacing S15P31E105-562's Naver map). With a C03 basemap the card is the
@@ -330,7 +420,9 @@ export function useCardMapSlot(wanted: boolean) {
 // between the card's chips and its words) on the light ground. A dark fade from `shadeFrom` down keeps the white
 // words below readable. It takes no touches, so the card keeps them. Without points or a basemap (H01 records carry
 // none) `load` is asked once for them, and the outline is drawn from `shape` meanwhile. The © OpenStreetMap label sits in
-// the top left corner, clear of the controls at the top right and the words below.
+// the top left corner, clear of the controls at the top right and the words below. With `emptyLabel`, a card that
+// asked and got no points (and has no outline or map of its own) shows the route icon and that label instead of the
+// bare ground (S15P31E105-756); while it is still asking the ground stays plain.
 export function CourseMapThumb({
   route,
   basemap,
@@ -341,6 +433,9 @@ export function CourseMapThumb({
   area,
   shadeFrom,
   visualScale = 1,
+  emptyLabel,
+  imageSource,
+  liveMap = true,
 }: {
   route?: LngLat[] | null;
   basemap?: CourseBasemap | null;
@@ -351,10 +446,18 @@ export function CourseMapThumb({
   area: CourseThumbArea;
   shadeFrom: number;
   visualScale?: number;
+  emptyLabel?: string;
+  // How the basemap image is asked for; an own run thumbnail carries the owner's token (S15P31E105-756).
+  imageSource?: (uri: string) => ImageSourcePropType;
+  // false: never a live RunMap under the points (a run card draws the server's OSM picture or the plain outline).
+  liveMap?: boolean;
 }) {
   const given = route && route.length >= 2 ? route : null;
   const [loaded, setLoaded] = useState<CourseMapData | null>(null);
-  const wants = !given && !basemap && !!load;
+  const [asked, setAsked] = useState(false);
+  // A basemap with no outline of its own (a run's thumbnail: H01 has no shape) still asks for the points, so the
+  // outline shows while the picture loads and if it fails.
+  const wants = !given && !!load && (!basemap || shape.length < 2);
   useEffect(() => {
     if (!wants || !load) {
       return;
@@ -364,8 +467,10 @@ export function CourseMapThumb({
       .then(answer => {
         if (live) {
           setLoaded(answer);
+          setAsked(true);
         }
       })
+      // A failed ask is not "no route" (S15P31E105-756): the card keeps its plain ground and asks again next time.
       .catch(() => undefined);
     return () => {
       live = false;
@@ -396,21 +501,31 @@ export function CourseMapThumb({
     !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length;
   const gaps = unmeasuredEdges ?? loaded?.unmeasuredEdges;
   // No usable server image: a real map under the course, while a slot is free (see useCardMapSlot).
-  const mapWanted = !!points && !image;
+  const box = useRef<View>(null);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const onScreen = useOnScreen(box, liveMap && !!points && !image, size);
+  const mapWanted = liveMap && !!points && !image && onScreen;
   const mapHeld = useCardMapSlot(mapWanted);
   const [mapShown, setMapShown] = useState(false);
   const mapOn = mapHeld && !!points;
+  // A map given back is drawn afresh when the card gets one again; the outline covers it until then.
+  useEffect(() => {
+    if (!mapOn) {
+      setMapShown(false);
+    }
+  }, [mapOn]);
   const outline = useMemo(
     () => (points ? shapeOfRoute(points) : shape),
     [points, shape],
   );
-  const [size, setSize] = useState<{ width: number; height: number } | null>(
-    null,
-  );
   const frame = size ? basemapImageFrame(size.width, size.height, area) : null;
+  const empty = !!emptyLabel && asked && !points && !map && outline.length < 2;
   const shadeId = `mapShade${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
     <View
+      ref={box}
       testID="course-thumb"
       pointerEvents="none"
       style={styles.mapThumb}
@@ -427,7 +542,7 @@ export function CourseMapThumb({
         // Placed once the card has a size; the outline shows until it has loaded.
         <Image
           testID="course-basemap"
-          source={{ uri: image }}
+          source={imageSource ? imageSource(image) : { uri: image }}
           resizeMode="cover"
           accessibilityIgnoresInvertColors
           onLoad={() => setShown(image)}
@@ -447,7 +562,21 @@ export function CourseMapThumb({
           onShown={() => setMapShown(true)}
         />
       ) : null}
-      {imageShown || (mapOn && mapShown) ? null : (
+      {empty ? (
+        <View
+          testID="course-thumb-empty"
+          style={[
+            styles.mapThumbEmpty,
+            {
+              top: `${area.top * 100}%`,
+              bottom: `${(1 - area.bottom) * 100}%`,
+            },
+          ]}
+        >
+          <Icon name="route" color="rgba(6,6,6,0.32)" size={22} />
+          <AppText style={styles.mapThumbEmptyText}>{emptyLabel}</AppText>
+        </View>
+      ) : imageShown || (mapOn && mapShown) ? null : (
         <View
           style={[
             styles.mapThumbGlyph,
@@ -798,6 +927,20 @@ const styles = StyleSheet.create({
     backgroundColor: mapGround,
   },
   mapThumbGlyph: { position: 'absolute', left: '20%', right: '20%' },
+  mapThumbEmpty: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  mapThumbEmptyText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(6,6,6,0.42)',
+  },
   mapImage: { position: 'absolute' },
   // A small white pill at the card's top right, level with the bookmark (S15P31E105-612).
   // As quiet as a map credit can be and still be read (사용자 요청): small grey words straight on the light map, no

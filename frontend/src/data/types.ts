@@ -100,6 +100,9 @@ export type RunRecordSummary = {
   } | null;
   // H01 goalAchieved: false shows the run in coral (5.1); null when the run had no goal.
   goalAchieved: boolean | null;
+  // H01 routePreviewImageUrl (S15P31E105-756, ADR-0024): the server's OSM thumbnail of this run as a loadable
+  // address, shown only to its owner (load it with ownImageSource). Missing until the server has drawn one.
+  routePreviewImageUrl?: string | null;
 };
 
 // 5.1 전체 · 개인 · 그룹런 탭 (H01 runType).
@@ -1407,8 +1410,8 @@ export type Repositories = {
     getDetail: (recordId: string) => Promise<RunRecordDetail>;
     // H02 요약만 가볍게 읽는다. 종료 직후 워치 결과 화면에 옮길 값이라 구간·경로는 읽지 않는다(S15P31E105-663).
     getResultSummary: (recordId: string) => Promise<WatchResultSummary>;
-    // S11 실제로 뛴 경로만 읽는다(S15P31E105-690 러닝 종료 화면 지도). 출처 전환·공백에서 끊은 조각이며, 경로가 없거나
-    // 읽지 못하면 null이다.
+    // S11 실제로 뛴 경로만 읽는다(S15P31E105-690 러닝 종료 화면 지도). 출처 전환·공백에서 끊은 조각이며, 경로가 없으면
+    // null이고 읽지 못하면(연결·서버 오류) 거부한다(S15P31E105-756).
     getRoute: (recordId: string) => Promise<[number, number][][] | null>;
     // The link that opens this run's replay for anyone (S15P31E105-704). The same run keeps one link; title is the
     // name the replay shows.

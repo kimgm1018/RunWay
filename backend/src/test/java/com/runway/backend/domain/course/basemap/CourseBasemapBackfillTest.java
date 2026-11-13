@@ -30,6 +30,7 @@ class CourseBasemapBackfillTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
 
     private CourseBasemapRepository repository;
+    private RunRouteBasemapRepository runRouteRepository;
     private CourseBasemapDispatcher dispatcher;
     private CourseBasemapBackfill backfill;
 
@@ -74,6 +75,7 @@ class CourseBasemapBackfillTest {
     @BeforeEach
     void setUp() {
         repository = mock(CourseBasemapRepository.class);
+        runRouteRepository = mock(RunRouteBasemapRepository.class);
         dispatcher = mock(CourseBasemapDispatcher.class);
         when(repository.findActiveCourseIdsNeedingRender(anyString(), anyInt())).thenReturn(List.of(11L, 12L));
         when(dispatcher.dispatchBackfill(anyLong())).thenReturn(true);
@@ -87,7 +89,7 @@ class CourseBasemapBackfillTest {
     }
 
     private Thread start(ReadinessPort port, CourseBasemapProperties properties) {
-        backfill = new CourseBasemapBackfill(repository, dispatcher, port, properties);
+        backfill = new CourseBasemapBackfill(repository, runRouteRepository, dispatcher, port, properties);
         return backfill.start();
     }
 
@@ -116,7 +118,7 @@ class CourseBasemapBackfillTest {
     @Test
     void 종료한_뒤에는_시작하지_않는다() {
         backfill = new CourseBasemapBackfill(
-                repository, dispatcher, new ReadinessPort(1), properties(Duration.ofMillis(10), Duration.ofSeconds(2)));
+                repository, runRouteRepository, dispatcher, new ReadinessPort(1), properties(Duration.ofMillis(10), Duration.ofSeconds(2)));
         backfill.destroy();
 
         assertThat(backfill.start()).isNull();
@@ -203,6 +205,7 @@ class CourseBasemapBackfillTest {
         CourseBasemapProperties properties = properties(Duration.ofMillis(10), Duration.ofSeconds(2));
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(CourseBasemapRepository.class, () -> repository);
+            context.registerBean(RunRouteBasemapRepository.class, () -> runRouteRepository);
             context.registerBean(CourseBasemapDispatcher.class, () -> dispatcher);
             context.registerBean(CourseBasemapPort.class, () -> port);
             context.registerBean(CourseBasemapProperties.class, () -> properties);
@@ -218,5 +221,22 @@ class CourseBasemapBackfillTest {
             assertThat(port.readyChecks.get()).isEqualTo(2);
             assertThat(port.checkThread.get().getName()).isEqualTo(CourseBasemapBackfill.THREAD_NAME);
         }
+    }
+
+    // S15P31E105-756 B-8: 코스 대상 조회가 실패해도 기록 썸네일은 넣고, 실패는 그대로 알린다.
+    @Test
+    void 코스_대상_조회가_실패해도_기록_썸네일은_넣는다() {
+        when(repository.findActiveCourseIdsNeedingRender(anyString(), anyInt()))
+                .thenThrow(new IllegalStateException("synthetic"));
+        when(runRouteRepository.findSessionIdsNeedingRender(anyString(), anyInt()))
+                .thenReturn(List.of(21L));
+        when(dispatcher.dispatchRunBackfill(anyLong())).thenReturn(true);
+        backfill = new CourseBasemapBackfill(
+                repository, runRouteRepository, dispatcher, new ReadinessPort(1),
+                properties(Duration.ofMillis(10), Duration.ofSeconds(2)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(backfill::submit)
+                .isInstanceOf(IllegalStateException.class);
+        verify(dispatcher).dispatchRunBackfill(21L);
     }
 }
