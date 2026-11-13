@@ -346,31 +346,48 @@ describe('8.1c 데이터 라이선스', () => {
 });
 
 test('8.2 saves the nickname from the foot and opens with it again', async () => {
-  const screen = await openSettings();
-  await press(screen, '뒤로');
-  await press(screen, '프로필');
-  await settle(50);
-  await press(screen, '프로필 수정');
-  await settle(50);
-  expect(texts(screen)).toContain('5km · 30:00 · 6′00″/km');
-  // The date is one field; a tap opens 연도 · 월 · 일 under it.
-  expect(texts(screen)).toContain('1991년 3월 14일');
-  expect(texts(screen)).not.toContain('03월');
-  await press(screen, '생년월일 1991년 3월 14일');
-  expect(texts(screen)).toContain('03월');
-  await type(screen, '닉네임', '민');
-  expect(labelled(screen, '저장').props.accessibilityState.disabled).toBe(true);
-  await type(screen, '닉네임', '새벽러너');
-  await press(screen, '저장');
-  await settle(50);
-  expect(texts(screen)).toContain('프로필을 저장했어요');
-  // 8.1 no longer has the profile card, so open 8.2 again and read the saved nickname.
-  await press(screen, '프로필 수정');
-  await settle(50);
-  expect(labelled(screen, '닉네임', 'onChangeText').props.value).toBe(
-    '새벽러너',
-  );
-  await act(async () => screen.unmount());
+  // The 저장 toast leaves after 3s of real time (Toast.tsx). On a loaded CI runner the render back to 8.1 took
+  // longer than that, so the toast was gone before the check (MR 515 mobile-ci). Hold the 3s toast timer for
+  // this test only; every other timer keeps its delay.
+  const realSetTimeout = globalThis.setTimeout;
+  const holdToast = jest
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementation(((handler: () => void, delay?: number) =>
+      realSetTimeout(
+        handler,
+        delay === 3000 ? 60_000 : delay,
+      )) as unknown as typeof setTimeout);
+  try {
+    const screen = await openSettings();
+    await press(screen, '뒤로');
+    await press(screen, '프로필');
+    await settle(50);
+    await press(screen, '프로필 수정');
+    await settle(50);
+    expect(texts(screen)).toContain('5km · 30:00 · 6′00″/km');
+    // The date is one field; a tap opens 연도 · 월 · 일 under it.
+    expect(texts(screen)).toContain('1991년 3월 14일');
+    expect(texts(screen)).not.toContain('03월');
+    await press(screen, '생년월일 1991년 3월 14일');
+    expect(texts(screen)).toContain('03월');
+    await type(screen, '닉네임', '민');
+    expect(labelled(screen, '저장').props.accessibilityState.disabled).toBe(
+      true,
+    );
+    await type(screen, '닉네임', '새벽러너');
+    await press(screen, '저장');
+    await settle(50);
+    expect(texts(screen)).toContain('프로필을 저장했어요');
+    // 8.1 no longer has the profile card, so open 8.2 again and read the saved nickname.
+    await press(screen, '프로필 수정');
+    await settle(50);
+    expect(labelled(screen, '닉네임', 'onChangeText').props.value).toBe(
+      '새벽러너',
+    );
+    await act(async () => screen.unmount());
+  } finally {
+    holdToast.mockRestore();
+  }
 });
 
 test('8.4 keeps 다음 off while a crew I lead must be handed over first (users.md U17·U18)', async () => {

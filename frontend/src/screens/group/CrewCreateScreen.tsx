@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StatusBar,
@@ -238,11 +239,42 @@ export function CrewCreateScreen() {
   const [area, setArea] = useState<MeetingPlace | null>(null);
   const [description, setDescription] = useState('');
   const [joinPolicy, setJoinPolicy] = useState<CrewJoinPolicy>('APPROVAL');
-  const [capacity, setCapacity] = useState(defaultCapacity);
+  // Typed straight in or stepped with − and + (S15P31E105-774); kept as text so the field can be emptied while typing.
+  const [capacityText, setCapacityText] = useState(String(defaultCapacity));
+  const capacity = Number(capacityText);
+  const capacityValid =
+    capacityText.length > 0 &&
+    Number.isInteger(capacity) &&
+    capacity >= minCapacity &&
+    capacity <= maxCapacity;
+  const step = (delta: number) =>
+    setCapacityText(text => {
+      const current = Number(text);
+      const base =
+        text.length > 0 && Number.isInteger(current)
+          ? current
+          : defaultCapacity;
+      return String(Math.min(maxCapacity, Math.max(minCapacity, base + delta)));
+    });
   // 대표 사진 (F01 CREW → M03 imageKey): optional, sent with 크루 만들기.
   const [photo, setPhoto] = useState<PhotoFile | null>(null);
   const [busy, setBusy] = useState(false);
-  const ready = name.trim().length > 0 && area !== null;
+  // 모집 인원 is the last field: KeyboardLift shrinks the scroll view, but it does not scroll, so the keyboard
+  // covered the number being typed (S15P31E105-774 실기기). Scroll to the end once the keyboard is up.
+  const scroll = useRef<ScrollView>(null);
+  const showCapacity = () => {
+    const toEnd = () =>
+      setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 80);
+    if (Keyboard.isVisible()) {
+      toEnd();
+      return;
+    }
+    const shown = Keyboard.addListener('keyboardDidShow', () => {
+      shown.remove();
+      toEnd();
+    });
+  };
+  const ready = name.trim().length > 0 && area !== null && capacityValid;
 
   // S15P31E105-796: the tile spins while a big original is shrunk, and a refusal is always told (see ProfileEdit).
   const [picking, setPicking] = useState(false);
@@ -308,6 +340,7 @@ export function CrewCreateScreen() {
         </SafeAreaView>
         <KeyboardLift style={styles.flex}>
           <ScrollView
+            ref={scroll}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.content}
           >
@@ -408,27 +441,38 @@ export function CrewCreateScreen() {
                 <StepButton
                   icon="minus"
                   label="모집 인원 줄이기"
-                  disabled={capacity <= minCapacity}
-                  onPress={() => setCapacity(value => value - 1)}
+                  disabled={capacityValid && capacity <= minCapacity}
+                  onPress={() => step(-1)}
                 />
-                <View
-                  style={styles.flex}
-                  accessible
-                  accessibilityLabel={`모집 인원 ${capacity}명`}
-                >
-                  <NumText
-                    text={`${capacity}명`}
-                    style={styles.capacity}
-                    numberStyle={styles.capacityNumber}
+                <View style={[styles.flex, styles.capacityEntry]}>
+                  <TextInput
+                    accessibilityLabel="모집 인원"
+                    accessibilityHint={`${minCapacity}명부터 ${maxCapacity}명까지 숫자로 입력해요`}
+                    value={capacityText}
+                    onChangeText={text =>
+                      setCapacityText(text.replace(/[^0-9]/g, ''))
+                    }
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    selectTextOnFocus
+                    onFocus={showCapacity}
+                    selectionColor={groupTone.accent}
+                    style={[styles.capacity, styles.capacityInput]}
                   />
+                  <AppText style={styles.capacity}>명</AppText>
                 </View>
                 <StepButton
                   icon="plus"
                   label="모집 인원 늘리기"
-                  disabled={capacity >= maxCapacity}
-                  onPress={() => setCapacity(value => value + 1)}
+                  disabled={capacityValid && capacity >= maxCapacity}
+                  onPress={() => step(1)}
                 />
               </View>
+              <AppText
+                style={[styles.sub, !capacityValid && styles.subInvalid]}
+              >
+                {`숫자를 눌러 바로 입력할 수 있어요 · ${minCapacity}~${maxCapacity}명`}
+              </AppText>
             </Field>
           </ScrollView>
         </KeyboardLift>
@@ -473,7 +517,8 @@ const styles = StyleSheet.create({
     color: groupTone.text,
   },
   // Room under the last section for the floating button.
-  content: { paddingHorizontal: 20, paddingBottom: 120, gap: 18 },
+  // Room under the last note for the pinned 크루 만들기 and its fade.
+  content: { paddingHorizontal: 20, paddingBottom: 150, gap: 18 },
   photoBlock: {
     alignSelf: 'center',
     marginTop: spacing.md,
@@ -533,6 +578,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: groupTone.sub,
   },
+  subInvalid: { color: groupTone.danger },
   cardSub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
@@ -612,7 +658,18 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: groupTone.text,
   },
-  capacityNumber: { fontSize: 22 },
+  // The typed number at the mockup's 22, the 명 after it at 18.
+  capacityEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  capacityInput: {
+    minWidth: 48,
+    paddingVertical: 0,
+    fontSize: 22,
+    lineHeight: 28,
+  },
   footer: {
     position: 'absolute',
     left: 0,
