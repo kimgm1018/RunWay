@@ -18,6 +18,15 @@ const CODE_LIFETIME_SEC = 180;
 // U28 resendAvailableInSec: the same number can ask again this long after a send (S15P31E105-646 다시 받기 안내).
 const RESEND_WAIT_SEC = 60;
 
+// 429 details.retryAfterSec (users.md U28), when the server sent it.
+function retryAfter(error: unknown): number | null {
+  const value =
+    error instanceof DataError ? error.details?.retryAfterSec : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.ceil(value)
+    : null;
+}
+
 export type VerificationPhase =
   | 'idle'
   | 'requesting'
@@ -156,13 +165,16 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
   const sendRequest = useCallback(async () => {
     // A code already on screen is still live on the server unless a new one replaces it (users.md U28).
     const hadCode = phase === 'sent' || phase === 'verifying';
-    setPhase('requesting');
+    // S15P31E105-799: a resend keeps that code field on screen until the answer comes.
+    if (!hadCode) {
+      setPhase('requesting');
+    }
     setError(null);
-    const startOver = (seconds: number) => {
+    const startOver = (seconds: number, resendWait = RESEND_WAIT_SEC) => {
       setCodeDigits('');
       setLocked(false);
       setRemainingSec(seconds);
-      setResendSec(RESEND_WAIT_SEC);
+      setResendSec(resendWait);
       setPhase('sent');
     };
     try {
@@ -192,6 +204,31 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
           failure === 'VERIFICATION_SEND_LIMIT_EXCEEDED')
       ) {
         setPhase('sent');
+        return;
+      }
+      // S15P31E105-799 (TEAM QA T05): with no code on screen (the screen was opened again), too soon means a code was
+      // sent less than a minute ago and is still live (180 s from that send), so the field opens for it.
+      const wait = retryAfter(caught);
+      if (failure === 'VERIFICATION_RESEND_TOO_SOON') {
+        const left = wait ?? RESEND_WAIT_SEC;
+        startOver(CODE_LIFETIME_SEC - (RESEND_WAIT_SEC - left), left);
+        setError({
+          field: 'phone',
+          code: failure,
+          message:
+            '조금 전에 보낸 인증번호를 입력해 주세요. 새 인증번호는 잠시 후에 받을 수 있어요.',
+        });
+        return;
+      }
+      // Over the limit: a code sent earlier may still be live, so the field opens for one already received.
+      if (failure === 'VERIFICATION_SEND_LIMIT_EXCEEDED') {
+        startOver(CODE_LIFETIME_SEC);
+        setError({
+          field: 'phone',
+          code: failure,
+          message:
+            '인증번호 요청 횟수를 넘었어요. 이미 받은 인증번호가 있으면 입력해 주세요.',
+        });
         return;
       }
       setCodeDigits('');
