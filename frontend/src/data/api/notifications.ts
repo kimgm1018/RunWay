@@ -45,6 +45,16 @@ const pageOf = (response: NotificationListResponse): NotificationList => ({
   })),
   unreadCount: response.unreadCount,
   nextCursor: response.hasNext ? response.nextCursor : null,
+  // S15P31E105-801: taken before the unknown kinds are left out, so N02 upToId covers them too.
+  newestId: response.items.reduce<number | undefined>(
+    (newest, item) =>
+      Number.isSafeInteger(item.id) &&
+      item.id > 0 &&
+      (newest === undefined || item.id > newest)
+        ? item.id
+        : newest,
+    undefined,
+  ),
 });
 
 // N01 pages of up to 50; cursor null reads the newest page. A kind this app does not know yet is left out.
@@ -56,6 +66,9 @@ export const notificationsApi: Repositories['notifications'] = {
     );
     return pageOf(response);
   },
-  markAllRead: () =>
-    apiRequest<void>('/notifications/read-all', { method: 'POST' }),
+  markAllRead: upToId =>
+    apiRequest<void>('/notifications/read-all', {
+      method: 'POST',
+      query: { upToId },
+    }),
 };

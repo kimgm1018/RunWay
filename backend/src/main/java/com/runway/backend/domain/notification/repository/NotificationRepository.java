@@ -103,9 +103,16 @@ public class NotificationRepository {
         return count == null ? 0L : count;
     }
 
-    public void markAllRead(long userId) {
+    public void markAllRead(long userId, Long upToId) {
+        if (upToId == null) {
+            jdbc.update(
+                    "UPDATE notifications SET read_at=now() WHERE user_id=? AND read_at IS NULL",
+                    userId);
+            return;
+        }
         jdbc.update(
-                "UPDATE notifications SET read_at=now() WHERE user_id=? AND read_at IS NULL",
-                userId);
+                "UPDATE notifications SET read_at=now() WHERE user_id=? AND read_at IS NULL AND id<=?",
+                userId,
+                upToId);
     }
 }

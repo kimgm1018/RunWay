@@ -463,6 +463,9 @@ export type NotificationList = {
   unreadCount: number;
   // Null on the last page (N01 nextCursor / hasNext).
   nextCursor: string | null;
+  // S15P31E105-801: the newest server id on this page, counting kinds the app leaves out, so leaving 2.9 also marks
+  // those read (N02 upToId). Absent when the page has no numeric id (mock data, an empty page).
+  newestId?: number;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -1631,7 +1634,8 @@ export type Repositories = {
   notifications: {
     // N01: cursor null/omitted reads the newest page (limit 50).
     list: (cursor?: string | null) => Promise<NotificationList>;
-    markAllRead: () => Promise<void>;
+    // N02: marks the caller's unread rows read; with upToId only rows whose id is at most it (S15P31E105-801).
+    markAllRead: (upToId?: number) => Promise<void>;
   };
   run: {
     getCurrentPlace: () => Promise<CurrentPlace>;
