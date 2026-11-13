@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   Easing,
+  Keyboard,
   type LayoutChangeEvent,
   StyleSheet,
   View,
 } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import Svg, {
   Circle,
   Defs,
@@ -48,8 +51,16 @@ export function OnboardingBackdrop() {
   );
   const measure = (event: LayoutChangeEvent) =>
     setBox(event.nativeEvent.layout);
+  // The five full-screen gradients are drawn by react-native-svg on the CPU. Without a layer of their own they were
+  // drawn again on every frame of the runner's loops above them (about 150 ms a frame on the emulator), so the
+  // 1.x screens answered touches slowly (TEAM QA T07, S15P31E105-802). Kept as a GPU texture they draw once.
   return (
-    <View style={StyleSheet.absoluteFill} onLayout={measure}>
+    <View
+      style={StyleSheet.absoluteFill}
+      onLayout={measure}
+      renderToHardwareTextureAndroid
+      collapsable={false}
+    >
       {box ? (
         <Svg width={box.width} height={box.height}>
           <Defs>
@@ -98,11 +109,67 @@ const runnerAnimation = require('../../../assets/images/onboarding/runner.json')
 // The ground's dashes and puffs move one dash period every 0.38 s; the speed lines every 0.76 s.
 const stepMs = 380;
 
+// The runner's loops redraw the 1.x screen on every frame, which held back taps and typing (TEAM QA T07,
+// S15P31E105-802). It rests while the user touches the screen or types, and runs again about 1 s after.
+export const RUNNER_REST_MS = 1000;
+const touches = new Set<() => void>();
+
+// Called by the 1.x screens' wrapper (onboarding/index.tsx) on every touch.
+export function noteOnboardingTouch() {
+  touches.forEach(listener => listener());
+}
+
+// Whether the runner should move: the screen is in front, the app is open, no keyboard is up and nobody has
+// touched the screen for RUNNER_REST_MS.
+export function useRunnerMoving(focused: boolean): boolean {
+  const [touched, setTouched] = useState(false);
+  const [keyboard, setKeyboard] = useState(() => Keyboard.isVisible());
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const touch = () => {
+      setTouched(true);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => setTouched(false), RUNNER_REST_MS);
+    };
+    touches.add(touch);
+    const shown = Keyboard.addListener('keyboardDidShow', () =>
+      setKeyboard(true),
+    );
+    const hidden = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboard(false);
+      touch();
+    });
+    const app = AppState.addEventListener('change', state =>
+      setActive(state === 'active'),
+    );
+    return () => {
+      touches.delete(touch);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      shown.remove();
+      hidden.remove();
+      app.remove();
+    };
+  }, []);
+  return focused && active && !keyboard && !touched;
+}
+
 // The navy runner over speed lines and a moving dashed ground (196 high, 390 wide in the handoff).
 export function RunnerArt() {
   const step = useRef(new Animated.Value(0)).current;
   const lines = useRef(new Animated.Value(0)).current;
+  const lottie = useRef<LottieView>(null);
+  const moving = useRunnerMoving(useIsFocused());
   useEffect(() => {
+    if (!moving) {
+      lottie.current?.pause?.();
+      return;
+    }
+    lottie.current?.resume?.();
     const ground = Animated.loop(
       Animated.timing(step, {
         toValue: 1,
@@ -125,7 +192,7 @@ export function RunnerArt() {
       ground.stop();
       speed.stop();
     };
-  }, [lines, step]);
+  }, [lines, step, moving]);
   // The dashes slide left by one period (20 + 14) so the ground seems to run under the feet.
   const groundShift = step.interpolate({
     inputRange: [0, 1],
@@ -173,6 +240,7 @@ export function RunnerArt() {
       <Puff progress={step} left={94 + 57} />
       <Puff progress={step} left={94 + 145} />
       <LottieView
+        ref={lottie}
         source={runnerAnimation}
         autoPlay
         loop
