@@ -349,7 +349,7 @@ export function CommunityScreen() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="검색"
+          accessibilityLabel="탐색"
           onPress={() => navigateTo(navigation, 'CommunitySearch')}
           style={({ pressed }) => [
             styles.headerButton,

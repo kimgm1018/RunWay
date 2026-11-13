@@ -23,9 +23,7 @@ import { BackButton } from '../../components/BackButton';
 import {
   errorCode,
   useRepositories,
-  useResource,
   type Post,
-  type Repositories,
   type SearchPage,
   type SearchType,
 } from '../../data';
@@ -34,7 +32,7 @@ import { fontFamily } from '../../theme';
 import { feedLook, MapBackdrop, RouteLine } from './FeedPage';
 import { Avatar } from './parts';
 
-// 7.5 커뮤니티 검색 (runway-search, CMT13): runners and crews by name, from 7.1's 검색 button.
+// 7.5 커뮤니티 탐색 · 검색 (runway-search, CMT13): runners and crews by name, from 7.1's 검색 button.
 // It searches 0.3 s after typing stops; under two letters it says so without asking the server.
 // S15P31E105-561 (담당자 시안): it opens on 탐색, a two-column grid of shared runs under a white search pill and
 // the 전체 · 러너 · 크루 chips; focusing the field shows 추천 runners, and typing searches as before.
@@ -51,9 +49,89 @@ const look = {
   skeleton: '#E4E6EB',
 } as const;
 
-// 탐색 shows the feed's first page (CMT02, 20 posts).
-const loadFeed = (repositories: Repositories) =>
-  repositories.community.listFeed('ALL').then(page => page.items);
+// S15P31E105-795: 탐색 is not the feed again. It shows only the runs that share their course, not mine, and reads
+// the feed on from its cursor when the grid ends. A page can hold none of those, so a read goes on up to
+// maxPages pages until it has something to add (firstFill on the first read, so the grid fills a screen).
+const explorable = (post: Post) => post.courseShared && !post.isMine;
+const firstFill = 6;
+const maxPages = 5;
+
+type Explore = {
+  posts: Post[];
+  cursor: string | null;
+  status: 'loading' | 'ready' | 'error';
+};
+
+function useExplore() {
+  const { community } = useRepositories();
+  const [state, setState] = useState<Explore>({
+    posts: [],
+    cursor: null,
+    status: 'loading',
+  });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const alive = useRef(true);
+  const busy = useRef(false);
+
+  const pull = useCallback(
+    async (start: string | undefined, seen: Post[], want: number) => {
+      let posts = seen;
+      let at = start;
+      for (let page = 0; page < maxPages; page += 1) {
+        const result = await community.listFeed('ALL', at);
+        const have = new Set(posts.map(post => post.id));
+        posts = [
+          ...posts,
+          ...result.items.filter(
+            post => explorable(post) && !have.has(post.id),
+          ),
+        ];
+        at = result.nextCursor ?? undefined;
+        if (!at || posts.length - seen.length >= want) break;
+      }
+      return { posts, cursor: at ?? null };
+    },
+    [community],
+  );
+
+  const load = useCallback(async () => {
+    busy.current = true;
+    setState({ posts: [], cursor: null, status: 'loading' });
+    try {
+      const next = await pull(undefined, [], firstFill);
+      if (alive.current) setState({ ...next, status: 'ready' });
+    } catch {
+      if (alive.current) setState({ posts: [], cursor: null, status: 'error' });
+    } finally {
+      busy.current = false;
+    }
+  }, [pull]);
+
+  useEffect(() => {
+    alive.current = true;
+    load();
+    return () => {
+      alive.current = false;
+    };
+  }, [load]);
+
+  const more = useCallback(async () => {
+    if (busy.current || state.status !== 'ready' || !state.cursor) return;
+    busy.current = true;
+    setLoadingMore(true);
+    try {
+      const next = await pull(state.cursor, state.posts, 1);
+      if (alive.current) setState({ ...next, status: 'ready' });
+    } catch {
+      // The next end-of-grid scroll tries again.
+    } finally {
+      busy.current = false;
+      if (alive.current) setLoadingMore(false);
+    }
+  }, [pull, state]);
+
+  return { ...state, loadingMore, reload: load, more };
+}
 
 const minLength = 2;
 const waitMs = 300;
@@ -177,7 +255,7 @@ export function SearchScreen() {
   // The field has focus: with nothing typed it shows 추천 instead of 탐색.
   const [focused, setFocused] = useState(false);
   const input = useRef<TextInput>(null);
-  const feed = useResource(loadFeed);
+  const explore = useExplore();
   const { width: screenWidth } = useWindowDimensions();
   const [status, setStatus] = useState<Status>('idle');
   const [found, setFound] = useState<Found>({
@@ -250,7 +328,7 @@ export function SearchScreen() {
   };
 
   const rows = status === 'ready' ? rowsOf(found, type) : [];
-  const posts = feed.status === 'ready' ? feed.data : null;
+  const posts = explore.status === 'ready' ? explore.posts : null;
   // 추천: the runners of the shared runs, each once, not me.
   const suggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -266,7 +344,8 @@ export function SearchScreen() {
   }, [posts]);
   const exploring = words.length === 0 && !focused;
   const suggesting = words.length === 0 && focused;
-  const cardWidth = (screenWidth - gutter * 2 - gap) / 2;
+  // Whole pixels: two cards and the gap fill the row exactly, so the second never wraps under the first.
+  const cardWidth = Math.floor((screenWidth - gutter * 2 - gap) / 2);
   const cardHeight = Math.round(cardWidth * 1.6);
   const closeSearch = () => {
     setQuery('');
@@ -357,7 +436,7 @@ export function SearchScreen() {
           </Pressable>
         ) : null}
       </View>
-      {suggesting ? null : (
+      {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -373,7 +452,14 @@ export function SearchScreen() {
                 accessibilityRole="tab"
                 accessibilityLabel={item.label}
                 accessibilityState={{ selected: picked }}
-                onPress={() => setType(item.type)}
+                onPress={() => {
+                  setType(item.type);
+                  // 러너 · 크루 before any typing: go to the field and show 추천 instead of an unchanged grid.
+                  if (item.type !== 'ALL' && words.length === 0) {
+                    setFocused(true);
+                    input.current?.focus();
+                  }
+                }}
                 style={({ pressed }) => [
                   styles.chip,
                   picked && styles.chipPicked,
@@ -389,7 +475,7 @@ export function SearchScreen() {
             );
           })}
         </ScrollView>
-      )}
+      }
 
       {exploring ? (
         <ScrollView
@@ -398,6 +484,18 @@ export function SearchScreen() {
             { paddingBottom: insets.bottom + 24 },
           ]}
           keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={100}
+          onScroll={event => {
+            const { contentOffset, contentSize, layoutMeasurement } =
+              event.nativeEvent;
+            // Near the end of the grid: read the feed on.
+            if (
+              contentOffset.y + layoutMeasurement.height >=
+              contentSize.height - cardHeight
+            ) {
+              explore.more();
+            }
+          }}
         >
           {posts
             ? posts.map(post => (
@@ -411,7 +509,7 @@ export function SearchScreen() {
                   }
                 />
               ))
-            : feed.status === 'error'
+            : explore.status === 'error'
             ? null
             : [0, 1, 2, 3].map(index => (
                 <View
@@ -423,27 +521,41 @@ export function SearchScreen() {
                   ]}
                 />
               ))}
-          {feed.status === 'error' ? (
+          {explore.status === 'error' ? (
             <StateMessage
               icon="alert"
               title="러닝을 불러오지 못했어요"
               body="검색으로 러너나 크루를 찾아보세요"
-              onRetry={feed.reload}
+              onRetry={explore.reload}
             />
           ) : posts && posts.length === 0 ? (
             <StateMessage
               icon="search"
-              title="러너나 크루를 찾아보세요"
-              body="닉네임이나 크루 이름으로 검색할 수 있어요"
+              title="공유된 코스가 아직 없어요"
+              body="위 검색창에서 러너나 크루를 찾아보세요"
             />
+          ) : null}
+          {explore.loadingMore ? (
+            <View style={styles.more}>
+              <ActivityIndicator size="small" color={look.bandText} />
+              <AppText style={styles.moreText}>더 불러오는 중</AppText>
+            </View>
           ) : null}
         </ScrollView>
       ) : suggesting ? (
         <ScrollView keyboardShouldPersistTaps="handled">
-          <AppText style={styles.section} accessibilityRole="header">
-            추천
-          </AppText>
-          {suggestions.length === 0 ? (
+          {type === 'CREW' ? null : (
+            <AppText style={styles.section} accessibilityRole="header">
+              추천
+            </AppText>
+          )}
+          {type === 'CREW' ? (
+            <StateMessage
+              icon="search"
+              title="크루 이름을 입력해 보세요"
+              body="두 글자 이상 입력하면 크루를 찾아요"
+            />
+          ) : suggestions.length === 0 ? (
             <StateMessage
               icon="search"
               title="러너나 크루를 찾아보세요"
@@ -596,8 +708,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
+    gap: 12,
+    // The same 16 gutter as the search pill, the chips and the grid, so the back button lines up with them (T33).
+    paddingHorizontal: gutter,
     paddingBottom: 6,
   },
   title: {

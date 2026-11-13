@@ -107,7 +107,7 @@ const has = (screen: Screen, label: string) =>
 
 test('7.5 opens from 7.1, finds runners and crews, and opens a runner', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   // It opens on 탐색: the shared runs as cards that open the post (S15P31E105-561, 담당자 시안).
   expect(texts(screen)).toContain('탐색');
@@ -136,7 +136,7 @@ test('7.5 opens from 7.1, finds runners and crews, and opens a runner', async ()
 
 test('7.5 shows 추천 runners while the empty field has focus and closes back to 탐색', async () => {
   const screen = await openCommunity();
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
   const field = screen.root.find(
     node =>
@@ -160,7 +160,7 @@ test('7.5 filters to crews from the menu and retries after a failure', async () 
       ? Promise.reject(new DataError('NETWORK_ERROR', '응답 없음'))
       : find(request);
   const screen = await openCommunity(repositories);
-  await press(screen, '검색');
+  await press(screen, '탐색');
   await settle(50);
 
   // The 전체 · 러너 · 크루 chips pick what to search.
@@ -183,4 +183,113 @@ test('7.5 filters to crews from the menu and retries after a failure', async () 
   expect(has(screen, '광안리 새벽 크루 크루 상세')).toBe(true);
   // 크루 shows crews only.
   expect(has(screen, 'seoyun.run 러너 프로필')).toBe(false);
+});
+
+// S15P31E105-795: 탐색 is not the feed again.
+type Repos = ReturnType<typeof createMockRepositories>;
+type FeedPost = Awaited<
+  ReturnType<Repos['community']['listFeed']>
+>['items'][number];
+
+// The mock answers on a timer, which only settle() advances.
+async function sharedPost(repositories: Repos): Promise<FeedPost> {
+  const read = repositories.community.listFeed('ALL');
+  await settle();
+  const found = (await read).items.find(
+    post => post.courseShared && !post.isMine,
+  );
+  if (!found) throw new Error('no shared run of someone else');
+  return found;
+}
+
+const variant = (
+  post: FeedPost,
+  id: string,
+  extra: Partial<FeedPost> = {},
+) => ({
+  ...post,
+  id,
+  author: { ...post.author, userId: `u-${id}`, handle: `${id}.run` },
+  ...extra,
+});
+
+async function openExplore(repositories: Repos) {
+  const screen = await openCommunity(repositories);
+  await press(screen, '탐색');
+  await settle(50);
+  return screen;
+}
+
+test('7.5 탐색 chips work before typing: 러너 shows 추천 and 크루 asks for a name', async () => {
+  const screen = await openExplore(createMockRepositories({ latencyMs: 0 }));
+  expect(texts(screen)).not.toContain('추천');
+  await press(screen, '러너');
+  expect(texts(screen)).toContain('추천');
+  expect(has(screen, 'seoyun.run 러너 프로필')).toBe(true);
+  await press(screen, '크루');
+  expect(texts(screen)).toContain('크루 이름을 입력해 보세요');
+  expect(texts(screen)).not.toContain('추천');
+});
+
+test('7.5 탐색 grid shows only shared runs of others', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const base = await sharedPost(repositories);
+  repositories.community.listFeed = async () => ({
+    items: [
+      variant(base, 'mine', { isMine: true }),
+      variant(base, 'free', { courseShared: false }),
+      variant(base, 'other'),
+    ],
+    nextCursor: null,
+  });
+  const screen = await openExplore(repositories);
+  expect(has(screen, 'other.run의 5.02km 러닝')).toBe(true);
+  expect(has(screen, 'mine.run의 5.02km 러닝')).toBe(false);
+  expect(has(screen, 'free.run의 5.02km 러닝')).toBe(false);
+});
+
+test('7.5 탐색 grid reads the feed on from the cursor at the end', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const base = await sharedPost(repositories);
+  const calls: (string | undefined)[] = [];
+  repositories.community.listFeed = async (_scope, cursor) => {
+    calls.push(cursor ?? undefined);
+    return cursor
+      ? { items: [variant(base, 'later')], nextCursor: null }
+      : {
+          items: [1, 2, 3, 4, 5, 6].map(n => variant(base, `first${n}`)),
+          nextCursor: 'p2',
+        };
+  };
+  const screen = await openExplore(repositories);
+  expect(has(screen, 'first6.run의 5.02km 러닝')).toBe(true);
+  expect(has(screen, 'later.run의 5.02km 러닝')).toBe(false);
+  const grid = screen.root.findAll(
+    node =>
+      typeof node.props.onScroll === 'function' &&
+      node.props.scrollEventThrottle === 100,
+  );
+  await act(async () => {
+    grid[grid.length - 1].props.onScroll({
+      nativeEvent: {
+        contentOffset: { y: 900 },
+        contentSize: { height: 1000 },
+        layoutMeasurement: { height: 600 },
+      },
+    });
+  });
+  await settle(50);
+  expect(calls).toContain('p2');
+  expect(has(screen, 'later.run의 5.02km 러닝')).toBe(true);
+});
+
+test('7.5 탐색 says so when no run shares its course', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const base = await sharedPost(repositories);
+  repositories.community.listFeed = async () => ({
+    items: [variant(base, 'free', { courseShared: false })],
+    nextCursor: null,
+  });
+  const screen = await openExplore(repositories);
+  expect(texts(screen)).toContain('공유된 코스가 아직 없어요');
 });
