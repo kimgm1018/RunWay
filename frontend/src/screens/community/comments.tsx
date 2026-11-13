@@ -1,4 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import {
+  NavigationContext,
+  type NavigationProp,
+} from '@react-navigation/native';
 import {
   ActivityIndicator,
   Animated,
@@ -32,7 +42,11 @@ import {
   type Repositories,
 } from '../../data';
 import { fontFamily, typography } from '../../theme';
+import { navigateTo } from '../../navigation/navigateTo';
+import type { RootStackParamList } from '../../navigation/types';
 import { communityLook, sheetLook } from './look';
+
+type Navigate = NavigationProp<RootStackParamList>;
 import { Avatar, PostMenu, postedAt } from './parts';
 
 // What a failed 댓글 수정·삭제 says; the list stays as it was (CMT08 · CMT09).
@@ -69,9 +83,12 @@ export function CommentRow({
   onReply,
   onMenu,
   onLike,
+  onProfile = null,
 }: {
   comment: PostComment;
   reply?: boolean;
+  // S15P31E105-797 (T25): the author's photo and handle open their profile (mine opens 내 프로필).
+  onProfile?: (() => void) | null;
   // Null under a deleted root: its thread takes no new replies (CMT07 INVALID_PARENT_COMMENT).
   onReply: (() => void) | null;
   // My own comments open the 댓글 수정·삭제 sheet.
@@ -101,18 +118,30 @@ export function CommentRow({
   const folds = longComment(comment.body);
   return (
     <View style={[styles.comment, reply && styles.reply]}>
-      <Avatar
-        nickname={author.nickname}
-        userId={author.userId}
-        photo={author.profileImageUrl}
-        size={reply ? 26 : 32}
-      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${author.handle} 프로필 보기`}
+        disabled={!onProfile}
+        onPress={onProfile ?? undefined}
+        hitSlop={4}
+      >
+        <Avatar
+          nickname={author.nickname}
+          userId={author.userId}
+          photo={author.profileImageUrl}
+          size={reply ? 26 : 32}
+        />
+      </Pressable>
       <View style={styles.flex}>
         <AppText
           style={styles.commentText}
           numberOfLines={folds && !unfolded ? COMMENT_FOLD_LINES : undefined}
         >
-          <AppText style={[styles.commentText, styles.strong]}>
+          <AppText
+            accessibilityRole={onProfile ? 'link' : undefined}
+            onPress={onProfile ?? undefined}
+            style={[styles.commentText, styles.strong]}
+          >
             {author.handle}{' '}
           </AppText>
           {comment.body}
@@ -273,6 +302,8 @@ export function CommentSheet({
   onCountChange: (postId: string, count: number) => void;
 }) {
   const { community } = useRepositories();
+  // Absent outside a navigator (tests); the author's profile link is then off.
+  const navigation = useContext(NavigationContext) as Navigate | undefined;
   const me = useResource(loadMe);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -548,6 +579,19 @@ export function CommentSheet({
     }
   };
 
+  // S15P31E105-797 (T25): the sheet closes, then the author's profile opens (mine: 내 프로필).
+  const openAuthor = (comment: PostComment) => {
+    if (!navigation || !comment.author) {
+      return;
+    }
+    Keyboard.dismiss();
+    onClose();
+    if (comment.isMine) {
+      navigateTo(navigation, 'MyProfile');
+    } else {
+      navigation.navigate('RunnerProfile', { userId: comment.author.userId });
+    }
+  };
   const sendable = Boolean(editing) || Boolean(draft.trim());
   // The sheet's own window decides its insets (S15P31E105-619): on Android the Modal window may or may not
   // reach under the navigation bar, so the app window's bottom inset could leave the comment bar under the
@@ -669,6 +713,11 @@ export function CommentSheet({
                               : null
                           }
                           onLike={() => like(comment)}
+                          onProfile={
+                            navigation && comment.author
+                              ? () => openAuthor(comment)
+                              : null
+                          }
                         />
                       ))
                     )}

@@ -78,6 +78,7 @@ import { BackButton } from '../../components/BackButton';
 import { runRouteOf } from '../../components/mapRoute';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import { usePostPages } from './usePostPages';
+import { PhotoZoom, zoomablePhoto } from './PhotoZoom';
 
 // 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into the mist (홈 · 러닝과
 // 같은 배경, S15P31E105-483), the name sits over its foot, then one wide navy button, a row of three numbers, a
@@ -621,7 +622,9 @@ function ListStatus({
 function useMyRecords(active: boolean) {
   const { records } = useRepositories();
   const [items, setItems] = useState<RunRecordSummary[]>([]);
-  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>(
+    'loading',
+  );
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState(false);
@@ -836,9 +839,7 @@ function MyProfileLists({
               onRetry={records.retry}
               loadingMore={records.loadingMore}
               moreError={
-                records.moreError
-                  ? '더 불러오지 못했어요 · 다시 시도'
-                  : null
+                records.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
               }
               onRetryMore={records.retryMore}
             />
@@ -873,15 +874,11 @@ function MyProfileLists({
                   : null
               }
               retryLabel="스크랩 다시 불러오기"
-              empty={
-                scraps.empty ? '아직 스크랩한 게시물이 없어요' : null
-              }
+              empty={scraps.empty ? '아직 스크랩한 게시물이 없어요' : null}
               onRetry={scraps.retry}
               loadingMore={scraps.loadingMore}
               moreError={
-                scraps.moreError
-                  ? '더 불러오지 못했어요 · 다시 시도'
-                  : null
+                scraps.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
               }
               onRetryMore={scraps.retry}
             />
@@ -946,19 +943,9 @@ function SharedRunsList({
   const pages = usePostPages(load);
   useEffect(() => {
     onNearEnd(
-      pages.moreError
-        ? pages.retry
-        : pages.hasMore
-        ? pages.loadMore
-        : null,
+      pages.moreError ? pages.retry : pages.hasMore ? pages.loadMore : null,
     );
-  }, [
-    pages.hasMore,
-    pages.loadMore,
-    pages.moreError,
-    pages.retry,
-    onNearEnd,
-  ]);
+  }, [pages.hasMore, pages.loadMore, pages.moreError, pages.retry, onNearEnd]);
   return (
     <>
       <AppText style={styles.section} accessibilityRole="header">
@@ -989,9 +976,7 @@ function SharedRunsList({
         empty={pages.empty ? '아직 기록이 없어요' : null}
         onRetry={pages.retry}
         loadingMore={pages.loadingMore}
-        moreError={
-          pages.moreError ? '더 불러오지 못했어요 · 다시 시도' : null
-        }
+        moreError={pages.moreError ? '더 불러오지 못했어요 · 다시 시도' : null}
         onRetryMore={pages.retry}
       />
     </>
@@ -1061,6 +1046,8 @@ function Profile({
     [tellViewport],
   );
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const zoomable = zoomablePhoto(profile);
   // 팔로우 요청 N건, or N건+ when U24 has more pages.
   const requestText = profile.followRequests
     ? `${profile.followRequests.count}건${
@@ -1110,6 +1097,15 @@ function Profile({
         scrollEventThrottle={16}
       >
         <View style={[styles.hero, { height: heroHeight }]}>
+          {/* S15P31E105-797 (T13): pressing another runner's photo enlarges it; without a photo it stays plain. */}
+          {zoomable ? (
+            <Pressable
+              accessibilityRole="imagebutton"
+              accessibilityLabel="프로필 사진 크게 보기"
+              onPress={() => setZoomed(true)}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
           <View style={[styles.topBar, { top: insets.top + 8 }]}>
             {inTab ? (
               <View />
@@ -1216,10 +1212,7 @@ function Profile({
                 </AppText>
               </View>
               {profile.isMe ? (
-                <MyProfileLists
-                  tileWidth={tileWidth}
-                  onNearEnd={onNearEnd}
-                />
+                <MyProfileLists tileWidth={tileWidth} onNearEnd={onNearEnd} />
               ) : (
                 <SharedRunsList
                   userId={profile.userId}
@@ -1238,6 +1231,10 @@ function Profile({
           onDecided={onRequestsChanged}
         />
       ) : null}
+      <PhotoZoom
+        photo={zoomed ? zoomable : null}
+        onClose={() => setZoomed(false)}
+      />
     </CardViewportContext.Provider>
   );
 }
