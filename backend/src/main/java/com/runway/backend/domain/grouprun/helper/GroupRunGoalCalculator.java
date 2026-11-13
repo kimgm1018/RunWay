@@ -6,6 +6,11 @@ import com.runway.backend.global.exception.ErrorCode;
 
 /** 그룹런 목표 환산. TIME은 거리·시간으로 페이스를, PACE는 거리·페이스로 시간을 계산한다. DB에는 거리·시간만 저장하고 페이스는 응답 파생값이다. */
 public final class GroupRunGoalCalculator {
+    /** TIME 목표 시간 범위. 앱 그룹런 만들기의 목표 시간 눈금(5~180분)과 같다(S15P31E105-779). */
+    public static final int MIN_DURATION_SEC = 5 * 60;
+
+    public static final int MAX_DURATION_SEC = 180 * 60;
+
 
     private GroupRunGoalCalculator() {}
 
@@ -61,6 +66,9 @@ public final class GroupRunGoalCalculator {
             int distanceM, Integer targetDurationSec, Integer targetPaceSecPerKm) {
         if (targetDurationSec == null || targetDurationSec <= 0) {
             throw new ApiException(ErrorCode.GOAL_DURATION_REQUIRED);
+        }
+        if (targetDurationSec < MIN_DURATION_SEC || targetDurationSec > MAX_DURATION_SEC) {
+            throw new ApiException(ErrorCode.GOAL_DURATION_OUT_OF_RANGE);
         }
         if (targetPaceSecPerKm != null) {
             throw new ApiException(ErrorCode.GOAL_TIME_PACE_CONFLICT);

@@ -320,6 +320,39 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("NOT_AUTHOR"));
     }
 
+    // S15P31E105-779: 글 본문은 앱 작성 화면과 같은 500자까지(작성·수정).
+    @Test
+    void 글본문_500자까지_501자는_400() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"body\":\"%s\"}"
+                                                .formatted(
+                                                        insertSession(viewerId, "COMPLETED"),
+                                                        "가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"body\":\"%s\"}"
+                                                .formatted(
+                                                        insertSession(viewerId, "COMPLETED"),
+                                                        "가".repeat(500))))
+                .andExpect(status().isCreated());
+        mockMvc.perform(
+                        patch("/api/v1/posts/{postId}", viewerPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"%s\"}".formatted("가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
     @Test
     void 소프트삭제후_상세_404_POST_NOT_FOUND() throws Exception {
         mockMvc.perform(

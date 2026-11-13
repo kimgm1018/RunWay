@@ -18,6 +18,9 @@ import java.util.Set;
 
 @Component
 public class SignupValidator {
+    /** 앱 생년 휠의 첫 해(S15P31E105-520). 그 전 날짜는 앱에서 고를 수 없어 서버도 받지 않는다(S15P31E105-779). */
+    public static final int MIN_BIRTH_YEAR = 1950;
+
     private static final Set<String> TYPES =
             Set.of("TERMS_OF_SERVICE", "PERSONAL_INFO", "LOCATION_DATA", "HEALTH_DATA");
     private final Clock clock;
@@ -54,7 +57,8 @@ public class SignupValidator {
         } catch (DateTimeParseException exception) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
-        if (birth.getYear() < 1 || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC))))
+        if (birth.getYear() < MIN_BIRTH_YEAR
+                || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC))))
             throw new ApiException(ErrorCode.INVALID_PROFILE);
         String gender = (String) request.gender();
         String phone = (String) request.phoneNumber();

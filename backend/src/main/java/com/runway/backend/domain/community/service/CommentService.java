@@ -195,11 +195,18 @@ public class CommentService {
         }
     }
 
+    /** 앱 댓글 입력창과 같은 상한(S15P31E105-779). 앞뒤 공백을 뺀 UTF-16 길이로 센다(앱 maxLength와 같은 단위). */
+    static final int MAX_BODY_LENGTH = 500;
+
     private static String requireNonBlankBody(String body) {
         if (body == null || body.trim().isEmpty()) {
             throw emptyComment();
         }
-        return body.trim();
+        String trimmed = body.trim();
+        if (trimmed.length() > MAX_BODY_LENGTH) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_COMMENT_TOO_LONG);
+        }
+        return trimmed;
     }
 
     private static ApiException emptyComment() {

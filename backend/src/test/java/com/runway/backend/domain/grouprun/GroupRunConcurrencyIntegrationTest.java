@@ -181,7 +181,7 @@ class GroupRunConcurrencyIntegrationTest extends SharedContextIntegrationSupport
                 {
                   "title":"동시성 그룹런",
                   "crewId":%d,
-                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "scheduledAt":"%s",
                   "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
                   "meetingPlaceName":"집결지",
                   "targetDistanceM":5000,
@@ -189,7 +189,7 @@ class GroupRunConcurrencyIntegrationTest extends SharedContextIntegrationSupport
                   "targetDurationSec":1800
                 }
                 """
-                .formatted(crewId);
+                .formatted(crewId, GroupRunTestTimes.validScheduledAt());
     }
 
     private long insertUser(String loginId, String nickname, String phone) {

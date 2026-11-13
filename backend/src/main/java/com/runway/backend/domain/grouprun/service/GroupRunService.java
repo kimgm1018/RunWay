@@ -37,6 +37,7 @@ import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
 import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupRunSchedulePolicy;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.helper.GroupRunLivePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
@@ -109,10 +110,12 @@ public class GroupRunService {
     private final SessionPlanPreparation planPreparation;
     private final PlatformTransactionManager transactionManager;
     private final GroupPaceService groupPaceService;
+    private final java.time.Clock clock;
 
     @Transactional
     public CreateGroupRunResponse create(long userId, CreateGroupRunRequest request) {
         requireApprovedActiveCrewMember(request.crewId(), userId);
+        GroupRunSchedulePolicy.requireWithinWindow(request.scheduledAt(), clock);
 
         Integer courseDistanceM = null;
         Long courseId = request.courseId();
@@ -277,7 +280,7 @@ public class GroupRunService {
                         : row.description();
         var scheduledAt =
                 request.scheduledAtPresent()
-                        ? requireScheduledAt(request.scheduledAt())
+                        ? requireScheduledAt(request.scheduledAt(), row.scheduledAt())
                         : row.scheduledAt();
         String meetingName =
                 request.meetingPlaceNamePresent()
@@ -1144,11 +1147,18 @@ public class GroupRunService {
         return name.trim();
     }
 
-    private static java.time.Instant requireScheduledAt(java.time.Instant scheduledAt) {
+    /**
+     * 바꾸는 출발 시각만 앱 범위로 확인한다(S15P31E105-779). 같은 값을 다시 보내면 지난 시각이어도 그대로 둔다(다른 필드만 고치는 요청).
+     */
+    private java.time.Instant requireScheduledAt(
+            java.time.Instant scheduledAt, java.time.Instant current) {
         if (scheduledAt == null) {
             throw new ApiException(ErrorCode.VALIDATION_REQUIRED_FIELD, "scheduledAt");
         }
-        return scheduledAt;
+        if (scheduledAt.equals(current)) {
+            return scheduledAt;
+        }
+        return GroupRunSchedulePolicy.requireWithinWindow(scheduledAt, clock);
     }
 
     private static GeoJsonPoint requireMeetingPosition(GeoJsonPoint position) {
