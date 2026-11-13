@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, PressableScale } from '../../components';
 import { useResource, type CrewListItem, type Repositories } from '../../data';
@@ -111,6 +111,18 @@ export function CrewRecruitPage({
       (repositories: Repositories) => searchCrews(repositories, query, version),
       [query, version],
     ),
+  );
+  // S15P31E105-800 (TEAM QA T29): someone else's join, approval or leave changes the member count too, so the list
+  // is read again each time the tab comes back into view (back from a crew's detail), keeping the old list meanwhile.
+  const refreshFound = found.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshFound();
+      }
+      focused.current = true;
+    }, [refreshFound]),
   );
   // While the next search loads, the last list stays so typing does not flash a spinner.
   const [last, setLast] = useState<CrewListItem[] | null>(null);
