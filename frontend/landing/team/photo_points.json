@@ -1,0 +1,67 @@
+{
+ "_comment": "normalize_photos.mjs 기준점. 원본 파일 이름과 좌표(원본 픽셀)만 둔다. top·eye·chin = 머리 위·눈·턱의 y, cx = 얼굴 가운데 x. 좌표를 빼면 가운데를 _ratio 비율로 자르고 줄이기만 한다(AI로 구도를 맞춘 사진). _ratio 1 = 정사각(원형 아바타), _w = 출력 너비, _eye = 눈 높이(위에서), _ec = 눈~턱이 차지하는 몫. mask: true = 밝은 배경을 지운다(좌표가 있을 때만).",
+ "_ratio": 1,
+ "_w": 256,
+ "_eye": 0.4,
+ "_ec": 0.34,
+ "member-01": {
+  "file": "1A2EFD52-3146-4B71-B00C-E96A866EB89D (2).jpg",
+  "top": 92,
+  "eye": 462,
+  "chin": 762,
+  "cx": 470,
+  "tol": 46,
+  "mask": false
+ },
+ "member-02": {
+  "file": "C2FD709E-00E3-42E4-B639-C56F345622F0.jpg",
+  "top": 85,
+  "eye": 548,
+  "chin": 975,
+  "cx": 592,
+  "mask": false
+ },
+ "member-03": {
+  "file": "image (37).png",
+  "top": 9,
+  "eye": 48,
+  "chin": 88,
+  "cx": 64,
+  "mask": false,
+  "lowres": true
+ },
+ "member-04": {
+  "file": "증명사진(흰색).jpg",
+  "top": 85,
+  "eye": 377,
+  "chin": 640,
+  "cx": 400,
+  "collar": 0.2,
+  "mask": false
+ },
+ "member-05": {
+  "file": "증명사진-1.jpg",
+  "top": 45,
+  "eye": 282,
+  "chin": 475,
+  "cx": 297,
+  "mask": false
+ },
+ "member-06": {
+  "file": "증명사진_2603.jpeg",
+  "top": 112,
+  "eye": 607,
+  "chin": 1000,
+  "cx": 750,
+  "mask": false
+ },
+ "member-07": {
+  "file": "프사.png",
+  "top": 12,
+  "eye": 47,
+  "chin": 82,
+  "cx": 64,
+  "mask": false,
+  "lowres": true
+ }
+}
