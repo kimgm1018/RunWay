@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   BackHandler,
   ScrollView,
   StatusBar,
@@ -111,6 +112,40 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
     }
   }, [load, saved]);
 
+  // 새로고침 아이콘을 눌렀을 때 실제로 보이는 반응이 없어 다시 눌러도 멈춘 것처럼 보였다
+  // (S15P31E105-811). 누를 때마다 한 바퀴씩 돌아가게 하고, 끝나면 다음 탭을 위해 되돌려 둔다.
+  const spin = useRef(new Animated.Value(0)).current;
+  const spinning = useRef(false);
+  const spinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (spinTimer.current) {
+        clearTimeout(spinTimer.current);
+      }
+    },
+    [],
+  );
+  const refresh = useCallback(() => {
+    load();
+    if (spinning.current) {
+      return;
+    }
+    spinning.current = true;
+    spin.setValue(0);
+    Animated.timing(spin, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+    spinTimer.current = setTimeout(() => {
+      spinning.current = false;
+    }, 500);
+  }, [load, spin]);
+  const spinDeg = spin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   const done = useCallback(
     () => navigateTo(navigation, 'MyCrews'),
     [navigation],
@@ -176,12 +211,14 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
           <View style={styles.header}>
             <BackButton tone="dark" onPress={done} />
             {/* The same round glass button as 뒤로, so the two corners match. */}
-            <GlassIconButton
-              icon="refresh"
-              accessibilityLabel="결과 새로고침"
-              onPress={load}
-              tone="dark"
-            />
+            <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+              <GlassIconButton
+                icon="refresh"
+                accessibilityLabel="결과 새로고침"
+                onPress={refresh}
+                tone="dark"
+              />
+            </Animated.View>
           </View>
           {/* The RunWay mark, GROUP RUN in Archivo (S15P31E105-701: 손글씨 #그룹런 대신) and the run's title. */}
           <View style={styles.head}>
