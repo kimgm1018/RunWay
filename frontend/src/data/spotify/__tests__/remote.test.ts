@@ -1,7 +1,7 @@
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import { withSavedMusic } from '../../music/withSavedMusic';
 import { spotifyTokens } from '../auth';
-import { SpotifyStateError } from '../music';
+import { spotifyFailureMessage, SpotifyStateError } from '../music';
 import { withSpotifyRemote } from '../remote';
 import { remoteConsent } from '../remoteConsent';
 import type { SpotifyRemoteBridge, RemotePlayback } from '../remoteBridge';
@@ -98,8 +98,17 @@ test('missing Spotify is shown as install required without starting authenticati
     await withSpotifyRemote(base(), remote, 'client').selectSource('SPOTIFY'),
   ).toMatchObject({ linked: false, services: { SPOTIFY: 'INSTALL_REQUIRED' } });
   expect(remote.connect).not.toHaveBeenCalled();
-  await withSpotifyRemote(base(), remote, 'client').resolveService('SPOTIFY');
+  const failed = await withSpotifyRemote(base(), remote, 'client')
+    .resolveService('SPOTIFY')
+    .catch(error => error);
   expect(remote.openApp).toHaveBeenCalledTimes(1);
+  // S15P31E105-776: the store opens and the screen is told to say Spotify must be installed first.
+  expect(failed).toBeInstanceOf(SpotifyStateError);
+  expect(failed).toMatchObject({
+    reason: 'INSTALL_REQUIRED',
+    state: { services: { SPOTIFY: 'INSTALL_REQUIRED' } },
+  });
+  expect(spotifyFailureMessage(failed, '')).toContain('설치');
 });
 
 test.each(['play', 'pause', 'next', 'previous'] as const)(

@@ -55,6 +55,8 @@ const failureMessages: Record<SpotifyFailure, string | null> = {
   ACCOUNT_CHECK: '휴대폰 Spotify 앱 계정으로 목록을 다시 연결해 주세요',
   DENIED: 'Spotify 권한을 허용하지 않아 연결하지 않았어요',
   APP_UPDATE_REQUIRED: 'Spotify 앱을 최신 버전으로 업데이트해 주세요',
+  INSTALL_REQUIRED:
+    '휴대폰에 Spotify 앱이 없어요. Play 스토어에서 설치한 뒤 다시 연결해 주세요',
   FAILED: 'Spotify와 연결하지 못했어요',
 };
 
