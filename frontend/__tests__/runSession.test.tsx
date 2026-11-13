@@ -162,6 +162,32 @@ async function startRun(
   return screen!;
 }
 
+// 응답 유실·앱 재시작 복구(S01 409 ACTIVE_SESSION_EXISTS): 이미 RUNNING/PAUSED인 세션에 다시 붙을 때도
+// 시작 화면이 4.2로 넘어가야 한다. 마운트 시점에 이미 그 상태면 전이가 감지되지 않던 버그(S15P31E105-777).
+test('reopening the start screen while an old run is still RUNNING still lands on 4.2', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  // 어제 두고 간 러닝: 시작까지는 했지만 끝내지 않고 앱이 닫힌 것처럼, 같은 mock 서버를 그대로 둔다.
+  const left = await startRun('free', 'default', repositories);
+  await act(async () => left.unmount());
+
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settleUntil(screen!, () => shows(screen!, '러닝'), '홈 탭');
+  await press(screen!, '러닝');
+  await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
+  await press(screen!, '러닝 시작');
+  await settleUntil(
+    screen!,
+    () => shows(screen!, '일시정지'),
+    '4.2 러닝 진행(기존 활성 세션에 다시 붙음)',
+  );
+  await act(async () => screen!.unmount());
+});
+
 test('a course run shows live numbers and turn guidance, and no made-up rival gap', async () => {
   const screen = await startRun('course');
   const shown = texts(screen);
