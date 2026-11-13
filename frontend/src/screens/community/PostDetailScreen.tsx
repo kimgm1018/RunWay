@@ -37,10 +37,15 @@ import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
-import { feedLook, MapBackdrop, RouteLine, useMapCover } from './FeedPage';
+import {
+  feedLook,
+  MapBackdrop,
+  RouteLine,
+  Shade,
+  useMapCover,
+} from './FeedPage';
 import { communityLook } from './look';
-import { RouteReplay } from './RouteReplay';
-import { RunMap } from '../../components/RunMap';
+import { PostRouteOverview, RouteReplay } from './RouteReplay';
 import type { LngLat } from '../../geo';
 import {
   Avatar,
@@ -280,20 +285,20 @@ export function PostDetailScreen() {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       {hasMap && mapRoute ? (
-        // The shared course on the real map (담당자 요청), fitted between the header and the sheet.
+        // The shared course on the real map (담당자 요청), drawn still as the replay draws it (S15P31E105-754).
         <>
-          <RunMap
+          <PostRouteOverview
+            post={post}
             route={mapRoute}
             unmeasuredEdges={unmeasuredEdges}
-            interactive={false}
-            area={{ top: 0.14, bottom: mapShare - 0.04 }}
-            view="lean"
-            // The replay covers this map, so its poles come off while it plays and are back on close: the
-            // native map stops redrawing them under the replay (화면 동일).
+            height={mapHeight}
+            // The replay covers this map, so its pin comes off while it plays and is back on close: the
+            // native map stops redrawing it under the replay (화면 동일).
             markers={!replay}
-            style={StyleSheet.absoluteFill}
             onShown={uncover}
           />
+          {/* The replay's bright map: the feed's top fade keeps the white header readable over it. */}
+          <Shade width={width} height={mapHeight} foot={false} />
           {coverView}
         </>
       ) : post ? (

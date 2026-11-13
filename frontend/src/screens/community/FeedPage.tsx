@@ -297,10 +297,13 @@ export function Shade({
   width,
   height,
   strong = false,
+  foot = true,
 }: {
   width: number;
   height: number;
   strong?: boolean;
+  // Off keeps only the top fade (7.2's map, whose foot is under the sheet).
+  foot?: boolean;
 }) {
   return (
     <Svg
@@ -330,12 +333,14 @@ export function Shade({
         </LinearGradient>
       </Defs>
       <Rect width={width} height={strong ? 260 : 180} fill="url(#feedTop)" />
-      <Rect
-        y={height * 0.5}
-        width={width}
-        height={height * 0.5}
-        fill="url(#feedFoot)"
-      />
+      {foot ? (
+        <Rect
+          y={height * 0.5}
+          width={width}
+          height={height * 0.5}
+          fill="url(#feedFoot)"
+        />
+      ) : null}
     </Svg>
   );
 }
