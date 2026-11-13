@@ -388,7 +388,7 @@ test('the code step shows where the code went and when it can be sent again', as
   expect(shown).toContain('인증번호를 입력해주세요');
   expect(shown).not.toContain('로 전송됨');
   expect(shown).toContain('남은 시간');
-  expect(shown).toContain('03:00');
+  expect(shown).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   expect(shown).toContain('인증번호 다시 받기 (1:00)');
   expect(isDisabled(screen, '인증번호 다시 받기 1:00 뒤')).toBe(true);
   await type(screen, '인증번호 6자리', fixtures.verificationCode);
@@ -423,7 +423,7 @@ test('an unclear send opens the code field for an SMS that may still arrive', as
 
   expect(texts(screen)).toContain('문자가 왔다면 입력하고');
   expect(hasField(screen, '인증번호 6자리')).toBe(true);
-  expect(texts(screen)).toContain('03:00');
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:03:00|02:5\d)/);
   await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());

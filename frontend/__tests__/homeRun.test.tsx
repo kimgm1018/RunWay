@@ -214,15 +214,11 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
     disabled: false,
   });
   // The card is the run itself: no 기록 상세 to open, no 페이스 · 심박 · 케이던스 tabs (S15P31E105-594 담당자 결정).
-  for (const text of ['평균 페이스', '29:41', '목표와 비교하기']) {
+  // S15P31E105-772 restores 기록 삭제 on this card.
+  for (const text of ['평균 페이스', '29:41', '목표와 비교하기', '기록 삭제']) {
     expect(texts(screen)).toContain(text);
   }
-  for (const gone of [
-    '기록 상세 보기',
-    '케이던스',
-    '기록 삭제',
-    '기록으로 돌아가기',
-  ]) {
+  for (const gone of ['기록 상세 보기', '케이던스', '기록으로 돌아가기']) {
     expect(texts(screen)).not.toContain(gone);
   }
   // 월별 기록 shows that day's month.
