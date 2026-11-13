@@ -3,7 +3,12 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { StackActions, useNavigation } from '@react-navigation/native';
 import { AppText, BottomSheet } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
-import type { RunRecordSummary } from '../../data/types';
+import type {
+  CoursePlan,
+  CoursePlanPaces,
+  CoursePlanTarget,
+  RunRecordSummary,
+} from '../../data/types';
 import {
   formatDotDate,
   formatDuration,
@@ -28,8 +33,85 @@ import { BackButton } from '../../components/BackButton';
 import { useCourseSearch } from '../course/CourseSearch';
 import { courseGoalOf, useRunGoalDraft } from './goal/RunGoalDraft';
 
+// The course comes first, without the AI plan, so it shows at once; the km plan follows for the picked goal
+// (S15P31E105-766).
 const loadPlan = (repositories: Repositories) =>
-  repositories.courses.getTodayPlan({ pacePlan: true });
+  repositories.courses.getTodayPlan();
+
+// C12's goal from the run goal, as S01 gets it: a finish time first, else a pace; none for a distance-only goal,
+// 추천 전략 or no goal.
+export function planTarget(
+  goal: RunGoal,
+  course: { distanceM: number; plannedPace: number | null },
+): CoursePlanTarget {
+  if (goal.kind === 'NONE' || goal.kind === 'PLAN') {
+    return {};
+  }
+  const config = goalConfig(goal, course);
+  if (config.goalDurationSec != null) {
+    return { targetDurationSec: config.goalDurationSec };
+  }
+  if (config.goalPaceSecPerKm != null) {
+    return { targetPaceSecPerKm: config.goalPaceSecPerKm };
+  }
+  return {};
+}
+
+// The km plan for the picked goal: 계산 중 while C12 answers; a late answer for an earlier goal is dropped. A plan
+// that came with the course (the prototype's) is kept while no goal asks for another.
+function useGoalPlan(
+  repositories: Repositories,
+  plan: CoursePlan | null,
+  target: CoursePlanTarget,
+) {
+  const key = plan ? `${plan.courseId}|${JSON.stringify(target)}` : null;
+  const own =
+    !!plan?.segmentPacesSecPerKm.length && !Object.keys(target).length;
+  const [state, setState] = useState<{
+    key: string;
+    paces: CoursePlanPaces | null;
+  } | null>(null);
+  const latest = useRef<string | null>(null);
+  useEffect(() => {
+    latest.current = key;
+    if (!key || !plan || own) {
+      return;
+    }
+    let alive = true;
+    repositories.courses
+      .getPacePlan(plan.courseId, target)
+      .catch(() => null)
+      .then(paces => {
+        if (alive && latest.current === key) {
+          setState({ key, paces });
+        }
+      });
+    return () => {
+      alive = false;
+    };
+    // key holds the course and the target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, own]);
+  if (!plan) {
+    return { plan: null, calculating: false };
+  }
+  if (own) {
+    return { plan, calculating: false };
+  }
+  if (state?.key !== key) {
+    return {
+      plan: { ...plan, segmentPacesSecPerKm: [], strategy: null },
+      calculating: true,
+    };
+  }
+  // No plan for this goal (slow AI, 503): the course alone, as before.
+  return {
+    plan: state.paces
+      ? { ...plan, ...state.paces }
+      : { ...plan, segmentPacesSecPerKm: [], strategy: null, planSource: null },
+    calculating: false,
+  };
+}
 // Looked up apart from the plan, so a slow or failed GPS fix never holds the course back.
 const loadPlace = (repositories: Repositories) =>
   repositories.run.getCurrentPlace();
@@ -142,17 +224,12 @@ export function CourseRunScreen() {
   const { colors } = useTheme();
   // The run start map stays bright after sunset (S15P31E105-683), so its card keeps the day design too (담당자 요청).
   const night = false;
+  const repositories = useRepositories();
   const resource = useResource(useCallback(loadPlan, []));
   const placeResource = useResource(useCallback(loadPlace, []));
-  const plan = resource.status === 'ready' ? resource.data : null;
-  // The plan's pace per km as map labels (S15P31E105-748). Missing or bad values leave the map without labels.
-  const kmPaces = plan?.segmentPacesSecPerKm ?? [];
-  const kmLabels =
-    kmPaces.length > 0 && kmPaces.every(pace => Number.isFinite(pace) && pace > 0)
-      ? kmPaces.map(pace => formatPace(pace))
-      : undefined;
+  const basePlan = resource.status === 'ready' ? resource.data : null;
   // Loaded, but no course was picked yet (or the app restarted since): 2.0 asks for one (S15P31E105-635).
-  const noCourse = resource.status === 'ready' && !plan;
+  const noCourse = resource.status === 'ready' && !basePlan;
   const place =
     placeResource.status === 'ready' ? placeResource.data : undefined;
   const [comparisonSessionId, setComparison] = useState<string | null>(null);
@@ -167,8 +244,27 @@ export function CourseRunScreen() {
   const goal: RunGoal = picked ??
     courseGoalOf(draft.goal) ??
     goalFromSearch(search) ?? {
-      kind: plan && !plan.targetPaceSecPerKm ? 'NONE' : 'PLAN',
+      kind: basePlan && !basePlan.targetPaceSecPerKm ? 'NONE' : 'PLAN',
     };
+  // The km plan for this goal (S15P31E105-766), asked again whenever the goal changes.
+  const { plan, calculating } = useGoalPlan(
+    repositories,
+    basePlan,
+    basePlan
+      ? planTarget(goal, {
+          distanceM: basePlan.distanceM,
+          plannedPace: basePlan.targetPaceSecPerKm,
+        })
+      : {},
+  );
+  // The plan's pace per km as map labels (S15P31E105-748). Missing or bad values leave the map without labels.
+  const kmPaces = plan?.segmentPacesSecPerKm ?? [];
+  const kmLabels =
+    kmPaces.length > 0 &&
+    kmPaces.every(pace => Number.isFinite(pace) && pace > 0)
+      ? kmPaces.map(pace => formatPace(pace))
+      : undefined;
+
   // A picked course that brings a goal of its own (3.1's 목표 or the plan's pace) while a different goal was set on the
   // map: the user chooses which to run with, once per course (S15P31E105-683, 담당자 요청). Until then the map's stays.
   const mapGoal = courseGoalOf(draft.goal);
@@ -356,6 +452,16 @@ export function CourseRunScreen() {
               plan.expectedDurationSec,
             )}`}
           </AppText>
+          {calculating ? (
+            // C12 is making the km plan for this goal (S15P31E105-766).
+            <View
+              style={styles.calculating}
+              accessibilityLabel="km별 계획 계산 중"
+            >
+              <ActivityIndicator size="small" color="#67696E" />
+              <AppText style={styles.calculatingText}>계산 중…</AppText>
+            </View>
+          ) : null}
         </View>
       )}
       {picker}
@@ -518,6 +624,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: ink,
+  },
+  calculating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  calculatingText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#67696E',
   },
   planSource: {
     marginTop: 4,

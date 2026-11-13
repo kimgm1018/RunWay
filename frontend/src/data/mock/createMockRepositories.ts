@@ -786,6 +786,30 @@ export function createMockRepositories(
       },
       getSaved: () => respond(saved, options),
       getTodayPlan: () => respond(planFor(chosen, saved), options),
+      // The prototype's plan stretched to the goal's mean pace (S15P31E105-766).
+      getPacePlan: (courseId, target) => {
+        const plan = planFor(courseId, saved);
+        const paces = plan.segmentPacesSecPerKm;
+        const mean =
+          paces.reduce((sum, value) => sum + value, 0) / paces.length;
+        const goalMean =
+          target.targetDurationSec != null
+            ? target.targetDurationSec / (plan.distanceM / 1000)
+            : target.targetPaceSecPerKm ?? mean;
+        return respond(
+          {
+            segmentPacesSecPerKm: paces.map(value =>
+              Math.round((value * goalMean) / mean),
+            ),
+            planSource: 'PERSONAL' as const,
+            strategy: plan.strategy,
+            expectedDurationSec: Math.round(
+              (plan.distanceM / 1000) * goalMean,
+            ),
+          },
+          options,
+        );
+      },
       recommend: search => {
         if (options.scenario === 'courseError') {
           return fail(new DataError('UNKNOWN', '추천 실패'), options);
