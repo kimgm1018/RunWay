@@ -1,5 +1,5 @@
 import React from 'react';
-import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
@@ -504,13 +504,14 @@ test('7.2 keeps the end of the sheet clear of a comment bar that grew', async ()
   await act(async () => {
     commentBar.props.onLayout({ nativeEvent: { layout: { height: 115 } } });
   });
+  // Sheet is a nested ScrollView (S15P31E105-789); foot room lives on contentContainerStyle.
   const sheet = detail.findAll(
     node =>
-      node.type === View &&
+      node.type === ScrollView &&
       StyleSheet.flatten(node.props.style)?.borderTopLeftRadius === 28,
   )[0];
   expect(
-    StyleSheet.flatten(sheet.props.style).paddingBottom,
+    StyleSheet.flatten(sheet.props.contentContainerStyle).paddingBottom,
   ).toBeGreaterThanOrEqual(115 + 16);
 });
 
