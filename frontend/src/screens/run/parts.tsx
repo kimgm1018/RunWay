@@ -506,6 +506,11 @@ function startNotice(problem: ControlProblem | null): {
       return { text: '휴대폰 위치 권한과 GPS를 켠 뒤 다시 시작해 주세요.', restart: true };
     case 'watchRequired':
       return { text: '워치를 연결해 주세요' };
+    case 'watchUnregistered':
+      return {
+        text: '워치가 계정에 등록되지 않아 폰으로 기록해요. 워치로 기록하려면 설정 > 기기에서 워치를 등록해 주세요. 폰으로 하려면 다시 시작해 주세요.',
+        restart: true,
+      };
     case 'watchNotReady':
       return { text: '워치가 준비되지 않았어요', restart: true };
     case 'rejected':

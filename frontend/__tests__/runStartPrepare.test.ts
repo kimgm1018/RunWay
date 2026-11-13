@@ -450,3 +450,57 @@ test('a failed clean-up cancel does not send the watch an error for a request it
   expect(sendError).not.toHaveBeenCalled();
   control.dispose();
 });
+
+// S15P31E105-784: a watch paired with the phone but not registered to the account gets one notice before the run
+// quietly starts on the phone; starting again goes on with the phone. Without a paired watch there is no notice.
+describe('paired but unregistered watch', () => {
+  function phoneOnly(paired: boolean) {
+    const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0 });
+    let created = 0;
+    const control = createRunControl({
+      session: {
+        ...repositories.session,
+        create: (request: Parameters<typeof repositories.session.create>[0]) => {
+          created += 1;
+          return repositories.session.create(request);
+        },
+      },
+      watch: {
+        ...repositories.watchSession,
+        getLinkedDevices: async () => null,
+        getPhoneDeviceId: async () => '102',
+        isWatchConnected: async () => paired,
+      },
+      location: {
+        requestPermission: async () => true,
+        current: async () => ({ latitude: 35.15, longitude: 129.11, accuracyM: 5 }),
+        watch: () => () => undefined,
+        stop: async () => undefined,
+      } as never,
+      timers: { resultWaitMs: 200, endResultWaitMs: 300, retryDelaysMs: [0, 5, 5], createRetryDelaysMs: [0, 5] },
+    });
+    return { control, created: () => created };
+  }
+
+  test('the early preparation waits; the first start says it once, the next start makes the phone session', async () => {
+    const { control, created } = phoneOnly(true);
+    await control.prepare(free);
+    expect(created()).toBe(0);
+    expect(control.getState().problem).toBeNull();
+    await control.start(free);
+    expect(control.getState().problem).toEqual({ kind: 'watchUnregistered' });
+    expect(created()).toBe(0);
+    await control.start(free);
+    expect(created()).toBe(1);
+    expect(control.getState().recordingMode).toBe('PHONE_ONLY');
+    control.dispose();
+  });
+
+  test('no notice when no watch is paired', async () => {
+    const { control, created } = phoneOnly(false);
+    await control.start(free);
+    expect(control.getState().problem?.kind).not.toBe('watchUnregistered');
+    expect(created()).toBe(1);
+    control.dispose();
+  });
+});

@@ -76,6 +76,16 @@ export function isWatchReady(watch: WatchConnection): boolean {
   );
 }
 
+// No watch now and none ever linked to this account: nothing was cut off, so screens show a neutral state instead of
+// 1.8's 끊김 look (TEAM QA T06, S15P31E105-784).
+export function neverHadWatch(watch: WatchConnection): boolean {
+  return (
+    watch.status !== 'connected' &&
+    !watch.lastSyncedAt &&
+    watch.registrationStatus !== 'unregistered'
+  );
+}
+
 export function watchConnectionLabel(watch: WatchConnection): string {
   if (watch.registrationStatus === 'unregistered') return '등록 안 됨';
   if (watch.registrationStatus === 'unknown') return '등록 상태 미확인';

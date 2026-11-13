@@ -29,6 +29,9 @@ import type {
 
 export type ControlProblem =
   | { kind: 'watchRequired' }
+  // A watch is paired with this phone but not registered to the account (W01), so the run would quietly be recorded
+  // by the phone alone (S15P31E105-784). Said once; starting again goes on with the phone.
+  | { kind: 'watchUnregistered' }
   | { kind: 'locationRequired' }
   | { kind: 'watchNotReady'; reasonCode: string | null }
   | { kind: 'rejected'; action: ControlAction; reasonCode: string | null }
@@ -1434,10 +1437,20 @@ export function createRunControl({
   }
 
   // 새 세션을 만든다. 응답 유실·앱 재시작으로 이미 활성 세션이 있으면 그 세션에 다시 붙는다(S01 409 details.sessionId).
-  async function createSession(goal: SessionGoalDraft): Promise<boolean> {
+  // Whether the watchUnregistered notice was shown in this screen's life: the next start goes on with the phone.
+  let unregisteredNoticed = false;
+  async function createSession(goal: SessionGoalDraft, asked = false): Promise<boolean> {
     devices = await watch.getLinkedDevices();
     mark('devices');
     let phoneId: string;
+    // The early preparation does not make a phone session for a paired watch: the user's own start says why first.
+    if (!devices && !unregisteredNoticed && (await watch.isWatchConnected?.().catch(() => false))) {
+      if (asked) {
+        unregisteredNoticed = true;
+        setState({ problem: { kind: 'watchUnregistered' } });
+      }
+      return false;
+    }
     if (!devices) {
       // Phone-only personal runs require a usable fix before creating a server session.
       const granted = await location.requestPermission().catch(() => false);
@@ -1737,7 +1750,7 @@ export function createRunControl({
       return;
     }
     if (!state.sessionId) {
-      if (!target || !(await createSession(target))) {
+      if (!target || !(await createSession(target, true))) {
         return;
       }
       if (state.status !== 'READY') {

@@ -1,5 +1,6 @@
 import {
   createWatchApi,
+  neverHadWatch,
   watchConnectionLabel,
   watchReadinessDetail,
 } from '../devices';
@@ -108,6 +109,8 @@ test('a linked watch with no Data Layer node is 등록/연결 끊김, not mock-c
     lastSyncedAt: linked.linkedAt,
   });
   expect(watchConnectionLabel(watch)).toBe('등록/연결 끊김');
+  // Once linked, a missing watch is really cut off (1.8 look).
+  expect(neverHadWatch(watch)).toBe(false);
 });
 
 test('no registration and no node is 워치 없음', async () => {
@@ -116,6 +119,8 @@ test('no registration and no node is 워치 없음', async () => {
   expect(watch.status).toBe('disconnected');
   expect(watch.lastSyncedAt).toBeNull();
   expect(watchConnectionLabel(watch)).toBe('워치 없음');
+  // TEAM QA T06 (S15P31E105-784): no watch ever is not shown as 끊김.
+  expect(neverHadWatch(watch)).toBe(true);
 });
 
 test('W01 links only when a watch node is reachable', async () => {
