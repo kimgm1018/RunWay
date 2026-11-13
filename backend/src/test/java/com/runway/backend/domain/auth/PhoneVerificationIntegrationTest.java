@@ -207,7 +207,7 @@ class PhoneVerificationIntegrationTest extends AuthIntegrationSupport {
     }
 
     @Test
-    void 번호는_24시간_5회_IP는_20회까지다() throws Exception {
+    void 번호는_24시간_5회_IP는_100회까지다() throws Exception {
         for (int i = 0; i < 5; i++) {
             request(PHONE, "SIGN_UP").andExpect(status().isOk());
             clearResendWait();
@@ -218,14 +218,17 @@ class PhoneVerificationIntegrationTest extends AuthIntegrationSupport {
                 .andExpect(jsonPath("$.details.retryAfterSec").value(org.hamcrest.Matchers.allOf(org.hamcrest.Matchers.greaterThan(0), org.hamcrest.Matchers.lessThanOrEqualTo(86400))));
         verify(sms, times(5)).send(anyString(), anyString());
 
+        // S15P31E105-799: 같은 사무실 네트워크처럼 IP 하나를 여럿이 쓰면 20회가 금방 찼다. IP 한도는 100회(99·100번째 성공, 101번째 429).
         String ip = "203.0.113.9";
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 100; i++) {
             request("0102000%04d".formatted(i), "SIGN_UP", ip).andExpect(status().isOk());
         }
         request("01020009999", "SIGN_UP", ip)
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("VERIFICATION_SEND_LIMIT_EXCEEDED"));
-        verify(sms, times(25)).send(anyString(), anyString());
+        verify(sms, times(105)).send(anyString(), anyString());
+        // 거절된 101번째는 집계에 남지 않는다(리뷰 A-1).
+        assertThat(redis.opsForZSet().zCard(redisIpKey(ip))).isEqualTo(100L);
         // 형식 오류는 한도에 세지 않는다. 가입된 번호도 같은 한도를 쓴다(가입 여부를 묻지 않으므로).
         request("010-0000-0000", "SIGN_UP", "203.0.113.10").andExpect(status().isBadRequest());
         assertThat(redis.hasKey(redisIpKey("203.0.113.10"))).isFalse();
