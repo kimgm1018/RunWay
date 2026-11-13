@@ -1,5 +1,6 @@
 import { changeLabel } from '../../../screens/group/GroupPaceCard';
 import type { GroupPaceInfo, GroupRunParticipant } from '../../types';
+import { kmLabel } from '../../../screens/run/KmPacePills';
 import { paceInfoOf } from '../groupRuns';
 
 // S15P31E105-680 공동 페이스 카드: G03 fields to the card, and the 방금 바뀜 label.
@@ -52,6 +53,8 @@ it('maps the pace fields and stays null while the server leaves them out', () =>
     basisNickname: '민수',
     calculating: false,
     slowerThanGoalCount: 1,
+    kmPaces: [],
+    kmDistanceM: 0,
   });
   expect(
     paceInfoOf({ ...detail, groupPaceMode: 'GOAL', paceCalculating: true })
@@ -69,6 +72,8 @@ it('names who joined or left, else the mode or the goal', () => {
     basisNickname: '지우',
     calculating: false,
     slowerThanGoalCount: 1,
+    kmPaces: [],
+    kmDistanceM: 0,
   };
   const before = { pace, participants: [member('1', '지우')] };
   expect(
@@ -84,4 +89,44 @@ it('names who joined or left, else the mode or the goal', () => {
       participants: before.participants,
     }),
   ).toBe('목표 페이스로 변경');
+});
+
+// S15P31E105-739: G03 paceSegments in km order, and where the last one ends for its label.
+it('orders the km paces and keeps where the last part ends', () => {
+  const info = paceInfoOf({
+    ...detail,
+    groupPaceMode: 'TOGETHER',
+    paceSegments: [
+      {
+        sequence: 2,
+        startDistanceM: 1000,
+        endDistanceM: 2000,
+        recommendedPaceSecPerKm: 372.5,
+      },
+      {
+        sequence: 3,
+        startDistanceM: 2000,
+        endDistanceM: 2400,
+        recommendedPaceSecPerKm: 390,
+      },
+      {
+        sequence: 1,
+        startDistanceM: 0,
+        endDistanceM: 1000,
+        recommendedPaceSecPerKm: 365,
+      },
+    ],
+  });
+  expect(info?.kmPaces).toEqual([365, 372.5, 390]);
+  expect(info?.kmDistanceM).toBe(2400);
+  expect([0, 1, 2].map(i => kmLabel(i, 3, 2400))).toEqual([
+    '1km',
+    '2km',
+    '2.4km',
+  ]);
+  expect(kmLabel(4, 5, 5000)).toBe('5km');
+  expect(
+    paceInfoOf({ ...detail, groupPaceMode: 'GOAL', paceSegments: null })
+      ?.kmPaces,
+  ).toEqual([]);
 });

@@ -726,6 +726,10 @@ export type GroupPaceInfo = {
   calculating: boolean;
   // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
   slowerThanGoalCount: number | null;
+  // S15P31E105-739 km별 공동 출발 페이스 (G03 paceSegments), in order. Empty when the server has none.
+  kmPaces: number[];
+  // Where the last km ends (m), to label a last part shorter than 1 km.
+  kmDistanceM: number;
 };
 
 // S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.

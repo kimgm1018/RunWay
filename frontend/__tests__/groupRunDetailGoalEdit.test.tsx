@@ -53,6 +53,8 @@ const settledPace: GroupPaceInfo = {
   basisNickname: '민수',
   calculating: false,
   slowerThanGoalCount: 1,
+  kmPaces: [],
+  kmDistanceM: 0,
 };
 
 function texts(screen: Screen) {

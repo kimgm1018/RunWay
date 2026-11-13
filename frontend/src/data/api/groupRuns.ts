@@ -51,6 +51,15 @@ type DetailResponse = {
   paceBasis?: { type: GroupPaceInfo['basis']; nickname: string | null } | null;
   paceCalculating?: boolean | null;
   slowerThanGoalCount?: number | null;
+  // S15P31E105-739. Only before the run; empty without a usable plan.
+  paceSegments?:
+    | {
+        sequence: number;
+        startDistanceM: number;
+        endDistanceM: number;
+        recommendedPaceSecPerKm: number;
+      }[]
+    | null;
 };
 
 // G03 → 공동 페이스 카드. null while the server does not send the mode (feature off).
@@ -67,6 +76,15 @@ export function paceInfoOf(run: DetailResponse): GroupPaceInfo | null {
     basisNickname: run.paceBasis?.nickname ?? null,
     calculating: run.paceCalculating === true,
     slowerThanGoalCount: run.slowerThanGoalCount ?? null,
+    ...kmPacesOf(run.paceSegments),
+  };
+}
+
+function kmPacesOf(segments: DetailResponse['paceSegments']) {
+  const ordered = [...(segments ?? [])].sort((a, b) => a.sequence - b.sequence);
+  return {
+    kmPaces: ordered.map(segment => segment.recommendedPaceSecPerKm),
+    kmDistanceM: ordered.length ? ordered[ordered.length - 1].endDistanceM : 0,
   };
 }
 

@@ -131,6 +131,9 @@ type RunMapProps = {
   // false takes the markers (poles, dots, pills, names) off a map that something else covers, such as 7.2's
   // map under the course replay, so the native map stops redrawing their views; the lines stay. Default true.
   markers?: boolean;
+  // false leaves out the course's S · F poles (and the loop's start pin) on a small map whose km pills would sit under
+  // them (그룹 대기실, S15P31E105-739). Default true.
+  poles?: boolean;
   // All routes use the approved community line (743). 'thin' scales its layers together for a small map.
   // Boolean values remain accepted for existing callers; map brightness still follows `look` and `view`.
   mintLine?: boolean | 'thin';
@@ -593,6 +596,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     placeLabel,
     compact = false,
     markers = true,
+    poles = true,
     mintLine = false,
     textureView = false,
     recenterSignal = 0,
@@ -958,7 +962,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 />
               ) : null}
               {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
-              {hasRoute && !running ? (
+              {hasRoute && !running && poles ? (
                 loop ? (
                   // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
                   // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.

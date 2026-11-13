@@ -1,7 +1,9 @@
 package com.runway.backend.domain.grouprun.dto.response;
 
 import com.runway.backend.global.geo.GeoJsonPoint;
+import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import java.time.Instant;
+import java.util.List;
 
 public record GroupRunDetailResponse(
         long id,
@@ -27,7 +29,8 @@ public record GroupRunDetailResponse(
         Integer aiRecommendedPaceSecPerKm,
         PaceBasis paceBasis,
         Boolean paceCalculating,
-        Integer slowerThanGoalCount) {
+        Integer slowerThanGoalCount,
+        List<RunningSessionResponse.Segment> paceSegments) {
 
     /**
      * 적용 공동 페이스의 근거(S15P31E105-680). type: MEMBER(AI 추천 회원), GOAL(목표 페이스), MEDIAN(계산 전 중앙값 대체). nickname은

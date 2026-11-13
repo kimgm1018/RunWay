@@ -21,6 +21,8 @@ const pace: GroupPaceInfo = {
   basisNickname: '민수',
   calculating: false,
   slowerThanGoalCount: 0,
+  kmPaces: [],
+  kmDistanceM: 0,
 };
 
 function card(info: GroupPaceInfo, canChangeMode = false) {

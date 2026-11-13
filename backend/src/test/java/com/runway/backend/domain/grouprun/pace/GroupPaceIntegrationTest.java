@@ -229,6 +229,86 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
         verify(plans).plan(eq(host), argThat(goal -> goal.distanceM() == 10000));
     }
 
+    /** 5 km plan of a 410 s/km mean with km ratios 1.05, 1.02, 1.00, 0.98, 0.95 (S15P31E105-739). */
+    private static PersonalPacePlanPort.Result kmPlan(Long user) {
+        BigDecimal[] ratios = {new BigDecimal("1.05"), new BigDecimal("1.02"), BigDecimal.ONE,
+                new BigDecimal("0.98"), new BigDecimal("0.95")};
+        List<PersonalPacePlanPort.Segment> segments = new ArrayList<>();
+        for (int i = 0; i < ratios.length; i++) {
+            segments.add(new PersonalPacePlanPort.Segment(i + 1, BigDecimal.valueOf(i * 1000L),
+                    BigDecimal.valueOf((i + 1) * 1000L),
+                    BigDecimal.valueOf(410).multiply(ratios[i]), ratios[i]));
+        }
+        return new PersonalPacePlanPort.Result(null, user, BigDecimal.valueOf(5000),
+                BigDecimal.valueOf(410), segments);
+    }
+
+    @Test
+    void detail_kmSegmentsFollowTheAiPlanInTogetherAndTheGoalInGoalMode() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(kmPlan(invocation.getArgument(0))));
+        states.invalidateStart(group);
+        pace.evaluateStart(group);
+        var together = groups.getDetail(host, group).paceSegments();
+        assertThat(together).extracting(s -> s.recommendedPaceSecPerKm().doubleValue())
+                .containsExactly(430.5, 418.2, 410.0, 401.8, 389.5);
+        assertThat(together.getLast().endDistanceM()).isEqualByComparingTo("5000");
+
+        // GOAL (5000 m / 1800 s = 360 s/km): the goal with the same AI ratios.
+        states.saveMode(group, "GOAL");
+        states.invalidateStart(group);
+        assertThat(groups.getDetail(host, group).paceSegments()).isEmpty();   // recalculating: none
+        pace.evaluateStart(group);
+        assertThat(groups.getDetail(host, group).paceSegments())
+                .extracting(s -> s.recommendedPaceSecPerKm().doubleValue())
+                .containsExactly(378.0, 367.2, 360.0, 352.8, 342.0);
+    }
+
+    @Test
+    void detail_kmSegmentsComeFromTheSlowestMembersPlanOnly_andHideAfterConsentWithdrawalOrStart() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        long member = user(2, true);
+        jdbc.update("INSERT INTO crew_memberships(crew_id,user_id,status,joined_at) VALUES (?,?,'APPROVED',now())", crew, member);
+        jdbc.update("INSERT INTO group_run_participants(group_run_id,user_id) VALUES (?,?)", group, member);
+        // The host plans 410 with a falling profile; the member plans 380 flat. The host is the slowest basis.
+        when(plans.plan(any(), any())).thenAnswer(invocation -> {
+            long user = invocation.getArgument(0);
+            if (user == host) return Optional.of(kmPlan(user));
+            List<PersonalPacePlanPort.Segment> flat = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                flat.add(new PersonalPacePlanPort.Segment(i + 1, BigDecimal.valueOf(i * 1000L),
+                        BigDecimal.valueOf((i + 1) * 1000L), BigDecimal.valueOf(380), BigDecimal.ONE));
+            }
+            return Optional.of(new PersonalPacePlanPort.Result(null, user, BigDecimal.valueOf(5000),
+                    BigDecimal.valueOf(380), flat));
+        });
+        states.invalidateStart(group);
+        pace.evaluateStart(group);
+        assertThat(groups.getDetail(host, group).paceSegments())
+                .extracting(s -> s.recommendedPaceSecPerKm().doubleValue())
+                .containsExactly(430.5, 418.2, 410.0, 401.8, 389.5);
+
+        jdbc.update("UPDATE users SET health_data_access='DISAGREE'::users_health_data_access_enum WHERE id=?", host);
+        assertThat(groups.getDetail(member, group).paceSegments()).isEmpty();
+        jdbc.update("UPDATE users SET health_data_access='AGREE'::users_health_data_access_enum WHERE id=?", host);
+
+        jdbc.update("UPDATE group_runs SET status='RUNNING' WHERE id=?", group);
+        assertThat(groups.getDetail(host, group).paceSegments()).isEmpty();
+    }
+
+    @Test
+    void detail_planWithoutUsableSegments_keepsTheSinglePace() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
+                new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
+                        BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+        states.invalidateStart(group);
+        pace.evaluateStart(group);
+        var detail = groups.getDetail(host, group);
+        assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(410);
+        assertThat(detail.paceSegments()).isEmpty();
+    }
+
     @Test
     void detail_showsCalculatingThenMemberBasisAiRecommendationAndSlowerCount() {
         jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
