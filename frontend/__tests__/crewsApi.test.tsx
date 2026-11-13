@@ -424,8 +424,12 @@ test('crew and member photos show, and a broken photo falls back to the letter',
     photos(screen).filter(
       uri => /^https?:\/\//.test(uri) && uri.endsWith(photo(id)),
     );
-  const letter = (screen: Screen, text: string) =>
-    screen.root.findAllByType(Text).some(node => node.props.children === text);
+  // The default profile picture (S15P31E105-775) stands in for a missing or broken member photo.
+  const defaults = (screen: Screen) =>
+    screen.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'default-avatar',
+    ).length;
 
   const screen = await openGroup();
   const crewPhotos = (view: Screen) =>
@@ -453,16 +457,16 @@ test('crew and member photos show, and a broken photo falls back to the letter',
       node.props.source?.uri?.endsWith(photo(crewImageId)),
     ).length,
   ).toBeLessThan(hero.length);
-  // 6.2: the crew photo by the name and 도윤's photo; 민준 has none, so the letter stays.
+  // 6.2: the crew photo by the name and 도윤's photo; 민준 has none, so the default picture stands in.
   expect(shows(screen, memberImageId)).toHaveLength(1);
-  expect(letter(screen, '민')).toBe(true);
-  expect(letter(screen, '도')).toBe(false);
+  const before = defaults(screen);
+  expect(before).toBeGreaterThan(0);
   const memberPhoto = screen.root
     .findAllByType(Image)
     .find(node => node.props.source?.uri?.endsWith(photo(memberImageId)))!;
   await act(async () => memberPhoto.props.onError());
   expect(shows(screen, memberImageId)).toHaveLength(0);
-  expect(letter(screen, '도')).toBe(true);
+  expect(defaults(screen)).toBe(before + 1);
 
   // The leader's 6.2 lists the waiting request with its photo (S15P31E105-678); 6.2a opens on top of it, so
   // the applicant's photo is drawn once there and once more by the 6.2 underneath.

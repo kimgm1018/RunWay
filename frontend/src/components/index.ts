@@ -3,6 +3,7 @@ export * from './Backdrop';
 export * from './BottomSheet';
 export * from './Button';
 export * from './Card';
+export * from './DefaultAvatar';
 export * from './EmptyState';
 export * from './Glass';
 export * from './Icon';

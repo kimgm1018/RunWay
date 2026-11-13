@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
+  DefaultAvatar,
   FadeIn,
   Icon,
   PressableScale,
@@ -106,6 +107,9 @@ export function Greeting({
   // S15P31E105-797 (T10): the photo opens 내 프로필.
   onPressPhoto: () => void;
 }) {
+  // A photo that does not load shows the default profile picture, as without one (S15P31E105-775).
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   return (
     <View style={styles.greeting}>
       <Pressable
@@ -115,14 +119,15 @@ export function Greeting({
         hitSlop={6}
         style={styles.avatar}
       >
-        {photo ? (
+        {shown ? (
           <Image
-            source={{ uri: photo }}
+            source={{ uri: shown }}
             style={StyleSheet.absoluteFill}
+            onError={() => setFailed(shown)}
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <AppText style={styles.initial}>{nickname.slice(0, 1)}</AppText>
+          <DefaultAvatar size={44} />
         )}
       </Pressable>
       <AppText numberOfLines={1} style={styles.hello}>
@@ -727,12 +732,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: homePalette.avatar,
-  },
-  initial: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 22,
-    color: '#FFFFFF',
   },
   hello: {
     flex: 1,

@@ -8,14 +8,19 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, type IconName } from '../../components';
+import {
+  AppText,
+  DefaultAvatar,
+  defaultAvatarColors,
+  Icon,
+  type IconName,
+} from '../../components';
 import type { GroupRunSummary, MeetingPlace } from '../../data';
 import { formatClockTime, formatDotDateWeekday } from '../../format';
 import {
   fontFamily,
   k1,
   mistGradient,
-  palette,
   radius,
   spacing,
   useTheme,
@@ -80,19 +85,8 @@ export function goalLine(run: GroupRunSummary, prefix = true) {
   return `자유 러닝${minutes}`;
 }
 
-// Member initials sit on K1 tones (DESIGN.md 2-10).
-const avatarTones = [k1.top, '#C3D1DD', k1.light, '#A5B6C8', '#D5DEE7'];
-// mint: 6.5's members on K1 mint shades (담당자 요청, S15P31E105-563).
-const mintTones = [
-  palette.mint,
-  '#C4FBF4',
-  palette.mintPressed,
-  '#B6F8EF',
-  '#9CEFE3',
-];
-
 // A photo filling a circle of `size` (S15P31E105-636). Until there is a photo, or when it fails to load,
-// `fallback` (the first letter) stays, like the community Avatar. `inside` fills the parent circle inside
+// `fallback` (the default profile picture) stays, like the community Avatar. `inside` fills the parent circle inside
 // its border instead (6.4's white ring around overlapping members stays visible).
 export function PhotoOr({
   photo,
@@ -141,12 +135,11 @@ export function CrewPhoto({
   );
 }
 
-// A member shown by their photo, or the first letter of their nickname without one.
+// A member shown by their photo, or the default profile picture without one (S15P31E105-775). `color` is
+// the person's own colour (그룹런 시안 memberColors, S15P31E105-673): it fills the circle behind the figure so
+// the member still matches their colour bar. `name`, `index` and `mint` stay so callers pass the same person.
 export function Initial({
-  name,
-  index = 0,
   size = 32,
-  mint = false,
   color,
   photo,
   style,
@@ -155,22 +148,15 @@ export function Initial({
   index?: number;
   size?: number;
   mint?: boolean;
-  // The person's own colour (그룹런 시안 memberColors, S15P31E105-673) in place of the tones.
   color?: string;
   photo?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
-  const tones = mint ? mintTones : avatarTones;
   return (
     <View
       style={[
         styles.initial,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color ?? tones[index % tones.length],
-        },
+        { width: size, height: size, borderRadius: size / 2 },
         style,
       ]}
     >
@@ -179,22 +165,19 @@ export function Initial({
         size={size}
         inside
         fallback={
-          <AppText
-            variant="captionStrong"
-            style={[
-              { color: palette.ink, fontSize: size * 0.4 },
-              color
-                ? { fontFamily: fontFamily.black, fontSize: size * 0.45 }
-                : null,
-            ]}
-          >
-            {name.slice(0, 1)}
-          </AppText>
+          <DefaultAvatar
+            size={size}
+            background={color ?? defaultAvatarColors.background}
+            color={color ? memberFigure : defaultAvatarColors.figure}
+          />
         }
       />
     </View>
   );
 }
+
+// The figure on a member's own colour: the ink, a little faded, reads on every member colour.
+const memberFigure = 'rgba(2,5,14,0.55)';
 
 // With a label (6.4 정보 카드) the icon sits in a 40 circle over a small label and a 14.5 value
 // (DESIGN.md 2-10); without one it is the compact line of the 6.0 cards.

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
   Backdrop,
+  DefaultAvatar,
   EmptyState,
   Icon,
   type IconName,
@@ -39,7 +40,7 @@ import { errorCode } from '../../data/errors';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import { fontFamily, k1, spacing, useTheme } from '../../theme';
+import { fontFamily, spacing, useTheme } from '../../theme';
 
 export const locationLabels: Record<LocationRecordingMode, string> = {
   ALWAYS: '항상',
@@ -55,9 +56,9 @@ export const settingsLook = {
   band: 'rgba(24,46,61,0.08)',
 } as const;
 
-// The profile photo, or the first letter of the nickname without one.
+// The profile photo, or the default profile picture without one or when it does not load (S15P31E105-775).
+// `nickname` stays so callers pass the same person.
 export function ProfilePhoto({
-  nickname,
   photo,
   size,
 }: {
@@ -66,6 +67,8 @@ export function ProfilePhoto({
   size: number;
 }) {
   const { colors } = useTheme();
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   return (
     <View
       style={[
@@ -74,17 +77,20 @@ export function ProfilePhoto({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: k1.deep,
           borderColor: colors.surfaceRaised,
         },
       ]}
     >
-      {photo ? (
-        <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} />
+      {shown ? (
+        <Image
+          source={{ uri: shown }}
+          style={StyleSheet.absoluteFill}
+          onError={() => setFailed(shown)}
+          accessibilityIgnoresInvertColors
+        />
       ) : (
-        <AppText style={{ color: k1.ice, fontSize: size * 0.38 }}>
-          {nickname.slice(0, 1)}
-        </AppText>
+        // Inside the 2 border.
+        <DefaultAvatar size={size - 4} />
       )}
     </View>
   );
@@ -446,16 +452,9 @@ export function SettingsScreen() {
             ) : null}
           </Tiles>
 
-          <Band>공개 및 위치</Band>
+          {/* 계정 공개 범위 moved to 8.2 프로필 수정 (S15P31E105-775). */}
+          <Band>위치</Band>
           <Tiles>
-            <Tile
-              icon="globe"
-              name="계정 공개 범위"
-              state={settings.isPrivate ? '비공개' : '공개'}
-              on={!settings.isPrivate}
-              disabled={savingSettings}
-              onPress={() => change({ isPrivate: !settings.isPrivate })}
-            />
             <Tile
               icon="mapPin"
               name="위치 기록"
