@@ -778,7 +778,8 @@ export function CommentSheet({
                             : `${post?.author.handle ?? ''}님에게 댓글 달기…`
                         }
                         placeholderTextColor={communityLook.meta}
-                        selectionColor={communityLook.ink}
+                        selectionColor={communityLook.selection}
+                        cursorColor={communityLook.ink}
                         value={draft}
                         onChangeText={setDraft}
                         maxLength={COMMENT_LIMIT}
@@ -938,6 +939,10 @@ const styles = StyleSheet.create({
     color: communityLook.ink,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
+    // Android otherwise sizes the caret from the 44px control instead of the text.
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   // Used/limit in the field's corner once the comment nears COMMENT_LIMIT.
   count: {

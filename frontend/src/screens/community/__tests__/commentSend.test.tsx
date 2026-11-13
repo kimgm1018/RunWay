@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput } from 'react-native';
+import { StyleSheet, TextInput } from 'react-native';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
@@ -15,6 +15,7 @@ import {
   CommentSheet,
   longComment,
 } from '../comments';
+import { communityLook } from '../look';
 
 // S15P31E105-780: quick taps on 게시 send one comment, the bar stops at COMMENT_LIMIT and long comments fold.
 
@@ -69,6 +70,19 @@ const sendButton = (root: ReactTestRenderer) =>
   );
 
 describe('comment sheet sending', () => {
+  it('keeps the Android caret aligned to the comment text', async () => {
+    const { root } = await openSheet();
+    const input = root.root.findByType(TextInput);
+    expect(StyleSheet.flatten(input.props.style)).toMatchObject({
+      fontSize: 15,
+      lineHeight: 20,
+      includeFontPadding: false,
+      textAlignVertical: 'center',
+    });
+    expect(input.props.selectionColor).toBe(communityLook.selection);
+    expect(input.props.cursorColor).toBe(communityLook.ink);
+  });
+
   it('sends one comment however quickly 게시 is pressed again', async () => {
     const { root, addComment } = await openSheet();
     const input = root.root.findByType(TextInput);

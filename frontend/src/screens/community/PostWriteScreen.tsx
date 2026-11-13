@@ -55,7 +55,7 @@ import {
   Stat,
   useMapCover,
 } from './FeedPage';
-import { CourseToggle } from './look';
+import { communityLook, CourseToggle } from './look';
 import { Avatar, recordLabel, stamp } from './parts';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { InlineRunReplay, type ReplayRun } from './RouteReplay';
@@ -308,7 +308,8 @@ function Composer({
                 accessibilityLabel="글 내용"
                 placeholder="오늘 러닝은 어땠나요?"
                 placeholderTextColor={feedLook.faint}
-                selectionColor={feedLook.route}
+                selectionColor={communityLook.selection}
+                cursorColor={feedLook.route}
                 value={body}
                 onChangeText={setBody}
                 onFocus={revealBody}
@@ -588,7 +589,8 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     backgroundColor: 'rgba(12,20,27,0.82)',
   },
-  // No lineHeight: on Android it clips the top of the placeholder (as in group/look's search field).
+  // Keep an explicit text line for Android: without it the native caret can use the
+  // whole multiline input height and look much taller than the glyphs (S15P31E105-793).
   bodyInput: {
     minHeight: 26,
     // Longer drafts scroll inside the native input, keeping the caret above the keyboard.
@@ -596,6 +598,7 @@ const styles = StyleSheet.create({
     padding: 0,
     fontFamily: typography.input.fontFamily,
     fontSize: 16,
+    lineHeight: 22,
     includeFontPadding: false,
     color: feedLook.white,
     textAlignVertical: 'top',

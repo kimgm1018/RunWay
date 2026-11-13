@@ -197,6 +197,7 @@ export function FollowRequestSheet({
                 <Button
                   title="승인"
                   size="small"
+                  style={styles.action}
                   accessibilityLabel={`${request.nickname} 승인`}
                   loading={busy}
                   disabled={deciding !== null && !busy}
@@ -206,6 +207,7 @@ export function FollowRequestSheet({
                   title="거절"
                   variant="secondary"
                   size="small"
+                  style={styles.action}
                   accessibilityLabel={`${request.nickname} 거절`}
                   disabled={deciding !== null}
                   onPress={() => decide(request, 'REJECT')}
@@ -245,4 +247,9 @@ const styles = StyleSheet.create({
   rows: { gap: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   name: { flex: 1 },
+  // Keep both decisions the same compact size. Without an explicit flex boundary,
+  // Android can stretch the animated button while the row resolves a long name or loading spinner.
+  // Keep the compact decision controls visually stable while the approval request is in flight.
+  // Button's generic loading opacity otherwise makes the control flash on Android.
+  action: { width: 64, flexShrink: 0, opacity: 1 },
 });
