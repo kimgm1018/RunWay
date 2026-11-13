@@ -4,6 +4,7 @@ import {
   AppState,
   Animated,
   Image,
+  Pressable,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -95,16 +96,25 @@ const loadWatch = (repositories: Repositories) =>
 export const readinessRecheckDelaysMs = [2_000, 8_000];
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
-function Greeting({
+export function Greeting({
   nickname,
   photo,
+  onPressPhoto,
 }: {
   nickname: string;
   photo: string | null;
+  // S15P31E105-797 (T10): the photo opens 내 프로필.
+  onPressPhoto: () => void;
 }) {
   return (
     <View style={styles.greeting}>
-      <View style={styles.avatar}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="내 프로필 보기"
+        onPress={onPressPhoto}
+        hitSlop={6}
+        style={styles.avatar}
+      >
         {photo ? (
           <Image
             source={{ uri: photo }}
@@ -114,7 +124,7 @@ function Greeting({
         ) : (
           <AppText style={styles.initial}>{nickname.slice(0, 1)}</AppText>
         )}
-      </View>
+      </Pressable>
       <AppText numberOfLines={1} style={styles.hello}>
         {nickname ? `반가워요 ${nickname}님 👋` : '반가워요 👋'}
       </AppText>
@@ -545,6 +555,7 @@ export function HomeScreen() {
         <Greeting
           nickname={me.data?.nickname ?? ''}
           photo={me.data?.profileImageUrl ?? null}
+          onPressPhoto={() => navigateTo(navigation, 'MyProfile')}
         />
         <GlassIconButton
           icon="bell"
