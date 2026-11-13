@@ -324,6 +324,7 @@ function ShapeReplay({
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
+      transparent
     >
       <StatusBar barStyle="light-content" />
       <Pressable
@@ -960,7 +961,11 @@ function MapReplay({
   // keeps them in the middle of the screen.
   const runnerOnMap = overview
     ? route[route.length - 1]
-    : intro ? route[0] : done ? route[route.length - 1] : null;
+    : intro
+    ? route[0]
+    : done
+    ? route[route.length - 1]
+    : null;
 
   const mapLayer = (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -1154,6 +1159,7 @@ function MapReplay({
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
+      transparent
       // Android TextureView needs an accelerated window when its surface is recreated after app resume.
       hardwareAccelerated
     >
@@ -1293,10 +1299,7 @@ export function PostRouteOverview({
   markers: boolean;
   onShown?: () => void;
 }) {
-  const run = useMemo(
-    () => (post ? replayOfPost(post) : routeOnlyRun),
-    [post],
-  );
+  const run = useMemo(() => (post ? replayOfPost(post) : routeOnlyRun), [post]);
   return route.length >= 2 ? (
     <View pointerEvents="none" style={[styles.overview, { height }]}>
       <MapReplay
@@ -1439,7 +1442,14 @@ function ReplayChrome({
             <AppText style={styles.cellLabel}>거리 (KM)</AppText>
           </View>
           <View style={styles.cell}>
-            <AppText style={styles.cellValue}>{clock(seconds)}</AppText>
+            <AppText
+              style={styles.cellValue}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {clock(seconds)}
+            </AppText>
             <AppText style={styles.cellLabel}>시간</AppText>
           </View>
           <View style={styles.cell}>

@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Keyboard,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
+  TextInput,
   View,
   type StyleProp,
   type ViewStyle,
@@ -11,6 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { size, spacing, useTheme } from '../theme';
 import { Backdrop } from './Backdrop';
 import { KeyboardLift } from './KeyboardLift';
+
+// 추가 여백: 포커스된 입력칸이 키보드 바로 위로 딱 붙지 않고 조금 떨어져 보이게 한다.
+const focusedFieldMargin = 16;
 
 export function Screen({
   children,
@@ -39,6 +45,28 @@ export function Screen({
     ? spacing.xxl
     : spacing.xxxl;
   const content = [styles.content, { paddingBottom: bottomRoom }, contentStyle];
+  const scrollRef = useRef<ScrollView>(null);
+  // 키보드가 올라오면 포커스된 입력칸까지 스크롤한다(S15P31E105-790).
+  useEffect(() => {
+    if (!scroll) {
+      return;
+    }
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const shown = Keyboard.addListener(showEvent, () => {
+      const focused = TextInput.State.currentlyFocusedInput?.();
+      if (focused) {
+        scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+          focused,
+          focusedFieldMargin,
+          true,
+        );
+      }
+    });
+    return () => {
+      shown.remove();
+    };
+  }, [scroll]);
   return (
     <SafeAreaView
       edges={withTabBar ? ['top'] : ['top', 'bottom']}
@@ -53,6 +81,7 @@ export function Screen({
       <KeyboardLift style={styles.fill}>
         {scroll ? (
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={[content, styles.grow]}
             keyboardShouldPersistTaps="handled"
           >

@@ -149,8 +149,8 @@ function SaveSharedCourse({ courseId }: { courseId: string }) {
           {state === 'saving'
             ? '저장 중'
             : state === 'saved'
-              ? '내 코스에 저장됨'
-              : '내 코스에 저장'}
+            ? '내 코스에 저장됨'
+            : '내 코스에 저장'}
         </AppText>
       </Pressable>
       {message ? (
@@ -227,13 +227,20 @@ export function PostDetailScreen() {
   // Once the post is read it decides: its own points while shared, none when it is not.
   const mapRoute = post
     ? post.courseShared
-      ? (post.record.route ?? routeAhead)
+      ? post.record.route ?? routeAhead
       : null
     : routeAhead;
   const hasMap = !!mapRoute && mapRoute.length >= 2;
   const { uncover, coverView } = useMapCover(hasMap, 'post-map-cover');
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [mapAtTop, setMapAtTop] = useState(true);
+  // Opening the comment Modal can briefly change the reported window height on Android.
+  // Keep the map and its play button at their existing position until the sheet closes.
+  const stableHeight = useRef(height);
+  if (!commentsOpen) {
+    stableHeight.current = height;
+  }
   const [replay, setReplay] = useState(false);
   // Opened from a shared link (S15P31E105-704): the course replay starts once, as soon as the post is read and
   // its course is shared.
@@ -265,9 +272,9 @@ export function PostDetailScreen() {
       )} · 평균 페이스 ${formatPace(current.record.averagePaceSecPerKm)}/km`,
     }).catch(() => undefined);
 
-  const mapHeight = Math.round(height * mapShare);
+  const mapHeight = Math.round(stableHeight.current * mapShare);
   const commentCount = post
-    ? (post.commentCount ?? countComments(post.comments))
+    ? post.commentCount ?? countComments(post.comments)
     : 0;
   // The newest comment still there; a deleted root kept for its replies is not one.
   const latest =
@@ -276,8 +283,8 @@ export function PostDetailScreen() {
         comment.deleted || !comment.author
           ? newest
           : !newest || comment.createdAt >= newest.createdAt
-            ? comment
-            : newest,
+          ? comment
+          : newest,
       null,
     ) ?? null;
 
@@ -291,7 +298,7 @@ export function PostDetailScreen() {
             post={post}
             route={mapRoute}
             unmeasuredEdges={unmeasuredEdges}
-            height={mapHeight}
+            height={mapHeight + 32}
             // The replay covers this map, so its pin comes off while it plays and is back on close: the
             // native map stops redrawing it under the replay (화면 동일).
             markers={!replay}
@@ -304,7 +311,11 @@ export function PostDetailScreen() {
       ) : post ? (
         // No real points (the server list, or a post without its course): the run's shape on the drawn map.
         <>
-          <MapBackdrop seed={post.id} width={width} height={height} />
+          <MapBackdrop
+            seed={post.id}
+            width={width}
+            height={stableHeight.current}
+          />
           {post.courseShared ? (
             <RouteLine
               shape={post.record.shape}
@@ -342,7 +353,16 @@ export function PostDetailScreen() {
         />
       ) : (
         <>
-          <ScrollView style={styles.flex} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.flex}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={32}
+            nestedScrollEnabled
+            onScroll={event => {
+              const offset = event.nativeEvent.contentOffset.y;
+              setMapAtTop(offset < 8);
+            }}
+          >
             {/* The map above the sheet plays the course back when the run shares it (담당자 레퍼런스). */}
             <Pressable
               accessibilityRole={post.courseShared ? 'button' : undefined}
@@ -350,51 +370,58 @@ export function PostDetailScreen() {
               disabled={!post.courseShared}
               onPress={() => setReplay(true)}
               style={{ height: mapHeight }}
-            >
-              {post.courseShared ? (
-                <View style={styles.play}>
-                  <Icon name="play" color="#FFFFFF" size={22} solid />
-                </View>
-              ) : null}
-            </Pressable>
-            <View
+            />
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
               style={[
                 styles.sheet,
-                { minHeight: height - mapHeight, paddingBottom: footRoom },
+                {
+                  minHeight: stableHeight.current - mapHeight,
+                  maxHeight: stableHeight.current - insets.top - 80,
+                },
               ]}
+              contentContainerStyle={{ paddingBottom: footRoom }}
             >
               <View style={styles.handle} />
+              {/* 2열 그리드로 고정해 홀수로 남는 마지막 항목도 가운데 정렬한다(S15P31E105-789). */}
               <View style={styles.stats}>
-                <Stat
-                  value={formatKm(post.record.distanceM)}
-                  unit="km"
-                  label="거리"
-                />
-                <Stat
-                  value={formatPace(post.record.averagePaceSecPerKm)}
-                  unit="/km"
-                  label="평균 페이스"
-                />
-                <Stat
-                  value={formatDuration(post.record.durationSec)}
-                  label="시간"
-                />
-                <Stat
-                  value={
-                    post.record.averageHeartRate
-                      ? String(post.record.averageHeartRate)
-                      : '–'
-                  }
-                  unit={post.record.averageHeartRate ? 'bpm' : undefined}
-                  label="평균 심박"
-                />
-                <Stat
-                  value={
-                    post.record.cadence ? String(post.record.cadence) : '–'
-                  }
-                  unit={post.record.cadence ? 'spm' : undefined}
-                  label="케이던스"
-                />
+                <View style={styles.statsRow}>
+                  <Stat
+                    value={formatKm(post.record.distanceM)}
+                    unit="km"
+                    label="거리"
+                  />
+                  <Stat
+                    value={formatPace(post.record.averagePaceSecPerKm)}
+                    unit="/km"
+                    label="평균 페이스"
+                  />
+                </View>
+                <View style={styles.statsRow}>
+                  <Stat
+                    value={formatDuration(post.record.durationSec)}
+                    label="시간"
+                  />
+                  <Stat
+                    value={
+                      post.record.averageHeartRate
+                        ? String(post.record.averageHeartRate)
+                        : '–'
+                    }
+                    unit={post.record.averageHeartRate ? 'bpm' : undefined}
+                    label="평균 심박"
+                  />
+                </View>
+                <View style={styles.statsRow}>
+                  <Stat
+                    value={
+                      post.record.cadence ? String(post.record.cadence) : '–'
+                    }
+                    unit={post.record.cadence ? 'spm' : undefined}
+                    label="케이던스"
+                  />
+                </View>
               </View>
 
               <View style={styles.kind}>
@@ -513,8 +540,16 @@ export function PostDetailScreen() {
                   </View>
                 </>
               ) : null}
-            </View>
+            </ScrollView>
           </ScrollView>
+          {post.courseShared && mapAtTop ? (
+            <View
+              pointerEvents="none"
+              style={[styles.play, { top: mapHeight - 74 }]}
+            >
+              <Icon name="play" color="#FFFFFF" size={22} solid />
+            </View>
+          ) : null}
 
           {/* 레퍼런스 상단: 뒤로, the author and the date, and the menu, over the map. */}
           <View style={[styles.header, { top: insets.top + 6 }]}>
@@ -696,8 +731,9 @@ const styles = StyleSheet.create({
   // 레퍼런스의 재생 버튼: a round deep navy button at the map's bottom right (담당자 요청).
   play: {
     position: 'absolute',
+    zIndex: 10,
+    elevation: 10,
     right: 18,
-    bottom: 18,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -722,14 +758,16 @@ const styles = StyleSheet.create({
     backgroundColor: look.line,
     marginBottom: 14,
   },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 16 },
-  stat: { width: '33.3%' },
+  stats: { gap: 16 },
+  statsRow: { flexDirection: 'row', justifyContent: 'center', columnGap: 40 },
+  stat: { alignItems: 'center', minWidth: 110 },
   statValue: {
     fontFamily: fontFamily.bold,
     letterSpacing: -0.6,
     fontSize: 28,
     lineHeight: 32,
     color: look.ink,
+    textAlign: 'center',
   },
   statUnit: {
     fontFamily: fontFamily.medium,
@@ -742,6 +780,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: look.sub,
+    textAlign: 'center',
   },
   // 알약 테두리 (담당자 요청): hugs the label, left-aligned.
   kind: {
