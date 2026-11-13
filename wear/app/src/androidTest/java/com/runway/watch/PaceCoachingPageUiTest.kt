@@ -36,9 +36,10 @@ class PaceCoachingPageUiTest {
         compose.waitForIdle()
     }
 
-    @Test fun showsTheGuideWithTheDummyBadge() {
+    @Test fun showsTheGuideWithoutTheDummyBadge() {
         launch()
-        compose.onNodeWithText("더미 안내").assertIsDisplayed()
+        // Real AI04 coaching carries no "더미 안내" badge (S15P31E105-768).
+        compose.onNodeWithText("더미 안내").assertDoesNotExist()
         compose.onNodeWithText("리듬 BPM 165로 조정").assertIsDisplayed()
         compose.onNodeWithContentDescription("안내 페이스 킬로미터당 5분 58초").assertIsDisplayed()
         // The guide's BPM is not the one playing, so it is not shown as applied.
