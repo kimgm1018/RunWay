@@ -57,7 +57,8 @@ def test_route_errors(tmp_path):
         assert c.get("/v1/demo/sessions/201/events?token=x", headers=VIEW).status_code == 400
         assert c.get("/v1/demo/sessions/latest/events", headers=VIEW).json()["code"] == "SESSION_NOT_FOUND"
         c.post("/v1/pace/decide", json=decide_body())
-        buf = c.app.state.demo.buffer; buf.subscribe(201); buf.subscribe(201)
+        buf = c.app.state.demo.buffer
+        for _ in range(5): buf.subscribe(201)                    # 747: 화면 연결 상한 5
         assert c.get("/v1/demo/sessions/201/events", headers=VIEW).status_code == 429
 
 

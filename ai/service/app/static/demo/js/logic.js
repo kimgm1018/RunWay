@@ -136,6 +136,16 @@
     return {kind: 'pace', text: formatPace(sec), sec: sec};
   }
 
+  // 747: 안내 카드의 '지금(실제)' 한 값. 개인은 그대로, 그룹은 달리는 러너의 평균
+  function actualSummary(actuals) {
+    var paces = (actuals || []).filter(function (a) { return a && a.kind === 'pace' && Number.isFinite(a.sec); });
+    if (paces.length) {
+      var mean = paces.reduce(function (sum, a) { return sum + a.sec; }, 0) / paces.length;
+      return formatPace(mean);
+    }
+    return (actuals || []).some(function (a) { return a && a.kind === 'stopped'; }) ? '정지' : '—';
+  }
+
   function guideCard(trace) {
     trace = trace || {};
     var decision = trace.decision || {};
@@ -176,6 +186,51 @@
   }
 
   // 안내 방향: up 가속 · hold 유지 · down 감속 · ease 위험 감속 · idle 판단 없음
+  // 747: 청중용 안내 한 줄. 처음 보는 사람이 5초 안에 '지금 무슨 판단을 했는지' 알 수 있게 숫자 대신 말로.
+  // tone: up(빠르게) / down(늦춤) / hold(유지) / wait(대기) / danger(위험)
+  function josa(word, withFinal, withoutFinal) {
+    var text = String(word || '');
+    var last = text.charAt(text.length - 1);
+    var hasFinal;
+    if (/[0-9]/.test(last)) hasFinal = '013678'.indexOf(last) >= 0;          // 영·일·삼·육·칠·팔은 받침이 있다
+    else {
+      var code = last.charCodeAt(0) - 0xAC00;
+      hasFinal = code >= 0 && code <= 11171 ? code % 28 !== 0 : false;
+    }
+    return text + (hasFinal ? withFinal : withoutFinal);
+  }
+
+  function headline(trace) {
+    trace = trace || {};
+    var decision = trace.decision || {};
+    var status = trace.status;
+    if (!trace.decision || status === 'INPUT_INSUFFICIENT' || decision.recommendedPaceSecPerKm == null) {
+      return {tone: 'wait', text: '심박 대기'};
+    }
+    if (status === 'SAFETY') return {tone: 'danger', text: '위험 → 늦춤'};
+    if (trace.group) {
+      var group = trace.group;
+      var worst = Number.isInteger(group.worstIndex) && group.members ? group.members[group.worstIndex] : null;
+      var who = String(worst && worst.label ? worst.label : '한 명').replace(/\s+/g, '');
+      var code = decision.reasonCode;
+      if (code === 'SPEED_UP' || code === 'AHEAD') return {tone: 'up', text: '모두 여유 → 올림'};
+      if (code === 'SLOW_DOWN') return {tone: 'down', text: who + ' 심박 높음 → 늦춤'};
+      if (code === 'WARMUP') return {tone: 'down', text: '워밍업 → 늦춤'};
+      if (code === 'COOLDOWN') return {tone: 'hold', text: '방금 바꿈 → 유지'};
+      return {tone: 'hold', text: '알맞음 → 유지'};
+    }
+    var kind = actionKind(trace);
+    if (kind === 'up') return {tone: 'up', text: '여유 → 올림'};
+    if (kind === 'ease') return {tone: 'danger', text: '심박 높음 → 크게 늦춤'};
+    if (kind === 'down') return {tone: 'down', text: '심박 오름 → 늦춤'};
+    if (String(decision.reason || decision.reasonCode || '').indexOf('COOLDOWN') >= 0) return {tone: 'hold', text: '방금 바꿈 → 유지'};
+    return {tone: 'hold', text: '알맞음 → 유지'};
+  }
+
+  // 판단 흐름 카드의 이유 한 단어(색과 함께)
+  var TONE_WORD = {up: '여유', down: '힘듦', danger: '위험', hold: '유지', wait: '대기'};
+  function toneWord(tone) { return TONE_WORD[tone] || ''; }
+
   function actionKind(trace) {
     var decision = trace && trace.decision || {};
     if (decision.action === 'EASE_OFF') return 'ease';
@@ -329,6 +384,7 @@
     groupMatrix: groupMatrix,
     recordingOptionTexts: recordingOptionTexts,
     parseSseChunk: parseSseChunk,
+    headline: headline, josa: josa, toneWord: toneWord, actualSummary: actualSummary,
     historyRowText: historyRowText,
     backoffMs: backoffMs,
     bannerFor: bannerFor,

@@ -20,8 +20,9 @@ def _safe_script(text: str) -> str:
 def build(static_dir: Path, recording_ids: list[str], out: Path) -> Path:
     html = (static_dir / "index.html").read_text(encoding="utf-8")
     css = (static_dir / "style.css").read_text(encoding="utf-8")
-    html = html.replace('<link rel="stylesheet" href="style.css">', "<style>\n" + css + "\n</style>")
-    html = re.sub(r'\s*<script defer src="js/[a-z]+\.js"></script>', "", html)
+    # 캐시 무효화용 ?v=… 가 붙어 있어도 같은 자리를 바꾼다
+    html = re.sub(r'<link rel="stylesheet" href="style\.css(\?v=[\w.-]+)?">', lambda _: "<style>\n" + css + "\n</style>", html)
+    html = re.sub(r'\s*<script defer src="js/[a-z]+\.js(\?v=[\w.-]+)?"></script>', "", html)
     recordings = [json.loads((static_dir / "recordings" / f"{rid}.json").read_text(encoding="utf-8"))
                   for rid in recording_ids]
     data = "window.RunwayDemoInlineRecordings = " + json.dumps(recordings, ensure_ascii=False, separators=(",", ":")) + ";"
