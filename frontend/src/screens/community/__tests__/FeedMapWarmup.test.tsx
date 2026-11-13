@@ -1,6 +1,7 @@
 import React from 'react';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { RunMap } from '../../../components/RunMap';
 import type { LngLat } from '../../../geo';
 import { FeedMapWarmup, resetFeedMapWarmup } from '../FeedMapWarmup';
 
@@ -72,6 +73,17 @@ test('draws the first course once behind the tabs, then lets it go', async () =>
     jest.advanceTimersByTime(8000);
   });
   expect(screen.queryByTestId('feed-map-warmup')).toBeNull();
+});
+
+// S15P31E105-763: a SurfaceView map sits under the window and showed over the run start screen's map; the warm map
+// draws in the window so the tab screen in front covers it.
+test('the warm map draws in the window, under the tab screen in front', async () => {
+  render(warmup(Promise.resolve(course)));
+  await act(async () => {});
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(root.root.findByType(RunMap).props.textureView).toBe(true);
 });
 
 test('opening 커뮤니티 lets the warm map go at once, and it is not drawn again', async () => {

@@ -102,6 +102,9 @@ export function FeedMapWarmup({
         route={route}
         view="lean"
         interactive={false}
+        // Drawn in the window like any view, so the tab screen in front covers it. A SurfaceView map sits under
+        // the window instead and showed over the run start screen's own map (S15P31E105-763).
+        textureView
         area={feedMapArea(feedPageTop(insets.top), window.height)}
         style={StyleSheet.absoluteFill}
         onShown={() => setShown(true)}
@@ -110,7 +113,7 @@ export function FeedMapWarmup({
   );
 }
 
-// Under the tab screens, which cover it.
+// Under the tab screens, which cover it (its map draws in the window, see textureView).
 const styles = StyleSheet.create({
   behind: { position: 'absolute', left: 0, top: 0 },
 });
