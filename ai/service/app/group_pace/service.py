@@ -8,7 +8,7 @@ from app.gru_gb import apply_gb, is_identity, personal_weight
 from app.group_pace.ahead import REASON as AHEAD_REASON, AheadSettings, try_ahead
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
-from app.pace_selector import DELTAS, PaceSelector, candidate_paces, upper_bound
+from app.pace_selector import DELTAS, FLOOR_STEP_SEC_PER_KM, PaceSelector, candidate_paces, upper_bound
 from app.policy.mpc_policy import _mean, allow_at
 from app.schemas import Candidate, PredictRequest
 
@@ -216,8 +216,12 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             danger=goal_danger, cap=body.goal_pace_sec_per_km, elapsed_sec=body.elapsed_sec,
             since_change_sec=since_change, warmup_exempt=goal_danger)
     else:
+        # S15P31E105-751: 가속(AHEAD·RECOVERED) 직후에도 허용선을 넘으면 쿨다운을 기다리지 않고 늦추고,
+        # 위험 심박이 아닌 FLOOR는 한 번에 FLOOR_STEP까지만 늦춘다.
         selection = PaceSelector(paces, current, uppers, allows, blocked).select(
-            danger=bool(danger), cap=cap, elapsed_sec=body.elapsed_sec, since_change_sec=since_change)
+            danger=bool(danger), cap=cap, elapsed_sec=body.elapsed_sec, since_change_sec=since_change,
+            slow_after_fast=body.last_change is not None and body.last_change.direction == "FAST",
+            floor_step_sec_per_km=FLOOR_STEP_SEC_PER_KM)
     if selection.cap_missing:
         warnings.append("RECOVERY_CAP_MISSING")
     if ahead is not None and selection.index == paces.index(current):
