@@ -94,7 +94,9 @@ export function goalConfig(
   goalDurationSec: number | null;
   goalPaceSecPerKm: number | null;
 } {
-  const distance = course?.distanceM ?? null;
+  // C03 returns decimal metres; S01 requires an integer goal distance.
+  // Keep the course geometry and measured distance intact, rounding only the run goal.
+  const distance = course ? Math.round(course.distanceM) : null;
   switch (goal.kind) {
     case 'NONE':
       return {
