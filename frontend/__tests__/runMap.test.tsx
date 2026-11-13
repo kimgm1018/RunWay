@@ -441,3 +441,13 @@ test('without a destination only the start dot shows; a course or run ignores th
   expect(texts(withCourse)).toContain('F');
   expect(count(withCourse, 'naver-map-marker')).toBe(2);
 });
+
+// S15P31E105-748: labels without km colours still go one a km, on one plain line.
+test('pace labels alone mark each km on a one-colour line', () => {
+  const root = render(<RunMap route={route} paceLabels={['5\'30"', '5\'45"', '6\'00"']} />);
+  expect(texts(root)).toEqual(expect.arrayContaining(['5\'30"', '5\'45"', '6\'00"']));
+  const [ribbon] = overlays(root, 'naver-map-multipath');
+  expect(ribbon.pathParts).toHaveLength(3);
+  const colours = new Set(ribbon.pathParts.map((part: { color: string }) => part.color));
+  expect(colours.size).toBe(1);
+});
