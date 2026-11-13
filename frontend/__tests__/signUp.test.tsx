@@ -473,13 +473,64 @@ test('an unclear send opens the code field for an SMS that may still arrive', as
   await act(async () => screen.unmount());
 });
 
-test('a first request over the limit leaves no code field', async () => {
+// S15P31E105-799 (TEAM QA T05): over the limit, a code sent earlier may still be live, so the field opens for it.
+test('a first request over the limit still opens the field for a code already received', async () => {
   serve([], [failure(429, 'VERIFICATION_SEND_LIMIT_EXCEEDED')]);
   const screen = await launch();
   await openSignUpPhone(screen);
   await press(screen, '인증번호 받기');
 
   expect(texts(screen)).toContain('인증번호 요청 횟수를 넘었어요');
-  expect(hasField(screen, '인증번호 6자리')).toBe(false);
+  expect(texts(screen)).toContain('이미 받은 인증번호가 있으면 입력해 주세요');
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-799 (TEAM QA T05): coming back to the screen and asking again within a minute is 429 too soon, but the
+// code from the first request is still live on the server (180 s from that send), so the field opens with its time.
+test('a first request that is too soon opens the field for the code sent a moment ago', async () => {
+  serve([], [failure(429, 'VERIFICATION_RESEND_TOO_SOON')]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+
+  expect(texts(screen)).toContain('조금 전에 보낸 인증번호를 입력해 주세요');
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  // retryAfterSec 40: sent 20 s ago, so 160 s of the 180 s code are left and 다시 받기 opens in 40 s.
+  expect(texts(screen)).toMatch(/남은 시간\s+(?:02:40|02:3\d)/);
+  expect(texts(screen)).toContain('인증번호 다시 받기 (0:40)');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-799: while 다시 받기 is waiting for the server, the code already on screen stays usable.
+test('the code field stays while a resend is on its way', async () => {
+  let answer: (value: ReturnType<typeof respond>) => void = () => {};
+  const pending = new Promise<ReturnType<typeof respond>>(resolve => {
+    answer = resolve;
+  });
+  serve(
+    [],
+    [
+      respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }),
+      pending as unknown as ReturnType<typeof respond>,
+    ],
+  );
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+  await press(screen, '다시 받기');
+
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await act(async () => {
+    answer(respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }));
+  });
+  await settle();
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());
 });
