@@ -320,6 +320,75 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
+    void 자유_그룹런_완료_기록도_개인_코스로_저장할_수_있다() throws Exception {
+        // 자유 그룹런(코스 미지정, group_runs.course_id=NULL) 참가자의 개인 세션도 C11로
+        // 저장 가능함을 확정한다(S15P31E105-762, backend-role-assignment.md "러닝 경로 자동 코스 반영").
+        long owner = user("run_group_free_owner", "01090001031");
+        long session = session(owner);
+        point(session, 10, 127.000);
+        point(session, 20, 127.001);
+        long group = groupRun(owner, null);
+        joinGroup(group, owner, session);
+
+        var result = mvc.perform(put("/api/v1/running-records/{id}/course", session)
+                        .header("Authorization", SecurityTestSupport.bearer(owner)))
+                .andExpect(status().isOk()).andReturn();
+        long id = new tools.jackson.databind.json.JsonMapper().readTree(
+                result.getResponse().getContentAsString()).get("courseId").asLong();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM course_bookmarks WHERE user_id=? AND course_id=?",
+                Integer.class, owner, id)).isEqualTo(1);
+        mvc.perform(get("/api/v1/running-records/{id}", session)
+                        .header("Authorization", SecurityTestSupport.bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courseId").value(id))
+                .andExpect(jsonPath("$.courseFromFreeRun").value(true));
+    }
+
+    @Test
+    void 지정_코스_그룹런_세션은_기존_courseId를_그대로_반환하고_새_코스를_만들지_않는다() throws Exception {
+        long owner = user("run_group_fixed_owner", "01090001032");
+        long regular = jdbc.queryForObject("""
+                INSERT INTO courses(route, start_position, distance)
+                VALUES (ST_GeogFromText('LINESTRING(127 37,127.1 37.1)'),
+                        ST_GeogFromText('POINT(127 37)'), 5000) RETURNING id
+                """, Long.class);
+        long session = session(owner);
+        jdbc.update("UPDATE running_sessions SET course_id=? WHERE id=?", regular, session);
+        long group = groupRun(owner, regular);
+        joinGroup(group, owner, session);
+
+        mvc.perform(put("/api/v1/running-records/{id}/course", session)
+                        .header("Authorization", SecurityTestSupport.bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.courseId").value(regular));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM courses WHERE source_session_id=?",
+                Integer.class, session)).isZero();
+    }
+
+    @Test
+    void 지정_코스가_MERGED나_BLOCKED여도_기존_courseId를_그대로_반환한다() throws Exception {
+        // SYS-002: 코스 상태 변경만으로 이미 승인한 기록 저장을 막지 않는다.
+        long owner = user("run_group_merged_owner", "01090001033");
+        long regular = jdbc.queryForObject("""
+                INSERT INTO courses(route, start_position, distance, status)
+                VALUES (ST_GeogFromText('LINESTRING(127 37,127.1 37.1)'),
+                        ST_GeogFromText('POINT(127 37)'), 5000, 'MERGED'::courses_status_enum) RETURNING id
+                """, Long.class);
+        long session = session(owner);
+        jdbc.update("UPDATE running_sessions SET course_id=? WHERE id=?", regular, session);
+
+        mvc.perform(put("/api/v1/running-records/{id}/course", session)
+                        .header("Authorization", SecurityTestSupport.bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.courseId").value(regular));
+
+        jdbc.update("UPDATE courses SET status='BLOCKED'::courses_status_enum WHERE id=?", regular);
+        mvc.perform(put("/api/v1/running-records/{id}/course", session)
+                        .header("Authorization", SecurityTestSupport.bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.courseId").value(regular));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM courses WHERE source_session_id=?",
+                Integer.class, session)).isZero();
+    }
+
+    @Test
     void 코스를_공유하지_않은_게시글은_타인에게_courseFromFreeRun도_숨긴다() throws Exception {
         long owner = user("run_ffr_hide_owner", "01090001025");
         long viewer = user("run_ffr_hide_viewer", "01090001026");
@@ -378,6 +447,21 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
                   ST_SetSRID(ST_MakePoint(?,37.5),4326)::geography,5
                 FROM running_sessions WHERE id=?
                 """, session, (double) seconds, longitude, session);
+    }
+
+    private long groupRun(long owner, Long courseId) {
+        long crewId = jdbc.queryForObject(
+                "INSERT INTO crews(owner_id,name,capacity) VALUES (?,'크루',10) RETURNING id",
+                Long.class, owner);
+        return jdbc.queryForObject("""
+                INSERT INTO group_runs(crew_id,host_id,course_id,title,scheduled_at,status)
+                VALUES (?,?,?,'그룹런',now(),'COMPLETED') RETURNING id
+                """, Long.class, crewId, owner, courseId);
+    }
+
+    private void joinGroup(long groupRunId, long owner, long sessionId) {
+        jdbc.update("INSERT INTO group_run_participants(group_run_id,user_id,session_id) VALUES (?,?,?)",
+                groupRunId, owner, sessionId);
     }
 
     private void control(long session, long device, String action, long version, int second) {
