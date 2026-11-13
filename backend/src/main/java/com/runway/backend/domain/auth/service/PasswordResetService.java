@@ -41,7 +41,7 @@ public class PasswordResetService {
                 || token.length() > 128
                 || !(passwordValue instanceof String password))
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
-        if (!PasswordPolicy.accepts(password))
+        if (!PasswordPolicy.acceptsNew(password) || sameAsLoginId(token, password))
             throw new ApiException(ErrorCode.INVALID_PASSWORD_POLICY);
         var proof = verifications.consume(token);
         if (proof.isEmpty() || proof.get().purpose() != PhoneVerificationPurpose.PASSWORD_RESET)
@@ -58,5 +58,21 @@ public class PasswordResetService {
             // 잠금 시간 초과·DB 오류·커밋 실패: 드라이버 메시지에 입력값이 있을 수 있어 원인을 남기지 않는다.
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
+    }
+
+    /**
+     * 그 증명 번호의 ACTIVE 회원이 한 명이고 아이디가 비밀번호와 같은지(대소문자 무시, S15P31E105-773). 증명을 소비하지 않고 읽어 정책
+     * 위반처럼 다시 입력할 수 있게 한다. 증명이 없거나 목적이 다르거나 회원이 0·2명이면 대조하지 않고 이후 단계의 오류를 따른다.
+     */
+    private boolean sameAsLoginId(String token, String password) {
+        var proof = verifications.peek(token);
+        if (proof.isEmpty() || proof.get().purpose() != PhoneVerificationPurpose.PASSWORD_RESET) return false;
+        List<String> loginIds;
+        try {
+            loginIds = phones.activeLoginIds(proof.get().phoneNumber());
+        } catch (RuntimeException exception) {
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
+        return loginIds.size() == 1 && PasswordPolicy.sameAsLoginId(password, loginIds.getFirst());
     }
 }

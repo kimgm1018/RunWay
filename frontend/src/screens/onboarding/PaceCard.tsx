@@ -17,6 +17,7 @@ import {
 import {
   editClock,
   formatClock,
+  cleanDistance,
   formatClockDigits,
   formatPace,
   parseClock,
@@ -364,7 +365,7 @@ export function PaceCard({
               unit="km"
               value={distance}
               onChangeText={text =>
-                onChange({ ...form, distance: text, auto: false })
+                onChange({ ...form, distance: cleanDistance(text), auto: false })
               }
               placeholder="5"
               keyboardType="decimal-pad"

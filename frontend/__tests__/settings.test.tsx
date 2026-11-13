@@ -429,6 +429,9 @@ test('8.4 to 8.6 withdraws after the agreement and the password, then signs out'
   // A password outside the 8–20 rule does not go to the server.
   await type(screen, '비밀번호', 'short');
   expect(labelled(screen, '탈퇴하기').props.disabled).toBe(true);
+  // A password set before the ASCII-only rule can still be entered here (S15P31E105-773 review A-1).
+  await type(screen, '비밀번호', '러너비밀번호12');
+  expect(labelled(screen, '탈퇴하기').props.disabled).toBe(false);
   await type(screen, '비밀번호', 'wrong123');
   await press(screen, '탈퇴하기');
   await settle(50);

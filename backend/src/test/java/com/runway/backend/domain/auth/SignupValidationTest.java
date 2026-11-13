@@ -83,7 +83,12 @@ class SignupValidationTest {
     @Test
     void passwordUnicodeBoundariesAndSpaces() {
         for (String password :
-                List.of("a".repeat(8), "a".repeat(20), "😀".repeat(8), "특수문자허용!!!")) {
+                List.of(
+                        "a".repeat(8),
+                        "a".repeat(20),
+                        "Runner9!",
+                        "!\"#$%&'()*+,-./:;<=",
+                        ">?@[\\]^_`{|}~Aa1")) {
             var body = payload("runner02", "새러너", false);
             body.put("password", password);
             assertThat(validator.validate(request(body)).password()).isEqualTo(password);
@@ -96,11 +101,29 @@ class SignupValidationTest {
                         "a\tbbbbbbb",
                         "a\nbbbbbbb",
                         "a\u00a0bbbbbbb",
-                        "\ud800".repeat(8))) {
+                        "\ud800".repeat(8),
+                        // S15P31E105-773: 영문·숫자·키보드 특수문자(ASCII 0x21~0x7E)만 허용한다.
+                        "😀".repeat(8),
+                        "특수문자허용!!!",
+                        "비밀번호12345",
+                        "abcdefgé1",
+                        "abcdefg１2")) {
             var body = payload("runner02", "새러너", false);
             body.put("password", password);
             rejects(body, "INVALID_PASSWORD_POLICY", 422);
         }
+    }
+
+    @Test
+    void passwordSameAsLoginIdIgnoringCaseIsRejected() {
+        for (String password : List.of("runner0102", "RUNNER0102", "Runner0102")) {
+            var body = payload("runner0102", "새러너", false);
+            body.put("password", password);
+            rejects(body, "INVALID_PASSWORD_POLICY", 422);
+        }
+        var body = payload("runner0102", "새러너", false);
+        body.put("password", "runner01022");
+        assertThat(validator.validate(request(body)).password()).isEqualTo("runner01022");
     }
 
     @Test

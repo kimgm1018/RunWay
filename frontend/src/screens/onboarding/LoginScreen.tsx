@@ -16,6 +16,8 @@ import {
   StepTitle,
   TextLink,
 } from './parts';
+import { useCleanText } from './useCleanText';
+import { cleanLoginId, loginIdCharsNotice } from './validation';
 
 type Failure = { title: string; detail?: string };
 
@@ -63,7 +65,9 @@ export function LoginScreen() {
   const navigation = useNavigation();
   const { auth } = useRepositories();
   const { signIn, holdTokens, loginRequired } = useSession();
-  const [loginId, setLoginId] = useState('');
+  // 아이디는 쓸 수 없는 문자를 입력 즉시 지우고 이유를 알린다(S15P31E105-773). 비밀번호는 지우지 않는다: 773 이전에 한글 등이
+  // 들어간 비밀번호로 가입한 계정도 로그인할 수 있어야 한다(서버 U01도 그대로 받음, 리뷰 A-2·B-1 사용자 결정).
+  const [loginId, setLoginId, idDropped] = useCleanText('', cleanLoginId);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -138,7 +142,8 @@ export function LoginScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           textContentType="username"
-          status={failure ? 'error' : 'default'}
+          status={failure || idDropped ? 'error' : 'default'}
+          helper={idDropped ? loginIdCharsNotice : undefined}
           returnKeyType="next"
         />
         <TextField

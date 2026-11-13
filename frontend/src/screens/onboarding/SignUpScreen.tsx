@@ -21,12 +21,17 @@ import {
 import { useSignUpDraft } from './SignUpDraft';
 import { PhoneCodeStep } from './PhoneCodeStep';
 import { usePhoneVerification } from './usePhoneVerification';
+import { useCleanText } from './useCleanText';
 import {
+  cleanLoginId,
+  cleanPassword,
   formatPhoneNumber,
   isValidLoginId,
   confirmGuide,
   isValidPassword,
+  loginIdCharsNotice,
   loginIdRule,
+  passwordCharsNotice,
   passwordGuide,
   passwordRule,
 } from './validation';
@@ -70,14 +75,26 @@ function useLoginIdCheck(loginId: string) {
 export function SignUpScreen() {
   const navigation = useNavigation();
   const { draft, update } = useSignUpDraft();
-  const [loginId, setLoginId] = useState(draft.loginId);
-  const [password, setPassword] = useState(draft.password);
-  const [confirm, setConfirm] = useState(draft.password);
+  // 쓸 수 없는 문자는 입력 즉시 지우고 그 이유를 칸 아래에 알린다(S15P31E105-773).
+  const [loginId, setLoginId, idDropped] = useCleanText(
+    draft.loginId,
+    cleanLoginId,
+  );
+  const [password, setPassword, passwordDropped] = useCleanText(
+    draft.password,
+    cleanPassword,
+  );
+  const [confirm, setConfirm, confirmDropped] = useCleanText(
+    draft.password,
+    cleanPassword,
+  );
   const idCheck = useLoginIdCheck(loginId);
   const phone = usePhoneVerification('SIGN_UP');
 
   // 아무것도 입력하지 않았으면 안 글씨(규칙)만 보이고 아래 안내는 없다(S15P31E105-646).
-  const idState = !loginId
+  const idState = idDropped
+    ? { status: 'error' as const, helper: loginIdCharsNotice }
+    : !loginId
     ? { status: 'default' as const, helper: undefined }
     : !idCheck.valid
     ? { status: 'error' as const, helper: `${loginIdRule}로 입력해 주세요` }
@@ -96,8 +113,12 @@ export function SignUpScreen() {
       }
     : { status: 'error' as const, helper: '이미 사용 중인 아이디예요' };
 
-  const passwordState = passwordGuide(password);
-  const confirmState = confirmGuide(password, confirm);
+  const passwordState = passwordDropped
+    ? { status: 'error' as const, helper: passwordCharsNotice }
+    : passwordGuide(password, loginId);
+  const confirmState = confirmDropped
+    ? { status: 'error' as const, helper: passwordCharsNotice }
+    : confirmGuide(password, confirm);
 
   const verified = phone.phase === 'verified';
   // 인증을 마친 뒤에도 체크와 '인증 완료'를 보여 준다(S15P31E105-646).
@@ -129,8 +150,11 @@ export function SignUpScreen() {
     : { status: 'default' as const, helper: undefined };
 
   const ready =
-    idState.status === 'success' &&
-    isValidPassword(password) &&
+    // 지운 문자 안내가 떠 있어도 남은 아이디가 확인됐으면 넘어갈 수 있다(S15P31E105-773 리뷰 B-4).
+    idCheck.valid &&
+    !idCheck.failed &&
+    idCheck.result?.available === true &&
+    isValidPassword(password, loginId) &&
     confirm === password &&
     verified;
 

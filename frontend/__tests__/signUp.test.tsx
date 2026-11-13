@@ -232,6 +232,50 @@ test('1.3 reads a server format rejection as a format error', async () => {
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-773: 쓸 수 없는 문자는 입력하는 즉시 지우고, 아이디와 같은 비밀번호로는 넘어갈 수 없다.
+test('1.3 drops characters the ID and password do not take and says why', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+
+  await type(screen, '아이디', 'new러너runner 1');
+  expect(last(screen, '아이디', 'onChangeText').props.value).toBe(
+    'newrunner1',
+  );
+  expect(texts(screen)).toContain('영문·숫자만 입력할 수 있어요');
+  await type(screen, '비밀번호', 'run way비번😀123');
+  expect(last(screen, '비밀번호', 'onChangeText').props.value).toBe(
+    'runway123',
+  );
+  expect(texts(screen)).toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await type(screen, '비밀번호', 'runway123!');
+  expect(texts(screen)).not.toContain('영문·숫자·특수문자만 입력할 수 있어요');
+  await act(async () => screen.unmount());
+});
+
+test('1.3 does not take a password that is the ID in any case', async () => {
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+  await type(screen, '아이디', 'newrunner1');
+  await settle(550);
+  await type(screen, '비밀번호', 'NewRunner1');
+  await type(screen, '비밀번호 확인', 'NewRunner1');
+  await type(screen, '전화번호', '010-5555-6666');
+  await press(screen, '인증번호 받기');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+
+  expect(texts(screen)).toContain('아이디와 다른 비밀번호를 입력해 주세요');
+  expect(isDisabled(screen, '다음')).toBe(true);
+  await type(screen, '비밀번호', 'NewRunner12');
+  await type(screen, '비밀번호 확인', 'NewRunner12');
+  expect(texts(screen)).not.toContain('아이디와 다른 비밀번호를 입력해 주세요');
+  expect(isDisabled(screen, '다음')).toBe(false);
+  await act(async () => screen.unmount());
+});
+
 test('signing up creates the account, holds the tokens and goes on to 1.6', async () => {
   serve([]);
   const screen = await launch();
@@ -297,7 +341,7 @@ test.each([
   ],
   [
     respond(422, { code: 'INVALID_PASSWORD_POLICY', message: '', details: {} }),
-    '비밀번호가 규칙에 맞지 않아요. 회원가입에서 공백 없이 8~20자로 바꿔 주세요.',
+    '비밀번호가 규칙에 맞지 않아요. 회원가입에서 아이디와 다른 영문·숫자·특수문자 8~20자로 바꿔 주세요.',
   ],
   [
     respond(400, { code: 'INVALID_PROFILE', message: '', details: {} }),
