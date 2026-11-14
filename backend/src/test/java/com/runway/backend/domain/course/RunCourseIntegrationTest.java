@@ -29,6 +29,7 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
     }
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.runway.backend.domain.image.ImageStorage imageStorage;
 
     @Test
     void 자유러닝은_명시적으로_저장하고_공유전에는_타인이_볼수없다() throws Exception {
@@ -73,6 +74,51 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.unmeasuredEdges.length()").value(0));
         assertThat(jdbc.queryForObject("SELECT distance FROM courses WHERE id=?",
                 java.math.BigDecimal.class, id)).isPositive();
+    }
+
+    // S15P31E105-803: 지역·이미지 키로 거절된 CMT01은 자유 러닝 코스를 남기지 않는다. 코스 변환은 글 작성과 같은 트랜잭션이라
+    // 검사 순서와 무관하게 롤백으로도 0건이 되므로, 이 테스트는 순서가 아니라 결과(코스 미생성)를 고정한다. 같은 기록으로 올바르게
+    // 다시 게시하면 그때 코스가 생겨, 변환 경로가 실제로 동작하는 기록임도 함께 확인한다.
+    @Test
+    void 지역이나_이미지키로_거절된_게시는_자유러닝_코스를_만들지_않는다() throws Exception {
+        long owner = user("run_reject_owner", "01090001031");
+        long other = user("run_reject_other", "01090001032");
+        long session = session(owner);
+        point(session, 10, 127.000);
+        point(session, 20, 127.001);
+        byte[] png = new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47};
+        String othersRealPostKey = "images/post/" + other + "/" + java.util.UUID.randomUUID() + ".png";
+        imageStorage.store(othersRealPostKey, new java.io.ByteArrayInputStream(png), png.length);
+        try {
+            mvc.perform(post("/api/v1/posts")
+                            .header("Authorization", SecurityTestSupport.bearer(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"sessionId\":" + session + ",\"courseShared\":true,\"imageKey\":\""
+                                    + othersRealPostKey + "\"}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("RESOURCE_NOT_OWNED"));
+            mvc.perform(post("/api/v1/posts")
+                            .header("Authorization", SecurityTestSupport.bearer(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"sessionId\":" + session + ",\"courseShared\":true,\"regionCode\":\"ZZZ\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REGION"));
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM courses WHERE source_session_id=?",
+                    Integer.class, session)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM posts WHERE session_id=?",
+                    Integer.class, session)).isZero();
+
+            mvc.perform(post("/api/v1/posts")
+                            .header("Authorization", SecurityTestSupport.bearer(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"sessionId\":" + session + ",\"courseShared\":true}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.courseFromFreeRun").value(true));
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM courses WHERE source_session_id=?",
+                    Integer.class, session)).isEqualTo(1);
+        } finally {
+            imageStorage.deletePersonalImages(other);
+        }
     }
 
     @Test
