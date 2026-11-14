@@ -13,9 +13,10 @@ import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
-import { GroupIntro, groupIntroSeen, markGroupIntroSeen } from './GroupIntro';
+import { groupIntroSeen } from '../../data/group/groupIntroSeen';
+import { GroupIntro } from './GroupIntro';
+import { groupLook, NightBackground } from './look';
 import { MyCrewsPage } from './GroupScreen';
-import { NightBackground } from './look';
 import { stand, UnderlineTabs } from './stand';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
@@ -56,15 +57,34 @@ export function GroupTabScreen() {
   const requested = route.params?.screen;
   const pager = useRef<PagerView>(null);
   const [page, setPage] = useState(() => pageOf(requested));
-  // 그룹 탭 첫 화면 (GroupIntro) the first time the tab opens after launch; a link to a page skips it.
-  const [intro, setIntro] = useState(() => !requested && !groupIntroSeen());
+  // 그룹 탭 첫 화면 (GroupIntro) until the member has seen it once (S15P31E105-697); null while the keystore answers.
+  // A link to a page skips it without counting it as seen.
+  const [intro, setIntro] = useState<boolean | null>(() => {
+    if (requested) return false;
+    const seen = groupIntroSeen.peek();
+    return seen === undefined ? null : !seen;
+  });
+  useEffect(() => {
+    if (intro !== null) {
+      return;
+    }
+    let live = true;
+    groupIntroSeen.load().then(seen => {
+      if (live) {
+        setIntro(current => (current === null ? !seen : current));
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [intro]);
   const startGroups = useCallback(() => {
-    markGroupIntroSeen();
+    void groupIntroSeen.mark();
     setIntro(false);
   }, []);
   // The tab bar reads this to go see-through over the intro.
   useEffect(() => {
-    navigation.setParams({ intro } as never);
+    navigation.setParams({ intro: intro === true } as never);
   }, [intro, navigation]);
 
   // A link from another screen picks the page once, then the param is cleared so the same link
@@ -73,18 +93,18 @@ export function GroupTabScreen() {
     if (!requested) {
       return;
     }
-    startGroups();
+    setIntro(false);
     const target = pageOf(requested);
     pager.current?.setPageWithoutAnimation(target);
     setPage(target);
     navigation.setParams({ screen: undefined } as never);
-  }, [requested, navigation, startGroups]);
+  }, [requested, navigation]);
 
   // react-native-pager-view 8 on Android turns off swiping when the new architecture clears the pager's
   // children while mounting, and only a changed scrollEnabled prop turns it back on. Turn it on again
   // once the pages are in place, which is after the intro when it shows.
   useEffect(() => {
-    if (!intro) {
+    if (intro === false) {
       pager.current?.setScrollEnabled(true);
     }
   }, [intro]);
@@ -120,6 +140,10 @@ export function GroupTabScreen() {
 
   if (intro) {
     return <GroupIntro onStart={startGroups} />;
+  }
+  // The intro's navy for the moment the keystore takes, so neither screen flashes before the answer.
+  if (intro === null) {
+    return <View style={[styles.root, { backgroundColor: groupLook.navy }]} />;
   }
 
   return (

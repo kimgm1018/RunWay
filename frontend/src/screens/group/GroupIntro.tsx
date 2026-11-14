@@ -7,17 +7,8 @@ import { fontFamily, size } from '../../theme';
 import { groupLook } from './look';
 import { memberPalette, stand } from './stand';
 
-// 그룹 탭 첫 화면 (S15P31E105-563, 담당자 시안 group-intro-D): shown the first time the group tab opens after the
-// app starts, until 함께 달리러 가기 opens 6.0 · 6.1. Kept in memory only, so the next launch shows it again.
-let seen = false;
-export const groupIntroSeen = () => seen;
-export const markGroupIntroSeen = () => {
-  seen = true;
-};
-// Tests start each case with the intro seen or not as they need (jest.setup.js marks it seen).
-export const setGroupIntroSeenForTest = (value: boolean) => {
-  seen = value;
-};
+// 그룹 탭 첫 화면 (S15P31E105-563, 담당자 시안 group-intro-D): shown once per member, until 함께 달리러 가기 opens
+// 6.0 · 6.1; data/group/groupIntroSeen.ts keeps that on the device (S15P31E105-697).
 
 const photo = require('../../../assets/images/group-intro-photo.webp');
 const ink = groupLook.navy;
