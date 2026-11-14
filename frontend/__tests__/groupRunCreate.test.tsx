@@ -472,12 +472,69 @@ test('6.8 does not send a start time that passed while the form was open', async
 
 test('6.8 tells the schedule was refused when the server rejects it', async () => {
   const repos = repositories();
+  // The server's own message for a start outside the window (no details.fields), S15P31E105-779.
   jest
     .spyOn(repos.groupRuns, 'create')
-    .mockRejectedValueOnce(new DataError('VALIDATION_ERROR', '범위 밖'));
+    .mockRejectedValueOnce(
+      new DataError(
+        'VALIDATION_ERROR',
+        '출발 시각은 지금 이후 13일 안, 05:00~22:00(한국 시간)이어야 합니다.',
+        null,
+        400,
+        {},
+      ),
+    );
   const screen = await openCreate(repos);
   await press(screen, '그룹런 만들기');
   await settle(50);
   expect(texts(screen)).toContain('날짜·시간을 다시 골라 주세요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-818: a 400 for the 장소 이름 must not say the date and time are the problem.
+test('6.8 tells the 장소 이름 was refused, not that the date is unusable', async () => {
+  const repos = repositories();
+  jest
+    .spyOn(repos.groupRuns, 'create')
+    .mockRejectedValueOnce(
+      new DataError('VALIDATION_ERROR', '요청 값이 유효하지 않습니다.', null, 400, {
+        fields: [{ name: 'meetingPlaceName', reason: '크기가 0에서 200 사이여야 합니다' }],
+      }),
+    );
+  const screen = await openCreate(repos);
+  await press(screen, '그룹런 만들기');
+  await settle(50);
+  expect(texts(screen)).toContain('장소 이름을 확인해 주세요');
+  expect(texts(screen)).not.toContain('지금은 쓸 수 없어요');
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-818: the edit (G04) answers a 400 the same way, so 저장 does not blame the date and time either.
+test('6.8 edit tells the 찾아오는 법 was refused, not that the date is unusable', async () => {
+  const repos = repositories();
+  const update = jest
+    .spyOn(repos.groupRuns, 'update')
+    .mockRejectedValueOnce(
+      new DataError('VALIDATION_ERROR', '요청 값이 유효하지 않습니다.', null, 400, {
+        fields: [{ name: 'description', reason: '크기가 0에서 10000 사이여야 합니다' }],
+      }),
+    );
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(<App repositories={repos} initialSignedIn />);
+  });
+  await settle();
+  await press(screen!, '그룹');
+  await press(screen!, '수요일 회복 조깅, 10.28 수 06:30');
+  await press(screen!, '그룹런 수정');
+  await until(
+    () => all(screen!, '저장').some(node => !node.props.disabled),
+    '6.8 edit form',
+  );
+  await press(screen!, '저장');
+  await settle(50);
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(texts(screen!)).toContain('찾아오는 법을 확인해 주세요');
+  expect(texts(screen!)).not.toContain('지금은 쓸 수 없어요');
   await act(async () => screen.unmount());
 });

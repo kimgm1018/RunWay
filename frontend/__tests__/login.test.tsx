@@ -248,3 +248,12 @@ test('no connection asks to check the network', async () => {
   );
   await act(async () => screen.unmount());
 });
+
+// S15P31E105-818: 로그인 아이디 stops at the server's 16 (U01 `[A-Za-z0-9]{4,16}`), as the sign-up field does.
+test('1.2 limits the login id to 16 characters', async () => {
+  serveHome(true);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  expect(last(screen, '아이디', 'onChangeText').props.maxLength).toBe(16);
+  await act(async () => screen.unmount());
+});

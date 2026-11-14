@@ -34,6 +34,11 @@ import {
   locationFailureNotice,
   noLocationNotice,
 } from '../course/currentLocation';
+import {
+  GROUP_RUN_NOTE_MAX,
+  GROUP_RUN_PLACE_NAME_MAX,
+  PLACE_SEARCH_MAX,
+} from '../inputLimits';
 import { groupLook, NumText } from './look';
 import { ColorBar, stand, StandButton } from './stand';
 import { Tag, useGroupRunDraft } from './parts';
@@ -333,6 +338,7 @@ export function MeetingPlaceScreen() {
                 placeholderTextColor={stand.sub}
                 selectionColor={stand.mint}
                 value={query}
+                maxLength={PLACE_SEARCH_MAX}
                 onChangeText={text => {
                   setQuery(text);
                   setResults([]);
@@ -468,12 +474,14 @@ export function MeetingPlaceScreen() {
                         label="장소 이름"
                         value={placeName}
                         onChangeText={setPlaceName}
+                        maxLength={GROUP_RUN_PLACE_NAME_MAX}
                       />
                       <TextField
                         label="찾아오는 법 · 선택"
                         placeholder="예: 편의점 앞 계단, 민트색 모자"
                         value={note}
                         onChangeText={setNote}
+                        maxLength={GROUP_RUN_NOTE_MAX}
                       />
                       <View style={styles.buttons}>
                         <StandButton

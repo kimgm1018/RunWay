@@ -16,6 +16,7 @@ import {
   PressableScale,
 } from '../../components';
 import { fontFamily, typography } from '../../theme';
+import { SEARCH_QUERY_MAX } from '../inputLimits';
 
 // runway-group-handoff tokens.css (S15P31E105-414): the look the 6 그룹 screens share. Grain is left out as on
 // the other handoff screens (담당자 결정).
@@ -479,6 +480,7 @@ export function SearchField({
           selectionColor={groupTone.accent}
           value={value}
           onChangeText={onChangeText}
+          maxLength={SEARCH_QUERY_MAX}
           returnKeyType="search"
           autoFocus
           style={styles.searchInput}
