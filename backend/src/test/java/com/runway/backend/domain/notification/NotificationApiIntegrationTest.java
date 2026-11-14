@@ -118,7 +118,8 @@ class NotificationApiIntegrationTest {
                         recipient);
         assertThat(row.get("notification_type")).isEqualTo("NEW_FOLLOWER");
         assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(actor);
-        assertThat(row.get("delivery_status")).isEqualTo("SENT");
+        // ADR-0025: delivery_status is now the device push outcome; push is off in this context, so it stays PENDING.
+        assertThat(row.get("delivery_status")).isEqualTo("PENDING");
         String dedupe = (String) row.get("dedupe_key");
         assertThat(dedupe).startsWith("NEW_FOLLOWER:");
         assertThat(

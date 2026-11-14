@@ -3,6 +3,7 @@ package com.runway.backend.domain.notification.service;
 import com.runway.backend.domain.notification.NotificationType;
 import com.runway.backend.domain.notification.dto.response.NotificationItemResponse;
 import com.runway.backend.domain.notification.dto.response.NotificationListResponse;
+import com.runway.backend.domain.notification.push.NotificationCreatedEvent;
 import com.runway.backend.domain.notification.repository.NotificationRepository;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
@@ -12,6 +13,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,9 +25,11 @@ public class NotificationService {
     private static final int MAX_MESSAGE = 100;
 
     private final NotificationRepository notifications;
+    private final ApplicationEventPublisher events;
 
     /**
-     * Creates an inbox row when the recipient's matching setting is on.
+     * Creates an inbox row when the recipient's matching setting is on. A new row is also pushed to the recipient's
+     * devices after the caller's transaction commits (ADR-0025); the same setting therefore gates both channels.
      *
      * @return {@code true} when a new row was inserted; {@code false} when skipped
      *     (setting off / missing settings) or when {@code dedupeKey} already exists
@@ -54,10 +58,12 @@ public class NotificationService {
             return false;
         }
         String body = truncate(message == null ? "" : message);
-        return notifications
-                .insertIgnoringDuplicate(
-                        recipientUserId, type.name(), targetId, body, dedupeKey)
-                .isPresent();
+        var inserted =
+                notifications.insertIgnoringDuplicate(
+                        recipientUserId, type.name(), targetId, body, dedupeKey);
+        // ADR-0025: the device push runs only after this transaction commits (PushDispatchListener).
+        inserted.ifPresent(id -> events.publishEvent(new NotificationCreatedEvent(id)));
+        return inserted.isPresent();
     }
 
     /** Deletes the inbox row for {@code dedupeKey}; no-op when it does not exist. */

@@ -73,3 +73,7 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# S15P31E105-815 (ADR-0025): Firebase project files. Each developer places them locally (README).
+/android/app/google-services.json
+/ios/GoogleService-Info.plist

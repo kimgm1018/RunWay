@@ -169,6 +169,8 @@ public class WithdrawalRepository {
         jdbc.update("UPDATE crew_memberships SET status='LEFT',left_at=coalesce(left_at,?)"
                 + " WHERE user_id=? AND status='APPROVED'",Timestamp.from(now),userId);
         jdbc.update("UPDATE user_devices SET unlinked_at=coalesce(unlinked_at,?) WHERE user_id=?",Timestamp.from(now),userId);
+        // S15P31E105-815: no more device pushes to a withdrawn member.
+        jdbc.update("DELETE FROM push_device_tokens WHERE user_id=?",userId);
         jdbc.update("""
                 UPDATE running_sessions s SET deleted_at=coalesce(deleted_at,?),
                     goal_distance=NULL,goal_duration=NULL,goal_pace=NULL,

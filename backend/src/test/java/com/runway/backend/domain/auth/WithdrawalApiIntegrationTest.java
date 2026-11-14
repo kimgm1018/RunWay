@@ -161,6 +161,17 @@ class WithdrawalApiIntegrationTest extends RefreshIntegrationSupport {
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
             .content("{\"loginId\":\"runner01\",\"password\":\"Runner9!\"}")).andExpect(status().isUnauthorized());
     }
+    @Test void withdrawalDeletesOwnPushTokensOnly() throws Exception {
+        long otherUser=other();
+        jdbc.update("INSERT INTO push_device_tokens(user_id,token,platform) VALUES (?,'mine-1','ANDROID'),(?,'mine-2','ANDROID')",user,user);
+        jdbc.update("INSERT INTO push_device_tokens(user_id,token,platform) VALUES (?,'others-1','ANDROID')",otherUser);
+
+        withdraw().andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM push_device_tokens WHERE user_id=?",Integer.class,user)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM push_device_tokens WHERE user_id=?",Integer.class,otherUser)).isEqualTo(1);
+    }
+
     @Test void runningPausedAndPendingAnalysisBlockWithoutRevocation() throws Exception {
         var token=grant();
         long id=session("RUNNING");

@@ -71,3 +71,21 @@ export function newerId(a: number | undefined, b: number | undefined): number | 
   }
   return b === undefined || a >= b ? a : b;
 }
+
+const pushListeners = new Set<() => void>();
+
+/**
+ * S15P31E105-815: a device push arrived while the app was in the foreground. FCM shows nothing then, so 2.1 reads
+ * the inbox again and the bell's dot follows at once instead of at the next minute.
+ */
+export function notifyPushReceived(): void {
+  pushListeners.forEach(listener => listener());
+}
+
+/** @returns stops listening */
+export function onPushReceived(listener: () => void): () => void {
+  pushListeners.add(listener);
+  return () => {
+    pushListeners.delete(listener);
+  };
+}

@@ -31,6 +31,7 @@ import {
   type Repositories,
 } from '../../data';
 import { formatRelative } from '../../format';
+import { openNotificationTarget } from '../../navigation/notificationTargets';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, k1 } from '../../theme';
 import { BackButton } from '../../components/BackButton';
@@ -38,63 +39,19 @@ import { FollowRequestSheet } from '../community/FollowRequestSheet';
 import { newerId, newestNotificationId } from './notificationRefresh';
 
 type Navigation = NavigationProp<RootStackParamList>;
-type Open = (navigation: Navigation, targetId: string) => void;
 
-const openGroupRun: Open = (navigation, groupRunId) =>
-  navigation.navigate('GroupRunDetail', { groupRunId });
-const openCrew: Open = (navigation, crewId) =>
-  navigation.navigate('CrewDetail', { crewId });
-const openRunner: Open = (navigation, userId) =>
-  navigation.navigate('RunnerProfile', { userId });
-
-// Each kind's title, its icon on the row's tile, and the screen its targetId opens (6.4 그룹런, 6.2 크루, 7.2 게시물,
-// 7.4 러너). FOLLOW_REQUEST opens 7.4b 승인·거절 instead: N01 targetId is the requester's users.id
-// (docs/design/api/notifications.md), not the follow-request id.
-const kinds: Record<
-  NotificationKind,
-  { title: string; icon: IconName; open: Open | 'followRequests' }
-> = {
-  GROUP_RUN_PARTICIPATION_CANCELLED: {
-    title: '그룹런 취소',
-    icon: 'circleX',
-    open: openGroupRun,
-  },
-  GROUP_RUN_START_REMINDER: {
-    title: '그룹런 곧 시작',
-    icon: 'clock',
-    open: openGroupRun,
-  },
-  CREW_JOIN_APPROVED: {
-    title: '크루 가입 승인',
-    icon: 'userCheck',
-    open: openCrew,
-  },
-  CREW_JOIN_REJECTED: {
-    title: '크루 가입 거절',
-    icon: 'userX',
-    open: openCrew,
-  },
-  CREW_JOIN_REQUESTED: {
-    title: '새 가입 신청',
-    icon: 'userPlus',
-    open: openCrew,
-  },
-  POST_COMMENT: {
-    title: '새 댓글',
-    icon: 'message',
-    open: (navigation, postId) => navigation.navigate('PostDetail', { postId }),
-  },
-  NEW_FOLLOWER: { title: '새 팔로워', icon: 'userPlus', open: openRunner },
-  FOLLOW_REQUEST: {
-    title: '팔로우 요청',
-    icon: 'userPlus',
-    open: 'followRequests',
-  },
-  FOLLOW_APPROVED: {
-    title: '팔로우 승인',
-    icon: 'userCheck',
-    open: openRunner,
-  },
+// Each kind's title and its icon on the row's tile. The screen a row opens is shared with device push
+// (navigation/notificationTargets.ts, S15P31E105-815).
+const kinds: Record<NotificationKind, { title: string; icon: IconName }> = {
+  GROUP_RUN_PARTICIPATION_CANCELLED: { title: '그룹런 취소', icon: 'circleX' },
+  GROUP_RUN_START_REMINDER: { title: '그룹런 곧 시작', icon: 'clock' },
+  CREW_JOIN_APPROVED: { title: '크루 가입 승인', icon: 'userCheck' },
+  CREW_JOIN_REJECTED: { title: '크루 가입 거절', icon: 'userX' },
+  CREW_JOIN_REQUESTED: { title: '새 가입 신청', icon: 'userPlus' },
+  POST_COMMENT: { title: '새 댓글', icon: 'message' },
+  NEW_FOLLOWER: { title: '새 팔로워', icon: 'userPlus' },
+  FOLLOW_REQUEST: { title: '팔로우 요청', icon: 'userPlus' },
+  FOLLOW_APPROVED: { title: '팔로우 승인', icon: 'userCheck' },
 };
 
 // The part of a message the 2.9 핸드오프 sets in bold: the ‘quoted’ name, or the runner's 님 at the start.
@@ -324,12 +281,12 @@ export function NotificationsScreen() {
   };
 
   const openItem = (item: AppNotification) => {
-    const open = kinds[item.kind].open;
-    if (open === 'followRequests') {
+    if (
+      openNotificationTarget(navigation, item.kind, item.targetId) ===
+      'followRequests'
+    ) {
       setFollowRequestsOpen(true);
-      return;
     }
-    open(navigation, item.targetId);
   };
 
   return (

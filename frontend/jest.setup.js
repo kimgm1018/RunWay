@@ -228,3 +228,16 @@ beforeEach(() => {
 // text straight from its Text node, so the split stays off here (global is globalThis in Jest); latinRuns.test.tsx turns it
 // on to test it.
 global.__RUNWAY_LATIN_SPLIT__ = false;
+
+// S15P31E105-815: Firebase is native. Without a Firebase app (as in a build without google-services.json) device push
+// is off, so screens never touch it; push tests pass their own PushDevice instead.
+jest.mock('@react-native-firebase/app', () => ({ getApps: jest.fn(() => []) }));
+jest.mock('@react-native-firebase/messaging', () => ({
+  getMessaging: jest.fn(() => ({})),
+  getToken: jest.fn(async () => 'mock-fcm-token'),
+  deleteToken: jest.fn(async () => undefined),
+  onTokenRefresh: jest.fn(() => () => undefined),
+  onMessage: jest.fn(() => () => undefined),
+  getInitialNotification: jest.fn(async () => null),
+  onNotificationOpenedApp: jest.fn(() => () => undefined),
+}));

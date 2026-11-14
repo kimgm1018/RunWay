@@ -13,6 +13,8 @@
   "dependencies": {
     "@kingstinct/react-native-healthkit": "16.2.0",
     "@mj-studio/react-native-naver-map": "2.9.1",
+    "@react-native-firebase/app": "27.1.0",
+    "@react-native-firebase/messaging": "27.1.0",
     "@react-native-healthkit/core": "16.2.0",
     "@react-navigation/bottom-tabs": "^7.21.0",
     "@react-navigation/native": "^7.5.1",

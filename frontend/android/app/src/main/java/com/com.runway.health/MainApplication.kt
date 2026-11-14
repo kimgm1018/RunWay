@@ -1,6 +1,8 @@
 package com.runway.health
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -38,6 +40,21 @@ class MainApplication : Application(), ReactApplication {
     super.onCreate()
     // 화면이 꺼져도 끝없이 기다리는 요청이 없게 네이티브 HTTP 상한과 유휴 연결 정리를 둔다(S15P31E105-533).
     RunwayHttpClient.install(this)
+    createPushChannel()
     loadReactNative(this)
+  }
+
+  // S15P31E105-815 (ADR-0025): the channel FCM pushes use (server android.notification.channel_id and
+  // firebase.json default). Creating an existing channel again is a no-op and keeps the user's choices.
+  private fun createPushChannel() {
+    getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+      NotificationChannel(PUSH_CHANNEL_ID, "알림", NotificationManager.IMPORTANCE_HIGH).apply {
+        description = "그룹런·크루·댓글·팔로우 소식"
+      },
+    )
+  }
+
+  companion object {
+    const val PUSH_CHANNEL_ID = "runway_default"
   }
 }

@@ -21,14 +21,14 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [크루](./crews.md) | 크루 | 12 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
-| [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
+| [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음·푸시 토큰 등록/해제 | 4 |
 | [서비스 만족도 조사](./satisfaction-surveys.md) | 만족도 응답 제출·집계 SQL | 1 |
 
-총 **103개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
+총 **105개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
-알림 발생 계기·수신자와 추가 후보는 [알림 정책](../requirements.md#알림-정책)에 정리했다. 앱 내 알림함 조회·전체 읽음은 [notifications.md](./notifications.md)(S15P31E105-458)다. 미확정 제안만으로 종류·채널을 자동 추가하지 않는다. S10 SSE는 알림함과 별개다.
+알림 발생 계기·수신자와 추가 후보는 [알림 정책](../requirements.md#알림-정책)에 정리했다. 앱 내 알림함 조회·전체 읽음(S15P31E105-458)과 Android 기기 푸시(FCM) 토큰 등록·해제·발송 규칙(S15P31E105-815, ADR-0025)은 [notifications.md](./notifications.md)다. 미확정 제안만으로 종류·채널을 자동 추가하지 않는다. S10 SSE는 알림함과 별개다.
 
 ## 공통 규약
 

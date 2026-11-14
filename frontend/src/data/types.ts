@@ -1648,6 +1648,9 @@ export type Repositories = {
     list: (cursor?: string | null) => Promise<NotificationList>;
     // N02: marks the caller's unread rows read; with upToId only rows whose id is at most it (S15P31E105-801).
     markAllRead: (upToId?: number) => Promise<void>;
+    // N03/N04 (S15P31E105-815): this device's FCM token for device push. Both are idempotent on the server.
+    registerPushToken: (token: string) => Promise<void>;
+    unregisterPushToken: (token: string) => Promise<void>;
   };
   run: {
     getCurrentPlace: () => Promise<CurrentPlace>;
