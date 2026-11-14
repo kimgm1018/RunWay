@@ -106,6 +106,8 @@ public enum ErrorCode {
     VALIDATION_ERROR_COMMUNITY_PARSE_TYPE(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "type은 USER 또는 CREW여야 합니다."),
     QUERY_TOO_SHORT(HttpStatus.BAD_REQUEST, "QUERY_TOO_SHORT", "검색어가 너무 짧습니다."),
+    VALIDATION_ERROR_SEARCH_QUERY_TOO_LONG(
+            HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "검색어는 {0}자 이하여야 합니다."),
     COURSE_NOT_FOUND(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", "코스를 찾을 수 없습니다."),
     INVALID_SEARCH(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", "예상 시간을 계산할 수 없습니다."),
     INVALID_SEARCH_COURSE_REQUIRE_POSITIVE(

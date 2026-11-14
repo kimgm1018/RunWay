@@ -33,6 +33,7 @@ import com.runway.backend.domain.notification.NotificationType;
 import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.global.search.SearchKeywords;
 
 import jakarta.persistence.EntityManager;
 
@@ -165,6 +166,11 @@ public class CrewService {
         requireExistingUser(userId);
         String query = blankToNull(q);
         String region = blankToNull(regionCode);
+        if (query != null) {
+            SearchKeywords.requireWithinMaxLength(query);
+            // 검색어의 %·_는 와일드카드가 아니라 글자 그대로 찾는다(S15P31E105-820).
+            query = SearchKeywords.escapeLike(query);
+        }
         // 없는 검색 조건은 쿼리에서 제외해 null 파라미터의 SQL 타입 추론을 피한다.
         List<Crew> crews;
         if (query == null && region == null) {
