@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 import com.runway.backend.domain.grouprun.repository.*;
 import com.runway.backend.domain.session.repository.*;
 import com.runway.backend.domain.session.service.PersonalPacePlanPort;
+import com.runway.backend.domain.session.service.SegmentDifficultyProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -27,7 +28,7 @@ class GroupPaceServiceTest {
         var events = mock(ApplicationEventPublisher.class);
         var transactions = mock(PlatformTransactionManager.class);
         var service = new GroupPaceService(false, states, groups, participants, coaching, references,
-                ai, plans, events, JsonMapper.builder().build(), transactions, mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class));
+                ai, plans, events, JsonMapper.builder().build(), transactions, mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class), mock(SegmentDifficultyProvider.class));
         service.membershipOrGoalChanged(7);
         service.onBatch(8);
         service.evaluateRunning(7);
@@ -158,7 +159,7 @@ class GroupPaceServiceTest {
         verify(fixture.plans).plan(eq(10L), any());
         verifyNoMoreInteractions(fixture.plans);
         verify(fixture.states).saveStart(7, fixture.token,
-                new GroupPaceRepository.Start(410, 410, 13, 4));
+                new GroupPaceRepository.Start(410, 410, 13, 4, uniformStartSegments()));
     }
 
     // S15P31E105-785: 기준 참가자의 AI09 계획이 탐색 범위 끝에 걸렸고 그 사람의 최근 페이스(편한 범위에 들어가는 본인 값)가 더
@@ -185,7 +186,7 @@ class GroupPaceServiceTest {
     void preRun_boundaryHitAndBasisSlowerThanPlan_clampsToBasisOwnPace() {
         var fixture = new RunningFixture();
         clampCase(fixture, true, 1000);
-        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(1000, 1000, 9, 2));
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(1000, 1000, 9, 2, uniformStartSegments()));
         // 비동의 참가자(11)의 기록은 읽지 않는다.
         verify(fixture.fits).findRecentCompletedPaces(List.of(9L, 10L));
     }
@@ -195,7 +196,7 @@ class GroupPaceServiceTest {
     void preRun_noBoundaryHitOrBasisNotSlower_keepsAiPace(boolean boundaryHit, int basisRecent) {
         var fixture = new RunningFixture();
         clampCase(fixture, boundaryHit, basisRecent);
-        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(433, 433, 9, 2));
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(433, 433, 9, 2, uniformStartSegments()));
     }
 
     // 다른 참가자의 더 느린 기록은 clamp 목표가 되지 않는다: 기준(9)이 500이면 10의 900이 아니라 500.
@@ -216,7 +217,7 @@ class GroupPaceServiceTest {
         when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
                 null, 10L, BigDecimal.valueOf(5000), BigDecimal.valueOf(420), List.of(), false)));
         fixture.service.evaluateStart(7);
-        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(500, 500, 9, 2));
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(500, 500, 9, 2, uniformStartSegments()));
     }
 
     // 혼자인 그룹런도 기준 본인의 페이스로 내린다. 739 km 구간 비율은 clamp 뒤에도 그대로 저장된다.
@@ -243,6 +244,58 @@ class GroupPaceServiceTest {
                         new BigDecimal("1.00"), new BigDecimal("0.99"));
     }
 
+    @Test
+    void preRun_coursePlanUsesFullCourseLengthAndKeepsHostGoalPace() {
+        var fixture = new RunningFixture();
+        when(fixture.groups.findById(7)).thenReturn(Optional.of(new GroupRunRow(7, 1, 9, 12L,
+                "test", null, fixture.token, null, null, null, 5000, 1800, "SCHEDULED", null,
+                fixture.token, fixture.token)));
+        when(fixture.states.find(7)).thenReturn(Optional.of(modeState("GOAL", fixture.token)));
+        when(fixture.states.candidates(7)).thenReturn(List.of(new GroupPaceRepository.Candidate(9, true, null)));
+        var distance = BigDecimal.valueOf(2500);
+        when(fixture.coaching.courseGrade(12)).thenReturn(Optional.of(
+                new SessionCoachingRepository.CourseGrade(distance,
+                        "[{\"startDistanceM\":0,\"endDistanceM\":2500,\"gradePercent\":3}]")));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                12L, 9L, distance, BigDecimal.valueOf(400), List.of(seg(1, 0, 1000, "1.02"),
+                        seg(2, 1000, 2000, "1.00"), seg(3, 2000, 2500, "0.96")))));
+
+        fixture.service.evaluateStart(7);
+
+        verify(fixture.plans).plan(9L,
+                new com.runway.backend.domain.session.entity.SessionGoal(12L, null, null, null, null));
+        var saved = org.mockito.ArgumentCaptor.forClass(GroupPaceRepository.Start.class);
+        verify(fixture.states).saveStart(eq(7L), eq(fixture.token), saved.capture());
+        assertThat(saved.getValue().pace()).isEqualTo(360);
+        assertThat(saved.getValue().segments()).extracting(GroupPaceRepository.SegmentRatio::endDistanceM)
+                .containsExactly(BigDecimal.valueOf(1000), BigDecimal.valueOf(2000), distance);
+    }
+
+    @Test
+    void preRun_missingAiRatiosSavesStoredDifficultyWeightedBySegmentLength() {
+        var fixture = new RunningFixture();
+        when(fixture.groups.findById(7)).thenReturn(Optional.of(new GroupRunRow(7, 1, 9, 12L,
+                "test", null, fixture.token, null, null, null, 5000, 1800, "SCHEDULED", null,
+                fixture.token, fixture.token)));
+        when(fixture.states.candidates(7)).thenReturn(List.of(new GroupPaceRepository.Candidate(9, true, null)));
+        var distance = BigDecimal.valueOf(2500);
+        when(fixture.coaching.courseGrade(12)).thenReturn(Optional.of(
+                new SessionCoachingRepository.CourseGrade(distance, null)));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(12L, 9L, distance, BigDecimal.valueOf(400), List.of())));
+        when(fixture.difficulty.ratios(12L, distance, 3)).thenReturn(Optional.of(List.of(
+                BigDecimal.valueOf(102), BigDecimal.valueOf(100), BigDecimal.valueOf(96))));
+
+        fixture.service.evaluateStart(7);
+
+        var saved = org.mockito.ArgumentCaptor.forClass(GroupPaceRepository.Start.class);
+        verify(fixture.states).saveStart(eq(7L), eq(fixture.token), saved.capture());
+        assertThat(saved.getValue().segments()).containsExactly(
+                new GroupPaceRepository.SegmentRatio(BigDecimal.ZERO, BigDecimal.valueOf(1000), new BigDecimal("1.02")),
+                new GroupPaceRepository.SegmentRatio(BigDecimal.valueOf(1000), BigDecimal.valueOf(2000), BigDecimal.ONE),
+                new GroupPaceRepository.SegmentRatio(BigDecimal.valueOf(2000), distance, new BigDecimal("0.96")));
+    }
+
     // S15P31E105-803: GOAL 모드에서도 clamp 경로를 탄다. 적용 페이스는 방장 목표(5000 m / 1800 s = 360)이고, 내린 AI 추천(1000)과
     // 기준 회원은 그대로 저장한다. 목표보다 느린 회원 수는 원래 AI09 계획(433·380 모두 360보다 느림)으로 센다.
     @Test
@@ -250,7 +303,7 @@ class GroupPaceServiceTest {
         var fixture = new RunningFixture();
         when(fixture.states.find(7)).thenReturn(Optional.of(modeState("GOAL", fixture.token)));
         clampCase(fixture, true, 1000);
-        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 1000, 9, 2));
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 1000, 9, 2, uniformStartSegments()));
     }
 
     // S15P31E105-803 7번: 기준 회원(9)의 원래 계획 350은 목표 360보다 빨라 느린 회원 수에 들지 않지만, 탐색 하한에 걸려 본인 최근
@@ -273,7 +326,7 @@ class GroupPaceServiceTest {
         when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
                 null, 10L, BigDecimal.valueOf(5000), BigDecimal.valueOf(340), List.of(), false)));
         fixture.service.evaluateStart(7);
-        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 400, 9, 0));
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 400, 9, 0, uniformStartSegments()));
     }
 
     private static PersonalPacePlanPort.Segment seg5(int n, long start, long end, String ratio) {
@@ -328,7 +381,7 @@ class GroupPaceServiceTest {
         verify(fixture.plans).plan(eq(10L), any());
         verifyNoMoreInteractions(fixture.plans);
         verify(fixture.states).saveStart(7, fixture.token,
-                new GroupPaceRepository.Start(expected, plannedPace, 10, slower));
+                new GroupPaceRepository.Start(expected, plannedPace, 10, slower, uniformStartSegments()));
     }
 
     private static GroupPaceRepository.State modeState(String mode, Instant token) {
@@ -356,7 +409,7 @@ class GroupPaceServiceTest {
 
         // Goal 5000 m / 1800 s = 360 s/km. Both plans are slower than the goal.
         verify(fixture.states).saveStart(7, fixture.token,
-                new GroupPaceRepository.Start(360, 420, 9, 2));
+                new GroupPaceRepository.Start(360, 420, 9, 2, uniformStartSegments()));
     }
 
     @Test
@@ -484,6 +537,13 @@ class GroupPaceServiceTest {
                 seg(3, 2000, 2500, "1.00"))), 2500)).isEmpty();
     }
 
+    private static List<GroupPaceRepository.SegmentRatio> uniformStartSegments() {
+        return java.util.stream.IntStream.range(0, 5)
+                .mapToObj(i -> new GroupPaceRepository.SegmentRatio(BigDecimal.valueOf(i * 1000L),
+                        BigDecimal.valueOf((i + 1) * 1000L), BigDecimal.ONE))
+                .toList();
+    }
+
     @Test
     void startBackfillTargets_enabledReadsTheRepository() {
         var fixture = new RunningFixture();
@@ -501,6 +561,7 @@ class GroupPaceServiceTest {
         final PersonalPacePlanPort plans = mock(PersonalPacePlanPort.class);
         final com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository fits = mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class);
         final Instant token = Instant.parse("2026-01-01T00:00:00Z");
+        final SegmentDifficultyProvider difficulty = mock(SegmentDifficultyProvider.class);
         final GroupPaceService service;
 
         RunningFixture() {
@@ -508,7 +569,7 @@ class GroupPaceServiceTest {
             when(manager.getTransaction(any())).thenReturn(mock(org.springframework.transaction.TransactionStatus.class));
             service = new GroupPaceService(true, states, groups, participants, coaching, references,
                     ai, plans, mock(ApplicationEventPublisher.class),
-                    JsonMapper.builder().build(), manager, fits);
+                    JsonMapper.builder().build(), manager, fits, difficulty);
             when(groups.findById(7)).thenReturn(Optional.of(new GroupRunRow(7, 1, 9, null,
                     "test", null, token, null, null, null, 5000, 1800, "RUNNING", null, token, token)));
             when(states.find(7)).thenReturn(Optional.of(new GroupPaceRepository.State(375, 380,

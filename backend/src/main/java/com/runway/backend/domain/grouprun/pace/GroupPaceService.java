@@ -14,6 +14,7 @@ import com.runway.backend.domain.session.entity.SessionGoal;
 import com.runway.backend.domain.session.repository.SessionCoachingRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.service.PersonalPacePlanPort;
+import com.runway.backend.domain.session.service.SegmentDifficultyProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class GroupPaceService {
     private final SessionReferenceRepository references;
     private final GroupPacePort ai;
     private final PersonalPacePlanPort plans;
+    private final SegmentDifficultyProvider difficulty;
     private final ApplicationEventPublisher events;
     private final JsonMapper mapper;
     private final TransactionTemplate tx;
@@ -49,7 +51,7 @@ public class GroupPaceService {
             GroupRunParticipantJdbcRepository participants, SessionCoachingRepository coaching,
             SessionReferenceRepository references, GroupPacePort ai, PersonalPacePlanPort plans,
             ApplicationEventPublisher events, JsonMapper mapper, PlatformTransactionManager manager,
-            GroupRunFitJdbcRepository fits) {
+            GroupRunFitJdbcRepository fits, SegmentDifficultyProvider difficulty) {
         this.enabled = enabled;
         this.states = states;
         this.groups = groups;
@@ -62,6 +64,7 @@ public class GroupPaceService {
         this.mapper = mapper;
         this.tx = new TransactionTemplate(manager);
         this.fits = fits;
+        this.difficulty = difficulty;
     }
 
     public boolean isEnabled() { return enabled; }
@@ -226,7 +229,7 @@ public class GroupPaceService {
 
     record Ranked(GroupPaceRepository.Candidate candidate, Integer recentPace) {}
     record StartInput(GroupRunRow group, Instant token, List<Ranked> selected, boolean goalMode,
-            java.util.Map<Long, Integer> displayedPaces) {}
+            java.util.Map<Long, Integer> displayedPaces, SessionGoal planningGoal, BigDecimal planningDistance) {}
 
     /**
      * 동의한 후보 본인의 최근 페이스. 대기방 '참가자 편한 범위'(G03 comfortRange)에 들어가는 그 사람의 값과 같은 계산이다
@@ -286,11 +289,19 @@ public class GroupPaceService {
                 states.abandonStart(groupId, state.updatedAt());
                 return null;
             }
+            var course = group.courseId() == null ? null
+                    : coaching.courseGrade(group.courseId()).orElse(null);
+            // AI09 resolves stored grades, legacy elevations and the configured missing-grade policy.
+            boolean useCourse = course != null && course.distanceM() != null
+                    && course.distanceM().signum() > 0;
+            var goal = useCourse ? new SessionGoal(group.courseId(), null, null, null, null)
+                    : new SessionGoal(null, null, group.goalDistance(), null, null);
+            var distance = useCourse ? course.distanceM() : BigDecimal.valueOf(group.goalDistance());
             return new StartInput(group, state.updatedAt(), selected, state.goalMode(),
-                    displayedPaces(consented));
+                    displayedPaces(consented), goal, distance);
         });
         if (input == null) return false;
-        var goal = new SessionGoal(null, null, input.group().goalDistance(), null, null);
+        var goal = input.planningGoal();
         Integer goalPace = goalPace(input.group());
         Integer aiPace = null;
         Long basis = null;
@@ -309,7 +320,8 @@ public class GroupPaceService {
             if (state == null || !java.util.Objects.equals(state.updatedAt(), input.token())) return false;
             if (result.isEmpty() || result.get().pace() == null || result.get().pace().signum() <= 0
                     || result.get().distance() == null
-                    || result.get().distance().compareTo(BigDecimal.valueOf(goal.distanceM())) != 0
+                    || result.get().distance().compareTo(input.planningDistance()) != 0
+                    || !java.util.Objects.equals(result.get().courseId(), goal.courseId())
                     || !java.util.Objects.equals(result.get().userId(), candidate.userId())) {
                 abandon(groupId, input.token());
                 return false;
@@ -319,7 +331,7 @@ public class GroupPaceService {
                 aiPace = pace;
                 basis = candidate.userId();
                 basisBoundaryHit = result.get().paceSearchBoundaryHit();
-                segments = segmentRatios(result.get(), goal.distanceM());
+                segments = segmentRatios(result.get(), input.planningDistance());
             }
             if (goalPace != null && pace > goalPace) slower++;
         }
@@ -337,7 +349,8 @@ public class GroupPaceService {
         // without max(goal, AI); GOAL the host's goal.
         int applied = input.goalMode() && goalPace != null ? goalPace : aiPace;
         var start = new GroupPaceRepository.Start(applied, aiPace, basis,
-                goalPace == null ? null : slower, segments);
+                goalPace == null ? null : slower, segments.isEmpty()
+                        ? fallbackRatios(goal.courseId(), input.planningDistance()) : segments);
         return Boolean.TRUE.equals(tx.execute(status -> {
             references.lockGroupRun(groupId);
             if (input.selected().stream().anyMatch(r -> r.candidate().consent()
@@ -347,6 +360,38 @@ public class GroupPaceService {
             }
             return states.saveStart(groupId, input.token(), start);
         }));
+    }
+
+    private List<GroupPaceRepository.SegmentRatio> fallbackRatios(Long courseId, BigDecimal distance) {
+        BigDecimal step = BigDecimal.valueOf(1000);
+        int count = distance.divide(step, 0, RoundingMode.CEILING).intValueExact();
+        if (count > 45) return List.of();
+        var ranges = new ArrayList<GroupPaceRepository.SegmentRatio>(count);
+        for (int i = 0; i < count; i++) {
+            BigDecimal start = step.multiply(BigDecimal.valueOf(i));
+            ranges.add(new GroupPaceRepository.SegmentRatio(
+                    start, distance.min(start.add(step)), BigDecimal.ONE));
+        }
+        var stored = count > 1 && courseId != null
+                ? difficulty.ratios(courseId, distance, count).orElse(List.of()) : List.<BigDecimal>of();
+        if (stored.size() != count || stored.stream().anyMatch(ratio -> ratio == null || ratio.signum() <= 0)) {
+            return ranges;
+        }
+        var weighted = BigDecimal.ZERO;
+        for (int i = 0; i < count; i++) {
+            var range = ranges.get(i);
+            weighted = weighted.add(stored.get(i).multiply(range.endDistanceM().subtract(range.startDistanceM())));
+        }
+        var mean = weighted.divide(distance, java.math.MathContext.DECIMAL64);
+        var normalized = stored.stream().map(ratio -> ratio.divide(mean, java.math.MathContext.DECIMAL64)).toList();
+        if (normalized.stream().anyMatch(ratio -> ratio.compareTo(MIN_RATIO) < 0
+                || ratio.compareTo(MAX_RATIO) > 0)) return ranges;
+        for (int i = 0; i < count; i++) {
+            var range = ranges.get(i);
+            ranges.set(i, new GroupPaceRepository.SegmentRatio(
+                    range.startDistanceM(), range.endDistanceM(), normalized.get(i)));
+        }
+        return ranges;
     }
 
     static final BigDecimal MIN_RATIO = new BigDecimal("0.85");
@@ -360,6 +405,11 @@ public class GroupPaceService {
      */
     static List<GroupPaceRepository.SegmentRatio> segmentRatios(
             PersonalPacePlanPort.Result result, int distanceM) {
+        return segmentRatios(result, BigDecimal.valueOf(distanceM));
+    }
+
+    static List<GroupPaceRepository.SegmentRatio> segmentRatios(
+            PersonalPacePlanPort.Result result, BigDecimal distanceM) {
         List<GroupPaceRepository.SegmentRatio> ratios = new ArrayList<>();
         BigDecimal end = BigDecimal.ZERO;
         BigDecimal weighted = BigDecimal.ZERO;
@@ -369,7 +419,7 @@ public class GroupPaceService {
                     || segment.start() == null || segment.end() == null || segment.ratio() == null
                     || segment.start().compareTo(end) != 0
                     || segment.end().compareTo(segment.start()) <= 0
-                    || segment.end().compareTo(BigDecimal.valueOf(distanceM)
+                    || segment.end().compareTo(distanceM
                             .min(segment.start().add(BigDecimal.valueOf(1000)))) != 0
                     || segment.ratio().compareTo(MIN_RATIO) < 0
                     || segment.ratio().compareTo(MAX_RATIO) > 0
@@ -383,8 +433,8 @@ public class GroupPaceService {
             weighted = weighted.add(segment.end().subtract(segment.start()).multiply(segment.ratio()));
             end = segment.end();
         }
-        if (end.compareTo(BigDecimal.valueOf(distanceM)) != 0
-                || weighted.divide(BigDecimal.valueOf(distanceM), java.math.MathContext.DECIMAL64)
+        if (end.compareTo(distanceM) != 0
+                || weighted.divide(distanceM, java.math.MathContext.DECIMAL64)
                         .subtract(BigDecimal.ONE).abs().compareTo(new BigDecimal("0.01")) > 0) {
             return List.of();
         }

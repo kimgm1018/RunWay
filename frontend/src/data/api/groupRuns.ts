@@ -19,6 +19,7 @@ import { apiRequest } from './http';
 import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { searchPlaces } from './places';
+import { strategyOf } from './pacePlan';
 
 // 그룹런 서버 API와 PLS01 장소 검색. 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
 
@@ -83,8 +84,15 @@ export function paceInfoOf(run: DetailResponse): GroupPaceInfo | null {
 
 function kmPacesOf(segments: DetailResponse['paceSegments']) {
   const ordered = [...(segments ?? [])].sort((a, b) => a.sequence - b.sequence);
+  const kmPaces = ordered.map(segment => segment.recommendedPaceSecPerKm);
+  const expectedDurationSec = Math.round(ordered.reduce(
+    (total, segment) => total + (segment.endDistanceM - segment.startDistanceM) / 1000
+      * segment.recommendedPaceSecPerKm,
+    0,
+  ));
   return {
-    kmPaces: ordered.map(segment => segment.recommendedPaceSecPerKm),
+    ...(expectedDurationSec > 0 && { startStrategy: { label: strategyOf(kmPaces), expectedDurationSec } }),
+    kmPaces,
     kmDistanceM: ordered.length ? ordered[ordered.length - 1].endDistanceM : 0,
   };
 }

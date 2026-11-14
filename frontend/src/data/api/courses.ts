@@ -8,6 +8,7 @@ import type {
   SavedCourse,
 } from '../types';
 import { apiRequest } from './http';
+import { strategyOf } from './pacePlan';
 import { DataError } from '../errors';
 import { courseShapeOptions } from '../coursePreferences';
 import { getCoursePreferences, saveCoursePreferences } from './preferences';
@@ -31,18 +32,6 @@ export type PacePlanResponse = {
 // The AI plan takes about 3s (40s at worst on the server); the screen waits at most this long, then shows the course
 // without km paces.
 const planTimeoutMs = 8_000;
-
-// A short read of the plan's shape for 오늘의 전략, from the km paces against their mean.
-function strategyOf(paces: number[]) {
-  const mean = paces.reduce((sum, value) => sum + value, 0) / paces.length;
-  const first = paces[0];
-  const last = paces[paces.length - 1];
-  const parts = [
-    first > mean + 3 ? '초반 안정' : first < mean - 3 ? '초반 빠르게' : null,
-    last < mean - 3 ? '후반 가속' : last > mean + 3 ? '후반 여유' : null,
-  ].filter((part): part is string => part !== null);
-  return parts.length ? parts.join(' → ') : '고른 페이스';
-}
 
 // C12 → the plan fields of 2.0. null when the server sent no km segments.
 export function planFromServer(plan: PacePlanResponse) {

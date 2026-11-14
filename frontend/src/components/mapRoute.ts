@@ -172,6 +172,27 @@ export function paceColor(
 }
 
 // Splits a route into equal-length parts (one per km) and returns each part's points.
+export function paceLabelPositions(route: LngLat[], count: number, planDistanceM: number) {
+  const lengths = route.slice(1).map((point, index) => distanceM(route[index], point));
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  if (!(total > 0) || !(planDistanceM > (count - 1) * 1000)) return [];
+  let edge = 0;
+  let walked = 0;
+  return Array.from({ length: count }, (_, index): LngLat => {
+    const start = index * 1000;
+    const end = Math.min(start + 1000, planDistanceM);
+    const target = ((start + end) / 2 / planDistanceM) * total;
+    while (edge < lengths.length - 1 && walked + lengths[edge] <= target) {
+      walked += lengths[edge];
+      edge++;
+    }
+    const from = route[edge];
+    const to = route[edge + 1];
+    const ratio = lengths[edge] > 0 ? (target - walked) / lengths[edge] : 0;
+    return [from[0] + (to[0] - from[0]) * ratio, from[1] + (to[1] - from[1]) * ratio];
+  });
+}
+
 export function splitRoute(route: LngLat[], parts: number) {
   const lengths = route
     .slice(1)
