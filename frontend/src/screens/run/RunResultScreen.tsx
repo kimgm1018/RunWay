@@ -28,6 +28,7 @@ import {
 } from './resultLook';
 import { useRunControlState, useRunSession } from './RunSession';
 import { RunRouteMap } from '../records/RunRoute';
+import { SatisfactionPrompt } from './SatisfactionPrompt';
 
 // A course counts as 완주 once almost all of it is run; GPS rarely lands on the exact finish.
 const finishShare = 0.98;
@@ -241,6 +242,8 @@ export function RunResultScreen() {
     >
       <StatusBar barStyle="light-content" />
       {height > 0 ? <ResultWatermark height={height} year={day.year} /> : null}
+      {/* S15P31E105-813: 만족도 조사 prompt once the record is saved (30 days apart, 3 after 나중에). */}
+      <SatisfactionPrompt ready={saveState === 'saved' && Boolean(recordId)} />
       <SafeAreaView edges={['top']} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content}>
           {/* The RunWay logo in white, the handwritten time of day and the date (시안). */}

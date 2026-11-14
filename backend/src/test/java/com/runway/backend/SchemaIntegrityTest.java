@@ -268,13 +268,13 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM information_schema.tables WHERE"
                                     + " table_schema='public' AND table_type='BASE TABLE' AND"
                                     + " table_name<>'spatial_ref_sys'"))
-                .isEqualTo(39);
+                .isEqualTo(40);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND column_name='id' AND"
                                     + " is_identity='YES' AND identity_generation='ALWAYS'"))
-                .isEqualTo(39);
+                .isEqualTo(40);
         assertThat(user).isPositive();
         assertThat(otherUser).isGreaterThan(user);
         rejects(

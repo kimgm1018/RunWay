@@ -381,6 +381,12 @@ export function SettingsScreen() {
           state="지도 데이터"
           onPress={() => navigateTo(navigation, 'DataLicense')}
         />
+        <Tile
+          icon="message"
+          name="만족도 조사"
+          state="의견 보내기"
+          onPress={() => navigateTo(navigation, 'SatisfactionSurvey')}
+        />
       </Tiles>
     </>
   );

@@ -16,6 +16,7 @@ import { createCommunityApi } from './community';
 import { createRunnersApi } from './runners';
 import { saveRunRecord } from './runRecords';
 import { consentsApi } from './consents';
+import { surveysApi } from './satisfactionSurveys';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
@@ -111,6 +112,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     sharedRuns: sharedRunsApi,
     // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.
     consents: consentsApi,
+    // 8.1d 만족도 조사: SV01 (S15P31E105-813).
+    surveys: surveysApi,
     // 8.1 설정·8.1b 위치 기록: U19·U20 app settings and U13·U14 account visibility.
     settings: settingsApi,
     // 8.4–8.6 회원탈퇴: U17 사전 정보와 U18 탈퇴 (S15P31E105-523).

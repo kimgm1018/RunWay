@@ -4,6 +4,7 @@ import { DataLicenseScreen } from './DataLicenseScreen';
 import { LocationSettingScreen } from './LocationSettingScreen';
 import { ProfileEditScreen } from './ProfileEditScreen';
 import { RunningBaselineEditScreen } from './RunningBaselineEditScreen';
+import { SatisfactionSurveyScreen } from './SatisfactionSurveyScreen';
 import { SettingsScreen } from './SettingsScreen';
 import {
   WithdrawDoneScreen,
@@ -17,6 +18,7 @@ export const settingsScreens: Partial<Record<RouteName, React.ComponentType>> =
     Settings: SettingsScreen,
     LocationSetting: LocationSettingScreen,
     DataLicense: DataLicenseScreen,
+    SatisfactionSurvey: SatisfactionSurveyScreen,
     ProfileEdit: ProfileEditScreen,
     RunningBaselineEdit: RunningBaselineEditScreen,
     Withdraw: WithdrawScreen,

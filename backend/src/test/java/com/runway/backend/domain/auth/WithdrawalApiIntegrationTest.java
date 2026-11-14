@@ -135,6 +135,24 @@ class WithdrawalApiIntegrationTest extends RefreshIntegrationSupport {
             .andExpect(jsonPath("$.code").value("SHARED_RUN_NOT_FOUND"));
     }
 
+    /** S15P31E105-813 AC-4: 탈퇴는 만족도 응답 행과 의견을 보존하고, 남은 토큰의 새 제출은 저장하지 않는다. */
+    @Test void withdrawalKeepsSatisfactionSurveyResponsesAndRejectsNewSubmission() throws Exception {
+        mvc.perform(post("/api/v1/satisfaction-surveys").header("Authorization",auth())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"score\":4,\"comment\":\"좋아요\",\"source\":\"SETTINGS\"}"))
+            .andExpect(status().isCreated());
+
+        withdraw().andExpect(status().isOk());
+
+        assertThat(jdbc.queryForMap("SELECT score,comment,source FROM satisfaction_survey_responses WHERE user_id=?",user))
+            .containsEntry("comment","좋아요").containsEntry("source","SETTINGS");
+        mvc.perform(post("/api/v1/satisfaction-surveys").header("Authorization",auth())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"score\":1,\"source\":\"SETTINGS\"}"))
+            .andExpect(status().isUnauthorized());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM satisfaction_survey_responses WHERE user_id=?",Integer.class,user)).isEqualTo(1);
+    }
+
     @Test void missingRedisIndexCannotAllowRefreshOrLoginAfterWithdrawal() throws Exception {
         var token=grant(); redis.delete(com.runway.backend.domain.auth.repository.RefreshTokenStore.userKey(user));
         withdraw().andExpect(status().isOk());

@@ -22,8 +22,9 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
+| [서비스 만족도 조사](./satisfaction-surveys.md) | 만족도 응답 제출·집계 SQL | 1 |
 
-총 **102개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
+총 **103개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -261,6 +262,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | CMT13 | [통합 검색](./community.md#cmt13-통합-검색) | GET | `/search` | [community.md](./community.md) |
 | F01 | [이미지 업로드](./files.md#f01-이미지-업로드) | POST | `/images` | [files.md](./files.md) |
 | F02 | [이미지 조회](./files.md#f02-이미지-조회) | GET | `/images/{imageId}` | [files.md](./files.md) |
+| SV01 | [만족도 응답 제출](./satisfaction-surveys.md#sv01-만족도-응답-제출) | POST | `/satisfaction-surveys` | [satisfaction-surveys.md](./satisfaction-surveys.md) |
 
 ## 화면 설계 v10 대조 (2026-10-23)
 

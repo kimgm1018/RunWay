@@ -614,6 +614,10 @@ export function createMockRepositories(
         return respond(healthConsent, options);
       },
     },
+    // SV01: the mock keeps nothing; the server only stores the answer.
+    surveys: {
+      submit: () => respond(undefined, options),
+    },
     account: {
       // U17: like the server, a crew I lead blocks withdrawal until it is handed over or dissolved (users.md,
       // 2026-11-05 확정 정책: 자동 후임 선정 없음).

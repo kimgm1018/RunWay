@@ -65,8 +65,8 @@ class BackendApplicationIntegrationTest {
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(entityManagerFactory.getMetamodel().getEntities()).isNotEmpty();
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().applied()).hasSize(40);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("40");
+        assertThat(flyway.info().applied()).hasSize(41);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("41");
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND"
@@ -152,7 +152,8 @@ class BackendApplicationIntegrationTest {
                         "post_bookmarks",
                         "course_basemaps",
                         "running_session_basemaps",
-                        "run_share_links");
+                        "run_share_links",
+                        "satisfaction_survey_responses");
     }
 
     @Test
