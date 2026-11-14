@@ -31,7 +31,9 @@ class GroupPaceServiceTest {
         service.membershipOrGoalChanged(7);
         service.onBatch(8);
         service.evaluateRunning(7);
-        service.evaluateStart(7);
+        assertThat(service.evaluateStart(7)).isFalse();
+        // S15P31E105-817: 기능이 꺼져 있으면 기동 재계산 대상도 테이블을 읽지 않고 비어 있다.
+        assertThat(service.startBackfillTargets(100)).isEmpty();
         assertThat(service.stored(7)).isEmpty();
         verifyNoInteractions(states, groups, participants, coaching, references, ai, plans,
                 events, transactions);
@@ -480,6 +482,13 @@ class GroupPaceServiceTest {
                 BigDecimal.valueOf(430), BigDecimal.ONE);
         assertThat(GroupPaceService.segmentRatios(plan(List.of(offPace, seg(2, 1000, 2000, "1.00"),
                 seg(3, 2000, 2500, "1.00"))), 2500)).isEmpty();
+    }
+
+    @Test
+    void startBackfillTargets_enabledReadsTheRepository() {
+        var fixture = new RunningFixture();
+        when(fixture.states.findStartBackfillTargets(5)).thenReturn(List.of(7L));
+        assertThat(fixture.service.startBackfillTargets(5)).containsExactly(7L);
     }
 
     private static class RunningFixture {

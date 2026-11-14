@@ -29,6 +29,7 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired GroupPaceService pace;
     @Autowired GroupPaceRepository states;
     @Autowired GroupRunService groups;
+    @Autowired GroupPaceTrigger trigger;
     @MockitoBean GroupPacePort ai;
     @MockitoBean PersonalPacePlanPort plans;
     long host;
@@ -294,6 +295,135 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
 
         jdbc.update("UPDATE group_runs SET status='RUNNING' WHERE id=?", group);
         assertThat(groups.getDetail(host, group).paceSegments()).isEmpty();
+    }
+
+    // ---- S15P31E105-817: 기동 시 km 비율 재계산 ----
+
+    private long scheduledGroupWithStartPaceButNoRatios(String status, Integer goalDistance) {
+        long id = jdbc.queryForObject("""
+                INSERT INTO group_runs(crew_id,host_id,title,scheduled_at,goal_distance,goal_duration,status)
+                VALUES (?,?,'old',now(),?,1800,?::group_runs_status_enum) RETURNING id
+                """, Long.class, crew, host, goalDistance, status);
+        jdbc.update("""
+                INSERT INTO group_run_pace_state(group_run_id, start_recommended_pace_sec_per_km,
+                    ai_recommended_pace_sec_per_km, pace_basis_user_id) VALUES (?, 410, 410, ?)
+                """, id, host);
+        jdbc.update("INSERT INTO group_run_participants(group_run_id,user_id) VALUES (?,?)", id, host);
+        return id;
+    }
+
+    /** kmPlan과 같은 모양이고 평균만 pace(s/km)로 바꾼 5 km 계획. */
+    private static PersonalPacePlanPort.Result kmPlanAt(Long user, int pace) {
+        BigDecimal[] ratios = {new BigDecimal("1.05"), new BigDecimal("1.02"), BigDecimal.ONE,
+                new BigDecimal("0.98"), new BigDecimal("0.95")};
+        List<PersonalPacePlanPort.Segment> segments = new ArrayList<>();
+        for (int i = 0; i < ratios.length; i++) {
+            segments.add(new PersonalPacePlanPort.Segment(i + 1, BigDecimal.valueOf(i * 1000L),
+                    BigDecimal.valueOf((i + 1) * 1000L),
+                    BigDecimal.valueOf(pace).multiply(ratios[i]), ratios[i]));
+        }
+        return new PersonalPacePlanPort.Result(null, user, BigDecimal.valueOf(5000),
+                BigDecimal.valueOf(pace), segments);
+    }
+
+    @Test
+    void backfill_targetsOnlyScheduledRecentGroupsWithStartPaceAndDistanceButNoRatios() {
+        long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        scheduledGroupWithStartPaceButNoRatios("RUNNING", 5000);
+        scheduledGroupWithStartPaceButNoRatios("SCHEDULED", null);
+        long filled = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_run_pace_state SET start_segment_ratios='[{\"startDistanceM\":0,\"endDistanceM\":5000,\"ratio\":1}]'::jsonb"
+                + " WHERE group_run_id=?", filled);
+        long noPace = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_run_pace_state SET start_recommended_pace_sec_per_km=NULL WHERE group_run_id=?", noPace);
+        // 예정 시각이 하루 넘게 지난 채 방치된 방은 제외한다.
+        long stale = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_runs SET scheduled_at = now() - interval '2 days' WHERE id=?", stale);
+        assertThat(pace.startBackfillTargets(100)).containsExactly(target);
+    }
+
+    @Test
+    void backfill_limitKeepsUpcomingGroupsClosestToNowFirstAndPastOnesLast() {
+        long far = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_runs SET scheduled_at = now() + interval '3 days' WHERE id=?", far);
+        long near = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_runs SET scheduled_at = now() + interval '1 hour' WHERE id=?", near);
+        long mid = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_runs SET scheduled_at = now() + interval '1 day' WHERE id=?", mid);
+        // 방금 지난 방(최대 1일 전)은 곧 열릴 미래 방보다 가까워 보여도 뒤로 가서 상한 밖으로 밀어내지 못한다.
+        long past = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        jdbc.update("UPDATE group_runs SET scheduled_at = now() - interval '1 minute' WHERE id=?", past);
+        assertThat(pace.startBackfillTargets(2)).containsExactly(near, mid);
+        assertThat(pace.startBackfillTargets(3)).containsExactly(near, mid, far);
+        assertThat(pace.startBackfillTargets(100)).containsExactly(near, mid, far, past);
+    }
+
+    @Test
+    void backfill_recalculatesWithLatestPlanAndFillsRatios_theOldPaceStaysUntilTheNewOneIsSaved() {
+        long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        assertThat(groups.getDetail(host, target).paceSegments()).isEmpty();
+        List<Integer> seenDuringCall = new ArrayList<>();
+        List<Boolean> calculatingDuringCall = new ArrayList<>();
+        when(plans.plan(any(), any())).thenAnswer(i -> {
+            var state = states.find(target).orElseThrow();
+            seenDuringCall.add(state.startPace());
+            calculatingDuringCall.add(state.calculating());
+            return Optional.of(kmPlanAt(i.getArgument(0), 420));
+        });
+        var result = trigger.backfillStart();
+        // AI 호출 중에는 이전 출발 페이스가 그대로 있고 '계산 중'도 아니다.
+        assertThat(seenDuringCall).containsExactly(410);
+        assertThat(calculatingDuringCall).containsExactly(false);
+        assertThat(result).isEqualTo(new GroupPaceTrigger.BackfillResult(1, 1, 0, 0, 0, 0));
+        assertThat(pace.startBackfillTargets(100)).isEmpty();
+        // 같은 계산이라 최신 AI 결과(420)로 다시 저장되고 비율이 채워진다.
+        var detail = groups.getDetail(host, target);
+        assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(420);
+        assertThat(detail.paceSegments()).hasSize(5);
+        // 다시 돌려도 대상이 없어 AI를 더 부르지 않는다.
+        clearInvocations(plans);
+        trigger.backfillStart();
+        verifyNoInteractions(plans);
+    }
+
+    @Test
+    void backfill_aiFailureKeepsThePaceEndsNotCalculatingAndStaysATarget() {
+        long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        when(plans.plan(any(), any())).thenReturn(Optional.empty());
+        var result = trigger.backfillStart();
+        assertThat(result).isEqualTo(new GroupPaceTrigger.BackfillResult(1, 0, 0, 1, 0, 1));
+        assertThat(jdbc.queryForObject("SELECT start_recommended_pace_sec_per_km FROM group_run_pace_state"
+                + " WHERE group_run_id=?", Integer.class, target)).isEqualTo(410);
+        assertThat(jdbc.queryForObject("SELECT start_requested_at FROM group_run_pace_state"
+                + " WHERE group_run_id=?", Timestamp.class, target)).isNull();
+        var detail = groups.getDetail(host, target);
+        assertThat(detail.paceCalculating()).isFalse();
+        assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(410);
+        assertThat(pace.startBackfillTargets(100)).containsExactly(target);
+    }
+
+    @Test
+    void backfill_changeDuringTheRecalculationDiscardsTheOldResult() {
+        long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        when(plans.plan(any(), any())).thenAnswer(i -> {
+            // 계산 중에 목표가 바뀐 것처럼 상태 토큰을 바꾼다.
+            jdbc.update("UPDATE group_run_pace_state SET struggling_count = struggling_count WHERE group_run_id=?", target);
+            return Optional.of(kmPlanAt(i.getArgument(0), 420));
+        });
+        assertThat(pace.evaluateStart(target)).isFalse();
+        assertThat(pace.startBackfillTargets(100)).contains(target);
+    }
+
+    // AI 비율이 검증에서 빠지는 방은 비율이 계속 NULL이라 기동할 때마다 다시 대상이 된다(대체 비율은 816 범위).
+    @Test
+    void backfill_roomWhoseAiRatiosAreRejectedIsSavedWithoutRatiosAndStaysATarget() {
+        long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
+        when(plans.plan(any(), any())).thenAnswer(i -> Optional.of(new PersonalPacePlanPort.Result(
+                null, i.getArgument(0), BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+        var result = trigger.backfillStart();
+        assertThat(result).isEqualTo(new GroupPaceTrigger.BackfillResult(1, 0, 1, 0, 0, 1));
+        assertThat(pace.startBackfillTargets(100)).containsExactly(target);
+        assertThat(groups.getDetail(host, target).groupGuidePaceSecPerKm()).isEqualTo(410);
     }
 
     @Test
