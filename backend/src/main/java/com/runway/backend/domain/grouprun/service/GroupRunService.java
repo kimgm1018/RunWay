@@ -67,7 +67,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -445,8 +444,13 @@ public class GroupRunService {
     /**
      * G16. ready=true면 그룹 목표로 READY 세션을 만들어 참가 관계에 연결하고, ready=false면 연결을 끊은 뒤 미시작 세션을 취소한다. 대기방
      * ready 표시와 세션 확보는 같이 두고, G09 START 승인 근거는 연결 세션 상태로 본다.
+     *
+     * <p>트랜잭션 전 조회·계획 준비는 트랜잭션 범위 밖에서 조회마다 커넥션을 빌렸다 바로 반납한다. 메서드에
+     * {@code @Transactional(NOT_SUPPORTED)}를 두면 빈 트랜잭션 동기화 범위가 열려 JDBC 조회 커넥션이 사전 단계 끝까지 묶이고, 그 뒤의
+     * JPA 조회(크루 회원 확인)가 커넥션을 하나 더 빌린다. 요청 하나가 커넥션 둘을 동시에 요구하므로 동시 요청이 풀 크기를 넘으면 서로 반납을
+     * 기다리다 모두 커넥션 대기 시간초과(503)로 끝난다(S15P31E105-821). 그래서 이 메서드에는 트랜잭션 선언을 두지 않는다. 준비 생성
+     * 경로(ready=true이고 연결 세션이 아직 없을 때)에서는 호출자 트랜잭션 안이면 {@code planPreparation.prepare}가 거절한다.
      */
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReadyGroupRunResponse setReady(
             long userId, long groupRunId, ReadyGroupRunRequest request) {
         var row = requireGroupRun(groupRunId);
