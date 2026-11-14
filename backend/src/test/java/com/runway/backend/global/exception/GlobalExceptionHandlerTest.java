@@ -36,6 +36,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -325,6 +326,68 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
     }
 
+    // S15P31E105-803: 문자열에 NUL처럼 DB가 받을 수 없는 문자가 있어 생긴 22021·22P05는 입력 오류라 400이고 원인을 숨긴다.
+    @Test
+    void 저장할수없는_문자열은_400_VALIDATION_ERROR다() throws Exception {
+        for (String kind : new String[] {"text-nul", "text-untranslatable", "jdbc-text-nul"}) {
+            mvc.perform(
+                            get("/__test/data-access")
+                                    .param("kind", kind)
+                                    .header("Authorization", SecurityTestSupport.bearer(1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                    .andExpect(
+                            content()
+                                    .string(
+                                            org.hamcrest.Matchers.not(
+                                                    org.hamcrest.Matchers.containsString(
+                                                            "region_code"))));
+        }
+    }
+
+    // S15P31E105-803 리뷰 A-1·B-1: 400으로 바꿀 때 경로·메서드·SQLState만 warn으로 남기고, 쿼리 값·DB 메시지·SQL은 남기지 않는다.
+    @Test
+    void 저장할수없는_문자열은_경로와_SQLState만_로그에_남긴다(CapturedOutput output) throws Exception {
+        // 실제 API 경로 패턴: 처리기가 경로 값·쿼리 값을 받는 컨트롤러에서 JdbcTemplate 모양(UncategorizedSQLException) 22021.
+        mvc.perform(
+                        get("/api/v1/__test/regions/{regionCode}", "private-path-value")
+                                .param("q", "private-query-value")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        // 패턴 밖 경로: JPA 모양(DataIntegrityViolationException) 22P05.
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "text-untranslatable")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isBadRequest());
+
+        org.assertj.core.api.Assertions.assertThat(output.getAll())
+                .contains(
+                        "runway_route=/api/v1/__test/regions/{regionCode} runway_method=GET"
+                                + " runway_error=VALIDATION_ERROR unstorable_text sqlstate=22021")
+                .contains(
+                        "runway_route=unknown runway_method=GET runway_error=VALIDATION_ERROR"
+                                + " unstorable_text sqlstate=22P05")
+                .doesNotContain(
+                        "private-path-value",
+                        "private-query-value",
+                        "invalid value in posts.region_code",
+                        "lock on running_sessions",
+                        "running_sessions WHERE id");
+    }
+
+    // S15P31E105-803 회귀: 같은 22 계열이어도 22021·22P05가 아닌 데이터 오류(길이 초과 22001)는 지금처럼 500이다.
+    @Test
+    void 다른_데이터_오류는_500을_유지한다() throws Exception {
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "text-too-long")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
     @Test
     void 없는_detail값은_빼고_상태와_코드를_유지한다() throws Exception {
         mvc.perform(
@@ -429,6 +492,21 @@ class GlobalExceptionHandlerTest {
                     new java.sql.SQLException("lock on running_sessions", sqlState));
         }
 
+        private static DataIntegrityViolationException dataError(String sqlState) {
+            return new DataIntegrityViolationException(
+                    "could not execute statement",
+                    new java.sql.SQLException("invalid value in posts.region_code", sqlState));
+        }
+
+        /** 리뷰 반영(S15P31E105-803): 경로·쿼리 값을 받고 그 값이 든 것처럼 22021을 던진다. 로그에 값이 남지 않는지 본다. */
+        @GetMapping("/api/v1/__test/regions/{regionCode}")
+        void unstorableRegion(@PathVariable String regionCode, @RequestParam String q) {
+            throw new UncategorizedSQLException(
+                    "PreparedStatementCallback",
+                    "SELECT 1 FROM regions WHERE region_code = '" + regionCode + "' AND name = '" + q + "'",
+                    new java.sql.SQLException("invalid byte sequence near " + regionCode + q, "22021"));
+        }
+
         @GetMapping("/__test/data-access")
         void dataAccess(@RequestParam String kind) {
             String detail = "lock on running_sessions";
@@ -442,6 +520,12 @@ class GlobalExceptionHandlerTest {
                 case "jdbc-serialization" -> uncategorized("40001");
                 case "jdbc-deadlock" -> uncategorized("40P01");
                 case "jdbc-other" -> uncategorized("P0001");
+                // S15P31E105-803: Spring이 SQLState 22xxx를 바꾸는 예외 모양(원인에 PostgreSQL SQLException).
+                case "text-nul" -> dataError("22021");
+                case "text-untranslatable" -> dataError("22P05");
+                case "text-too-long" -> dataError("22001");
+                // 리뷰 B-3: JdbcTemplate이 분류하지 못해 UncategorizedSQLException으로 남은 22021도 같은 400이다.
+                case "jdbc-text-nul" -> uncategorized("22021");
                 default -> new DataIntegrityViolationException(detail);
             };
         }

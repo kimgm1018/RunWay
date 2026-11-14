@@ -241,6 +241,39 @@ class GroupPaceServiceTest {
                         new BigDecimal("1.00"), new BigDecimal("0.99"));
     }
 
+    // S15P31E105-803: GOAL 모드에서도 clamp 경로를 탄다. 적용 페이스는 방장 목표(5000 m / 1800 s = 360)이고, 내린 AI 추천(1000)과
+    // 기준 회원은 그대로 저장한다. 목표보다 느린 회원 수는 원래 AI09 계획(433·380 모두 360보다 느림)으로 센다.
+    @Test
+    void preRun_goalModeClamp_appliesGoalAndStoresClampedAiPace() {
+        var fixture = new RunningFixture();
+        when(fixture.states.find(7)).thenReturn(Optional.of(modeState("GOAL", fixture.token)));
+        clampCase(fixture, true, 1000);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 1000, 9, 2));
+    }
+
+    // S15P31E105-803 7번: 기준 회원(9)의 원래 계획 350은 목표 360보다 빨라 느린 회원 수에 들지 않지만, 탐색 하한에 걸려 본인 최근
+    // 페이스 400으로 내리면 AI 추천은 목표보다 느려진다. 느린 회원 수는 원래 계획 기준이라 0으로 남는다(동작 유지, 문서화).
+    @Test
+    void preRun_goalModeClampBelowGoal_slowerCountUsesOriginalAiPlans() {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.find(7)).thenReturn(Optional.of(modeState("GOAL", fixture.token)));
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.recentPaces(9, 5000)).thenReturn(List.of(BigDecimal.valueOf(400)));
+        when(fixture.states.recentPaces(10, 5000)).thenReturn(List.of(BigDecimal.valueOf(330)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.fits.findRecentCompletedPaces(any())).thenReturn(java.util.Map.of(
+                9L, List.of(BigDecimal.valueOf(400)), 10L, List.of(BigDecimal.valueOf(330))));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 9L, BigDecimal.valueOf(5000), BigDecimal.valueOf(350), List.of(), true)));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(new PersonalPacePlanPort.Result(
+                null, 10L, BigDecimal.valueOf(5000), BigDecimal.valueOf(340), List.of(), false)));
+        fixture.service.evaluateStart(7);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(360, 400, 9, 0));
+    }
+
     private static PersonalPacePlanPort.Segment seg5(int n, long start, long end, String ratio) {
         return new PersonalPacePlanPort.Segment(n, BigDecimal.valueOf(start), BigDecimal.valueOf(end),
                 BigDecimal.valueOf(433).multiply(new BigDecimal(ratio)), new BigDecimal(ratio));

@@ -58,7 +58,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `q` | string | X | 크루 이름 부분 일치 검색어 |
-| `regionCode` | string | X | `crews.region_code` 정확 일치 필터. NULL인 크루는 이 필터에 포함되지 않음 |
+| `regionCode` | string | X | `crews.region_code` 정확 일치 필터. NULL인 크루는 이 필터에 포함되지 않음. NUL(`U+0000`)이 든 값은 공통 `400 VALIDATION_ERROR`(S15P31E105-803, `q`도 같음) |
 | `latitude` | number | X | '내 근처' 기준 위도. **미구현** — 스키마에 크루 좌표가 없어 현재 무시하거나 거부 정책은 후속 확정 |
 | `longitude` | number | X | '내 근처' 기준 경도. **미구현** |
 | `radiusM` | number | X | 검색 반경(화면 기본 3km). **미구현** |
@@ -384,7 +384,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 - 생성자는 `crews.owner_id`에 기록되고 `crew_memberships`에 APPROVED로 등록된다.
 - 저장하는 필드: `name`, `description`, `imageKey`→`image_key`, `regionCode`→`region_code`, `capacity`, `joinPolicy`→`join_policy`(생략 시 APPROVAL). `status`는 ACTIVE.
 - 2026-11-05 사용자 추가 승인(S15P31E105-246): imageKey가 있으면 인증된 생성자가 업로드한 CREW 용도 정규 경로와 실제 파일 존재를 확인한다. 타인 이미지·다른 용도·없는 파일·비정규 경로는 `403 RESOURCE_NOT_OWNED`로 거절하며 크루·구성원을 저장하지 않는다. imageKey 생략/null은 허용한다. imageId 수신만 하는 기존 범위는 유지한다. 이 검사는 타인의 미연결 CREW 이미지를 자신의 크루에 붙여 공개하는 우회를 방지한다. 정상 크루장 이양은 이미 검증해 연결한 image_key를 유지한다.
-- `regionCode`를 보낸 경우 `regions.region_code`에 존재해야 한다. 없으면 422 INVALID_CREW.
+- `regionCode`를 보낸 경우 `regions.region_code`에 존재해야 한다. 없거나 제어 문자(NUL 등)가 들어 있으면 422 INVALID_CREW(S15P31E105-803).
 - `imageId`, `regionName`, `regionPosition`, `level`은 요청에 포함해도 되며 null/생략 가능하나 **현재 저장·검증하지 않는다**(스키마 반영·매핑 후속).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 

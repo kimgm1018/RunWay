@@ -74,6 +74,8 @@ export const dataErrorCodes = [
   'INVALID_GOAL',
   // CMT01 게시: the run is deleted or not completed (S15P31E105-633). CMT04 수정: the post is gone.
   'INVALID_POST',
+  // CMT01 게시: the region sent with the post is not in the server's list (400, S15P31E105-778·803).
+  'INVALID_REGION',
   'POST_NOT_FOUND',
   // 회원탈퇴 후 게시물 상세 직접 접근 (community.md, users.md U18).
   'WITHDRAWN_POST',

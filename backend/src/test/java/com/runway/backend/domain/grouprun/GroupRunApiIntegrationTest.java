@@ -264,6 +264,11 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
     @Test
     void patch_overLongTextFields_badRequest_andKeepsRow() throws Exception {
         long groupRunId = createGroupRun(hostId);
+        // S15P31E105-803: 400 뒤 행이 그대로인지 비교할 기준. 글자 필드와 갱신 시각을 함께 본다.
+        String rowSql =
+                "SELECT title, description, meeting_name, meeting_address, updated_at::text"
+                        + " FROM group_runs WHERE id = ?";
+        var before = jdbc.queryForMap(rowSql, groupRunId);
         String[] bodies = {
             "{\"title\":\"%s\"}".formatted("가".repeat(101)),
             "{\"description\":\"%s\"}".formatted("a".repeat(10001)),
@@ -278,6 +283,7 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                                     .content(body))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            assertThat(jdbc.queryForMap(rowSql, groupRunId)).isEqualTo(before);
         }
         String title100 = "가".repeat(100);
         mockMvc.perform(
