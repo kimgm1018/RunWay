@@ -242,6 +242,67 @@ test('6.0 lists open runs of my crews and pins the one I joined that starts soon
   expect(mine.upcoming?.id).toBe('61');
 });
 
+// S15P31E105-823: both runs joined; 61's time and status vary per case.
+function serveJoined(fields61: Record<string, unknown>, fields62 = {}) {
+  serve((path, init) => {
+    if (path === '/group-runs/61' && init.method === 'GET') {
+      return respond(200, detail(61, fields61));
+    }
+    if (path === '/group-runs/62' && init.method === 'GET') {
+      return respond(
+        200,
+        detail(62, { scheduledAt: hoursFromNow(5), ...fields62 }),
+      );
+    }
+    if (path === '/group-runs/62/participants') {
+      return respond(200, participants(61));
+    }
+    return undefined;
+  });
+}
+
+test('6.0 does not pin a run whose start passed long ago and lists it last', async () => {
+  // 61 was due five days ago and never started; 62 starts in 5 hours.
+  serveJoined({ scheduledAt: hoursFromNow(-5 * 24) });
+
+  const mine = await api().groupRuns.listMine();
+
+  expect(mine.upcoming?.id).toBe('62');
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62', '61']);
+});
+
+test('6.0 keeps pinning a run just past its start while the host may still begin', async () => {
+  serveJoined({ scheduledAt: hoursFromNow(-0.5) });
+
+  const mine = await api().groupRuns.listMine();
+
+  expect(mine.upcoming?.id).toBe('61');
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['61', '62']);
+});
+
+test('6.0 pins a run under way over one still to start', async () => {
+  serveJoined(
+    { scheduledAt: hoursFromNow(-30), status: 'RUNNING' },
+    { scheduledAt: hoursFromNow(-0.2) },
+  );
+
+  const mine = await api().groupRuns.listMine();
+
+  expect(mine.upcoming).toMatchObject({ id: '61', status: 'RUNNING' });
+});
+
+test('6.0 pins nothing when only stale or far-off runs are joined', async () => {
+  serveJoined(
+    { scheduledAt: hoursFromNow(-3) },
+    { scheduledAt: hoursFromNow(48) },
+  );
+
+  const mine = await api().groupRuns.listMine();
+
+  expect(mine.upcoming).toBeNull();
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62', '61']);
+});
+
 test('6.0 skips crews still waiting for approval', async () => {
   serve();
   const mine = await api({

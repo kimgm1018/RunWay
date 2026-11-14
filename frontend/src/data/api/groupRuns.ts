@@ -14,6 +14,7 @@ import type {
   Repositories,
   WaitingRoom,
 } from '../types';
+import { isStaleGroupRun } from '../types';
 import { apiRequest } from './http';
 import { imageAddress } from './images';
 import { listItems } from './listItems';
@@ -107,7 +108,7 @@ type CourseResponse = {
 
 const pageLimit = 50;
 const kstOffsetMs = 9 * 3600 * 1000;
-// The 6.0 pin: a run I joined that starts within a day, or is under way.
+// The 6.0 pin: a run I joined that starts within a day (and is not stale), or is under way.
 const upcomingWindowMs = 24 * 3600 * 1000;
 const defaultPaceSecPerKm = 360;
 const unknownNickname = '알 수 없음';
@@ -445,12 +446,17 @@ export function createGroupRunsApi({
                 );
               }),
           );
+          // Stale runs (an old start nobody began) go below the ones still ahead (S15P31E105-823).
+          const listedAt = Date.now();
           const runs = runOutcomes
             .flatMap(result =>
               result.status === 'fulfilled' ? [result.value] : [],
             )
             .sort(
-              (a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
+              (a, b) =>
+                Number(isStaleGroupRun(a, listedAt)) -
+                  Number(isStaleGroupRun(b, listedAt)) ||
+                Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
             );
           return { crew, groupRuns: runs };
         }),
@@ -469,10 +475,14 @@ export function createGroupRunsApi({
             run =>
               run.joined &&
               (run.status === 'RUNNING' ||
-                Date.parse(run.scheduledAt) - now <= upcomingWindowMs),
+                (!isStaleGroupRun(run, now) &&
+                  Date.parse(run.scheduledAt) - now <= upcomingWindowMs)),
           )
+          // A run under way keeps the pin over one still to start (S15P31E105-823).
           .sort(
-            (a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
+            (a, b) =>
+              Number(b.status === 'RUNNING') - Number(a.status === 'RUNNING') ||
+              Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
           )[0] ?? null;
       return {
         upcoming,
