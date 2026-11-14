@@ -29,6 +29,7 @@ import {
 } from '../../data';
 import { formatKm } from '../../format';
 import { fontFamily } from '../../theme';
+import { SEARCH_QUERY_MAX } from '../inputLimits';
 import { feedLook, MapBackdrop, RouteLine } from './FeedPage';
 import { Avatar } from './parts';
 
@@ -280,6 +281,8 @@ export function SearchScreen() {
         setStatus('ready');
       } catch (error) {
         if (id !== latest.current) return;
+        // A failed search leaves no earlier answer behind, for 더 불러오기 and a later retry alike (S15P31E105-818).
+        setFound({ runners: [], crews: [], cursor: null });
         setStatus(errorCode(error) === 'QUERY_TOO_SHORT' ? 'short' : 'error');
       }
     },
@@ -415,6 +418,7 @@ export function SearchScreen() {
           ref={input}
           value={query}
           onChangeText={setQuery}
+          maxLength={SEARCH_QUERY_MAX}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={filter.placeholder}

@@ -185,6 +185,32 @@ test('7.5 filters to crews from the menu and retries after a failure', async () 
   expect(has(screen, 'seoyun.run 러너 프로필')).toBe(false);
 });
 
+// S15P31E105-818: the field stops at 50 (the server's limit of 50 code points, S15P31E105-820),
+// and a search that fails shows the failure with none of the earlier answer on the screen. The error state never
+// draws rows, so this guards that screen behaviour; it does not cover SearchScreen's `found` reset (a defence).
+test('7.5 limits the query and shows no earlier result after a failed search', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const find = repositories.search.find;
+  repositories.search.find = request =>
+    request.query.length > 5
+      ? Promise.reject(new DataError('VALIDATION_ERROR', '너무 긴 검색어'))
+      : find(request);
+  const screen = await openCommunity(repositories);
+  await press(screen, '탐색');
+  await settle(50);
+  expect(
+    labelled(screen, '러너·크루 검색 검색', 'onChangeText').props.maxLength,
+  ).toBe(50);
+
+  await search(screen, '러너·크루 검색 검색', 'seo');
+  expect(has(screen, 'seoyun.run 러너 프로필')).toBe(true);
+
+  await search(screen, '러너·크루 검색 검색', 'seoyunxx');
+  expect(texts(screen)).toContain('검색 결과를 불러오지 못했어요');
+  expect(has(screen, 'seoyun.run 러너 프로필')).toBe(false);
+  expect(texts(screen)).not.toContain('결과가 없어요');
+});
+
 // S15P31E105-795: 탐색 is not the feed again.
 type Repos = ReturnType<typeof createMockRepositories>;
 type FeedPost = Awaited<

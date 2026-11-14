@@ -239,3 +239,9 @@ test('missing location support still allows map selection without fabricating a 
   await press('이 위치로 확정');
   expect(confirm).toHaveBeenCalledTimes(1);
 });
+
+// S15P31E105-818: the place search stops at the server's 100 (GET /places/search).
+test('limits the place search to the server limit of 100', async () => {
+  await open();
+  expect(labelled('장소·주소 검색', 'onChangeText').props.maxLength).toBe(100);
+});

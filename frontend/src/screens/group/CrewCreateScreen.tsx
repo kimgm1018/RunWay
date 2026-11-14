@@ -28,6 +28,7 @@ import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { photoFailure, pickPhoto } from '../photoPicker';
+import { PLACE_SEARCH_MAX } from '../inputLimits';
 import { useTapLock } from '../useTapLock';
 
 // M03: 1–200 members; a new crew starts at 20.
@@ -154,6 +155,7 @@ export function AreaPicker({
           placeholderTextColor={groupTone.muted}
           selectionColor={groupTone.accent}
           value={query}
+          maxLength={PLACE_SEARCH_MAX}
           onChangeText={text => {
             setQuery(text);
             setResults([]);

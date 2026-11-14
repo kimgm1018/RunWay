@@ -254,3 +254,22 @@ test.each([
     expect(labelled('내 위치로').props.disabled).toBeFalsy();
   },
 );
+
+// S15P31E105-818: the inputs stop at the server's limits (G01·G04 meetingPlaceName 200, description 10000,
+// GET /places/search 100), so a long text never reaches the server to be refused.
+test('limits the search, 장소 이름 and 찾아오는 법 to the server limits', async () => {
+  await open();
+  expect(labelled('장소·주소 검색', 'onChangeText').props.maxLength).toBe(100);
+  search.mockImplementation((query: string) =>
+    Promise.resolve(query ? [place('공원 입구')] : []),
+  );
+  await type('공원');
+  await advance(300);
+  await press('공원 입구');
+  await advance(0);
+  await press('이 위치로 정하기');
+  expect(labelled('장소 이름', 'onChangeText').props.maxLength).toBe(200);
+  expect(labelled('찾아오는 법 · 선택', 'onChangeText').props.maxLength).toBe(
+    10000,
+  );
+});
