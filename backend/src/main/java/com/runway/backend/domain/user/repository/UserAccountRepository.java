@@ -37,10 +37,11 @@ public class UserAccountRepository {
                 .findFirst();
     }
 
+    /** 대소문자만 다른 닉네임도 같은 닉네임으로 본다. 본인 행은 제외해 본인 닉네임의 대소문자만 바꾸는 것은 허용한다(S15P31E105-831). */
     public boolean nicknameTakenByOther(String nickname, long userId) {
         Boolean exists =
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname = ? AND id <> ? AND account_status = 'ACTIVE')",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE lower(nickname) = lower(?) AND id <> ? AND account_status = 'ACTIVE')",
                         Boolean.class,
                         nickname,
                         userId);

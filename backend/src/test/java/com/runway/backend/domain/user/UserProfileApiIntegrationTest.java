@@ -287,6 +287,107 @@ class UserProfileApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value("NICKNAME_DUPLICATED"));
     }
 
+    private org.springframework.test.web.servlet.ResultActions patchNickname(long id, String nickname)
+            throws Exception {
+        return mockMvc.perform(
+                patch("/api/v1/users/me")
+                        .header("Authorization", SecurityTestSupport.bearer(id))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"" + nickname + "\"}"));
+    }
+
+    private long insertUser(String loginId, String nickname, String phone) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES (?,'hash',?,'1998-01-01','MALE',?,'DISAGREE') RETURNING id
+                """,
+                Long.class,
+                loginId,
+                nickname,
+                phone);
+    }
+
+    private String nicknameOf(long id) {
+        return jdbc.queryForObject("SELECT nickname FROM users WHERE id=?", String.class, id);
+    }
+
+    // S15P31E105-831 AC-2: 다른 회원과 대소문자만 다른 닉네임은 409, 본인 닉네임의 대소문자만 바꾸는 것은 허용한다.
+    @Test
+    void U05_대소문자만_다른_닉네임_409_본인_대소문자변경_200() throws Exception {
+        insertUser("runner03", "QI유저1", "01000000003");
+        long c = insertUser("runner04", "Runner", "01000000004");
+        patchNickname(otherUserId, "qi유저1")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NICKNAME_DUPLICATED"));
+        assertThat(nicknameOf(otherUserId)).isEqualTo("다른러너");
+        patchNickname(c, "runner").andExpect(status().isOk()).andExpect(jsonPath("$.nickname").value("runner"));
+        assertThat(nicknameOf(c)).isEqualTo("runner");
+        patchNickname(c, "RUNNER").andExpect(status().isOk()).andExpect(jsonPath("$.nickname").value("RUNNER"));
+        assertThat(nicknameOf(c)).isEqualTo("RUNNER");
+    }
+
+    // S15P31E105-831 AC-5: 사전 확인을 지난 뒤 다른 회원의 미커밋 변경과 겹치면 lower 식 UNIQUE가 최종 판정한다(잠금 대기 방식).
+    @Test
+    void U05_대소문자만_다른_닉네임_경합은_DB가_한_건만_허용() throws Exception {
+        long a = insertUser("runner05", "에이회원", "01000000005");
+        try (var holder =
+                java.sql.DriverManager.getConnection(
+                        DATABASE.getJdbcUrl(), DATABASE.getUsername(), DATABASE.getPassword())) {
+            holder.setAutoCommit(false);
+            try (var statement = holder.prepareStatement("UPDATE users SET nickname='Abc' WHERE id=?")) {
+                statement.setLong(1, a);
+                statement.executeUpdate();
+            }
+            try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+                var pending =
+                        executor.submit(
+                                () ->
+                                        patchNickname(otherUserId, "abc")
+                                                .andReturn()
+                                                .getResponse());
+                // 다른 회원의 미커밋 'Abc'는 사전 확인에 보이지 않으므로 UPDATE가 고유 인덱스에서 기다린다.
+                long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                while (jdbc.queryForObject(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()"
+                                        + " AND wait_event_type='Lock' AND query LIKE 'UPDATE users%'",
+                                Integer.class)
+                        == 0) {
+                    assertThat(System.nanoTime()).isLessThan(deadline);
+                    Thread.sleep(20);
+                }
+                holder.commit();
+                var response = pending.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(response.getStatus()).isEqualTo(409);
+                assertThat(JsonPath.<String>read(response.getContentAsString(), "$.code"))
+                        .isEqualTo("NICKNAME_DUPLICATED");
+            }
+        }
+        assertThat(nicknameOf(a)).isEqualTo("Abc");
+        assertThat(nicknameOf(otherUserId)).isEqualTo("다른러너");
+    }
+
+    // S15P31E105-831 AC-14: 닉네임이 아닌 다른 무결성 오류는 중복 오류(409)로 바꾸지 않는다.
+    @Test
+    void U05_다른_무결성_오류는_503() throws Exception {
+        jdbc.execute("CREATE UNIQUE INDEX tmp_uq_users_birth_date ON users(birth_date)");
+        try {
+            mockMvc.perform(
+                            patch("/api/v1/users/me")
+                                    .header("Authorization", SecurityTestSupport.bearer(userId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"birthDate\":\"1999-01-01\"}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"));
+        } finally {
+            jdbc.execute("DROP INDEX IF EXISTS tmp_uq_users_birth_date");
+        }
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT birth_date::text FROM users WHERE id=?", String.class, userId))
+                .isEqualTo("2000-01-01");
+    }
+
     @Test
     void U05_프로필이미지연결_후삭제() throws Exception {
         MockMultipartFile file =

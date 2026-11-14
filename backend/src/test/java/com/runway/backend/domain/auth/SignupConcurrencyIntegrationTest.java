@@ -68,6 +68,56 @@ class SignupConcurrencyIntegrationTest extends AuthIntegrationSupport {
         assertThat(redis.keys("runway:auth:family:*")).hasSize(1);
     }
 
+    /**
+     * S15P31E105-831: 대소문자만 다른 아이디·닉네임도 두 요청이 사전 확인을 함께 통과한 뒤(insertUser 앞 장벽) lower 식 UNIQUE가 한 건만
+     * 저장한다.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void caseOnlyDifferentIdOrNicknameHasExactlyOneWinner(boolean sameNickname) throws Exception {
+        var barrier = new CyclicBarrier(2);
+        doAnswer(
+                        call -> {
+                            barrier.await(10, TimeUnit.SECONDS);
+                            return call.callRealMethod();
+                        })
+                .when(repository)
+                .insertUser(any(), anyString());
+        var first = SignupValidationTest.payload("Racer001", "QI유저1", false);
+        var other =
+                SignupValidationTest.payload(
+                        sameNickname ? "racer002" : "racer001",
+                        sameNickname ? "qi유저1" : "다른경합",
+                        true);
+        other.put("phoneNumber", "01099990000");
+        String[] json = {mapper.writeValueAsString(first), mapper.writeValueAsString(other)};
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(() -> send(json[0]));
+            var b = executor.submit(() -> send(json[1]));
+            var responses =
+                    java.util.List.of(a.get(20, TimeUnit.SECONDS), b.get(20, TimeUnit.SECONDS));
+            assertThat(responses.stream().map(r -> r.getStatus()))
+                    .containsExactlyInAnyOrder(201, 409);
+            var loser =
+                    responses.stream().filter(r -> r.getStatus() == 409).findFirst().orElseThrow();
+            assertThat(mapper.readTree(loser.getContentAsString()).get("code").asString())
+                    .isEqualTo(sameNickname ? "NICKNAME_DUPLICATED" : "LOGIN_ID_DUPLICATED");
+        }
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM users WHERE lower(login_id) LIKE 'racer%'",
+                                Integer.class))
+                .isEqualTo(1);
+        if (!sameNickname)
+            assertThat(
+                            jdbc.queryForObject(
+                                    "SELECT count(*) FROM users WHERE login_id='racer001'",
+                                    Integer.class))
+                    .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_settings", Integer.class))
+                .isEqualTo(1);
+    }
+
     private org.springframework.mock.web.MockHttpServletResponse send(String json)
             throws Exception {
         return mvc.perform(

@@ -59,7 +59,8 @@ public class SignupService {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         var attempt = new AtomicReference<IssuedRefreshToken>();
         try {
-            if (users.loginIdExists(input.loginId()))
+            // 탈퇴 예약 확인에 원래 입력의 해시도 필요해 보낸 값을 넘긴다(S15P31E105-831). 검증을 통과한 문자열이다.
+            if (users.loginIdExists((String) request.loginId()))
                 throw new ApiException(ErrorCode.LOGIN_ID_DUPLICATED);
             if (users.nicknameExists(input.nickname()))
                 throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);

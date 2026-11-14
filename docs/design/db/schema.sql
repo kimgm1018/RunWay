@@ -1029,7 +1029,11 @@ REFERENCES "regions" (
 
 -- Logical uniqueness, including the reference key for comment parents.
 
-ALTER TABLE "users" ADD CONSTRAINT "uq_users_login_id" UNIQUE ("login_id");
+-- S15P31E105-831 (V45): 아이디는 대소문자 구분 없이 하나만 존재한다. 서버가 소문자로 저장하고 CHECK로 보장한다.
+-- 탈퇴 해시(SHA-256 소문자 16진 64자)도 소문자이며 일반 아이디(4~16자)와 길이가 달라 겹치지 않는다.
+CREATE UNIQUE INDEX "uq_users_login_id" ON "users" (lower("login_id"));
+
+ALTER TABLE "users" ADD CONSTRAINT "ck_users_login_id_lower" CHECK ("login_id" = lower("login_id"));
 
 ALTER TABLE "user_profiles" ADD CONSTRAINT "uq_user_profiles_user_id" UNIQUE ("user_id");
 
@@ -1278,8 +1282,9 @@ CREATE UNIQUE INDEX uq_control_pending ON session_control_events(session_id,devi
     WHERE result IN ('PENDING','UNKNOWN');
 CREATE INDEX ix_control_session_time ON session_control_events(session_id,created_at);
 
--- S15P31E105-222 nickname uniqueness (V4).
-CREATE UNIQUE INDEX "uq_users_nickname" ON "users" ("nickname") WHERE account_status='ACTIVE';
+-- S15P31E105-222 nickname uniqueness (V4, V16 ACTIVE only).
+-- S15P31E105-831 (V45): 대소문자만 다른 닉네임도 같은 닉네임으로 본다. 저장값은 입력 그대로다.
+CREATE UNIQUE INDEX "uq_users_nickname" ON "users" (lower("nickname")) WHERE account_status='ACTIVE';
 
 -- S15P31E105-829 (V43): 활동 중인 크루끼리 이름(대소문자·앞뒤 공백 무시) 중복 금지. 해산(INACTIVE) 크루 이름은 재사용할 수 있다.
 CREATE UNIQUE INDEX uq_crews_active_name ON crews (lower(btrim(name))) WHERE status = 'ACTIVE';
