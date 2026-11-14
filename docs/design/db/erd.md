@@ -284,7 +284,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | 테이블 | 역할과 주요 연결 |
 | --- | --- |
 | `regions` | 지역 코드와 시·도/시·군·구 이름 |
-| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부. 자유러닝에서도 CMT01 코스 공유 선택 시 코스 생성 뒤 연결될 수 있음 |
+| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부. 자유러닝에서도 CMT01 코스 공유 선택 시 코스 생성 뒤 연결될 수 있음. 러닝 세션별 미삭제(`deleted_at IS NULL`) 게시글은 하나(부분 UNIQUE `uq_posts_session_active`, V44, S15P31E105-830) |
 | `comments` | 게시글 댓글. parent_comment_id가 없으면 일반 댓글, 있으면 대댓글 |
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
 | `comment_likes` | 회원과 댓글의 좋아요 관계. 행 존재가 LIKE. UNIQUE(comment_id,user_id), FK comments·users, 탈퇴 정리용 `idx_comment_likes_user_id`(user_id), post_likes와 같은 탈퇴 쓰기 차단 트리거(회원 상태만 검사). 부모 삭제 재확인은 V17 가드 대상(`comments`·`post_likes`)이 아니므로 서비스의 저장 전 확인과 조회 시 삭제 댓글 제외에 의존한다. 확인 직후 댓글 삭제가 커밋되면 삭제된 댓글에 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-633, V28) |
@@ -306,7 +306,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 - **세션 제어:** 세션의 현재 제어기기와 중계 폰은 각각 `user_devices`를 참조한다. 제어 기록은 세션·실행기기에 연결되며, 코칭 명령은 `(session_id, coaching_id)` 복합 FK로 같은 세션의 코칭만 참조한다.
 - **코스 등록:** 완료된 본인 세션의 경로를 코스로 등록하고, 이후 여러 세션과 북마크가 같은 코스를 참조한다. 코스 원본과 회원별 북마크는 별개다.
 - **그룹런:** 크루 → 그룹런 → 참가 관계 → 각 참가자의 개인 세션. 그룹 전체 종료와 개인 러닝 종료는 별개다. 참가 시점에는 개인 세션이 없어도 된다.
-- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다. 코스는 연결 세션의 course_id로 찾고, `posts.course_shared`(S15P31E105-632, V27)로 공유 여부만 저장한다. 완료 자유러닝도 명시적인 개인 코스 저장 또는 CMT01 코스 공유 선택 후에는 course_id가 생긴다. 세션에 코스가 없으면 FALSE로 저장하고, FALSE이면 작성자 외 조회자에게 코스 ID를 주지 않는다. 개인 코스는 작성자·기존 북마크 사용자·현재 접근 가능한 공유 게시물의 독자만 조회·저장한다. 게시물 삭제·공유 해제 후 기존 북마크는 유지한다. V27 이전 게시물은 TRUE로 채운다.
+- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다. 코스는 연결 세션의 course_id로 찾고, `posts.course_shared`(S15P31E105-632, V27)로 공유 여부만 저장한다. 완료 자유러닝도 명시적인 개인 코스 저장 또는 CMT01 코스 공유 선택 후에는 course_id가 생긴다. 세션에 코스가 없으면 FALSE로 저장하고, FALSE이면 작성자 외 조회자에게 코스 ID를 주지 않는다. 개인 코스는 작성자·기존 북마크 사용자·현재 접근 가능한 공유 게시물의 독자만 조회·저장한다. 게시물 삭제·공유 해제 후 기존 북마크는 유지한다. V27 이전 게시물은 TRUE로 채운다. 러닝 기록 하나에는 삭제되지 않은 게시글 하나만 연결한다(S15P31E105-830, V44 부분 UNIQUE `uq_posts_session_active`). 게시글을 삭제한 기록은 다시 공유할 수 있어 삭제된 게시글은 같은 세션에 여러 개 남을 수 있다. CMT01은 이미 있으면 `409 POST_ALREADY_EXISTS`다.
 - **지역:** 코스·크루·게시글의 region_code는 regions.region_code를 FK로 참조한다. regions.region_code는 UNIQUE이며, 존재하지 않는 지역 코드 저장을 막는다. 코스 지역 미판정 상태의 NULL은 허용한다.
 
 모든 테이블의 PK는 `BIGINT GENERATED ALWAYS AS IDENTITY`다. DB가 값을 생성하며 PK 직접 지정은 기본 거부한다. FK 타입은 BIGINT를 유지한다. ID의 빈 번호는 정상이며 시각·원본 순서를 ID만으로 판단하지 않는다. 아래 UNIQUE로 회원별 단일 행과 관계 중복을 방지한다.

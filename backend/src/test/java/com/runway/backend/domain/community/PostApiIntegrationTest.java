@@ -444,6 +444,149 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("POST_NOT_FOUND"));
     }
 
+    // S15P31E105-830: 러닝 기록 하나에는 미삭제 글 하나만. 두 번째 게시는 새 글을 만들지 않고 409와 기존 글 ID를 준다.
+    @Test
+    void 같은기록_두번째게시는_409이고_기존글ID를_준다() throws Exception {
+        long sessionId = insertSession(viewerId, "COMPLETED");
+        String first =
+                mockMvc.perform(
+                                post("/api/v1/posts")
+                                        .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"sessionId":%d,"body":"첫 공유"}
+                                                """
+                                                        .formatted(sessionId)))
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        long firstPostId =
+                new tools.jackson.databind.json.JsonMapper().readTree(first).get("id").asLong();
+
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"body":"두 번째 공유"}
+                                        """
+                                                .formatted(sessionId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("POST_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.message").value("이미 공유한 러닝 기록입니다."))
+                .andExpect(jsonPath("$.details.postId").value(firstPostId));
+
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForList(
+                                "SELECT body FROM posts WHERE session_id=? AND deleted_at IS NULL",
+                                String.class,
+                                sessionId))
+                .containsExactly("첫 공유");
+    }
+
+    @Test
+    void 지운글의_기록은_다시_공유할수있다() throws Exception {
+        mockMvc.perform(
+                        delete("/api/v1/posts/{postId}", viewerPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId)))
+                .andExpect(status().isOk());
+
+        String created =
+                mockMvc.perform(
+                                post("/api/v1/posts")
+                                        .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"sessionId":%d,"body":"다시 공유"}
+                                                """
+                                                        .formatted(viewerCompletedSessionId)))
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        long newPostId =
+                new tools.jackson.databind.json.JsonMapper().readTree(created).get("id").asLong();
+
+        org.assertj.core.api.Assertions.assertThat(newPostId).isNotEqualTo(viewerPostId);
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForList(
+                                "SELECT id FROM posts WHERE session_id=? AND deleted_at IS NULL",
+                                Long.class,
+                                viewerCompletedSessionId))
+                .containsExactly(newPostId);
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM posts WHERE session_id=?",
+                                Long.class,
+                                viewerCompletedSessionId))
+                .isEqualTo(2);
+    }
+
+    // 소유권 검사가 먼저라 타인 기록에 글이 있어도 그 글의 존재·ID를 알리지 않는다.
+    @Test
+    void 타인기록은_글이있어도_403이고_글ID를_주지않는다() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"body":"남의 기록"}
+                                        """
+                                                .formatted(publicAuthorCompletedSessionId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_OWNED"))
+                .andExpect(jsonPath("$.details.postId").doesNotExist());
+    }
+
+    // 리뷰 A-1: 내 기록을 가리키는 타인 글(이상 데이터)은 재검사에서 보지 않아 그 ID를 주지 않는다. 인덱스가 막아 빈 details의 409다.
+    @Test
+    void 내기록에_타인글이_있으면_409이지만_그글ID는_주지않는다() throws Exception {
+        long sessionId = insertSession(viewerId, "COMPLETED");
+        insertPost(outsiderId, sessionId, "이상 데이터");
+
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"body":"내 공유"}
+                                        """
+                                                .formatted(sessionId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("POST_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.details.postId").doesNotExist());
+
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForList(
+                                "SELECT author_id FROM posts WHERE session_id=?",
+                                Long.class,
+                                sessionId))
+                .containsExactly(outsiderId);
+    }
+
+    // 이미 공유한 기록은 입력값과 무관하게 새 글을 만들 수 없으므로 409가 지역 검사(400)보다 먼저다.
+    @Test
+    void 글있는기록에_없는지역이면_409가_먼저다() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"sessionId":%d,"regionCode":"ZZZ"}
+                                        """
+                                                .formatted(viewerCompletedSessionId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("POST_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.details.postId").value(viewerPostId));
+    }
+
     @Test
     void 헤더없으면_401() throws Exception {
         mockMvc.perform(

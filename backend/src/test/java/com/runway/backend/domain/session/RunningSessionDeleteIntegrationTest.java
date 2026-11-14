@@ -139,8 +139,8 @@ class RunningSessionDeleteIntegrationTest extends RunningSessionIntegrationSuppo
     @Test
     void 본인_연결_게시물을_같은_시각으로_삭제하고_이미_삭제된_시각은_유지한다() throws Exception {
         long sessionId = insertSession(userId, "COMPLETED", 5, watchId, phoneId, "READY", null);
+        // S15P31E105-830(V44): 한 기록의 미삭제 게시물은 하나뿐이다. 삭제된 게시물은 여러 개 남을 수 있다.
         long post1 = insertPost(userId, sessionId, false);
-        long post2 = insertPost(userId, sessionId, false);
         long alreadyDeleted = insertPost(userId, sessionId, true);
         long otherSession = insertSession(userId, "COMPLETED", 5, watchId, phoneId, "READY", null);
         long unrelated = insertPost(userId, otherSession, false);
@@ -154,7 +154,6 @@ class RunningSessionDeleteIntegrationTest extends RunningSessionIntegrationSuppo
         Instant deletedAt = Instant.parse(JSON.readTree(body).get("deletedAt").stringValue());
 
         assertThat(postDeletedAt(post1)).isEqualTo(deletedAt);
-        assertThat(postDeletedAt(post2)).isEqualTo(deletedAt);
         assertThat(postDeletedAt(alreadyDeleted)).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
         assertThat(postDeletedAt(unrelated)).isNull();
         assertThat(
@@ -177,7 +176,8 @@ class RunningSessionDeleteIntegrationTest extends RunningSessionIntegrationSuppo
     void 타인_게시물이_같은_세션을_참조하면_전체를_롤백한다() throws Exception {
         long sessionId = insertSession(userId, "COMPLETED", 5, watchId, phoneId, "READY", null);
         long mine = insertPost(userId, sessionId, false);
-        insertPost(otherUserId, sessionId, false);
+        // S09는 삭제 여부와 관계없이 세션의 게시물을 모두 잠그고 작성자를 본다. 미삭제 게시물은 기록당 하나(V44)라 타인 글은 삭제된 행으로 둔다.
+        insertPost(otherUserId, sessionId, true);
 
         mockMvc.perform(deleteRequest(userId, sessionId))
                 .andExpect(status().isInternalServerError())

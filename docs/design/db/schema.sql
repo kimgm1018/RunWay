@@ -1293,6 +1293,10 @@ CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
 CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
     WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
 
+-- S15P31E105-830 (V44): 러닝 기록(세션)별 미삭제 커뮤니티 글은 하나만 허용한다. 지운 글은 제외해 삭제 후 재공유를 허용한다.
+-- CMT01의 세션 잠금 아래 재검사(409 POST_ALREADY_EXISTS)를 DB에서 한 번 더 보장한다.
+CREATE UNIQUE INDEX uq_posts_session_active ON posts(session_id) WHERE deleted_at IS NULL;
+
 -- S15P31E105-409 (V11): FK는 인덱스를 자동 생성하지 않는다. 사용자별 완료 러닝의 종료 시각 최근순 조회(AI09·AI04 등)용.
 CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended_at DESC);
 

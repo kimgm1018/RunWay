@@ -37,10 +37,12 @@ import jakarta.persistence.LockModeType;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -56,6 +58,8 @@ public class PostService {
 
     private static final String SCOPE_ALL = "ALL";
     private static final String SCOPE_FOLLOWING = "FOLLOWING";
+    /** S15P31E105-830 (V44): 러닝 기록별 미삭제 글 하나. */
+    static final String ACTIVE_POST_PER_SESSION = "uq_posts_session_active";
 
     private final PostRepository postRepository;
     private final RunningSessionLookupRepository runningSessionLookupRepository;
@@ -83,6 +87,16 @@ public class PostService {
         }
         if (session.isDeleted() || !session.isCompleted()) {
             throw invalidPost();
+        }
+        // S15P31E105-830: 러닝 기록 하나에는 미삭제 글 하나만 둔다. 세션 잠금 아래(READ COMMITTED)에서 다시 보므로 앞서 커밋한 같은 기록의
+        // 글이 보인다. 거절될 요청이 코스를 만들거나 지역·이미지를 조회하지 않도록 그 검사들보다 먼저 본다. 소유권(403) 검사 뒤이고 작성자 조건으로 본인 글 ID만 준다.
+        Long existingPostId =
+                postRepository
+                        .findActivePostIdBySessionIdAndAuthorId(request.sessionId(), userId)
+                        .orElse(null);
+        if (existingPostId != null) {
+            throw new ApiException(
+                    ErrorCode.POST_ALREADY_EXISTS, Map.of("postId", existingPostId));
         }
 
         // S15P31E105-778: 없는 지역은 외래키 오류(500) 전에, 이미지 키는 크루 사진과 같은 규칙(본인 POST 폴더·uuid·jpg/png·파일
@@ -118,11 +132,39 @@ public class PostService {
                         imageKey,
                         regionCode,
                         courseShared);
-        postRepository.save(post);
-        postRepository.flush();
+        try {
+            // IDENTITY 키라 save에서 INSERT가 나간다. flush까지 함께 감싼다.
+            postRepository.save(post);
+            postRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            // 세션 잠금을 거치지 않은 경로의 중복은 DB 부분 UNIQUE 인덱스가 최종 판정한다. 트랜잭션이 이미 중단돼 기존 글 ID를 다시 읽을 수
+            // 없으므로 details는 비운다. 드라이버 메시지에 입력값이 있을 수 있어 원인을 붙이거나 남기지 않는다. 다른 제약은 그대로 던진다.
+            if (isActivePostConflict(exception)) {
+                throw new ApiException(ErrorCode.POST_ALREADY_EXISTS);
+            }
+            throw exception;
+        }
         entityManager.refresh(post);
         return PostCreateResponse.from(
                 post, courseId, courseFromFreeRun, courseShareFailureReason);
+    }
+
+    /** SQLState 23505이고 제약 이름이 {@value #ACTIVE_POST_PER_SESSION}일 때만 true다. */
+    static boolean isActivePostConflict(Throwable exception) {
+        for (Throwable current = exception; current != null; current = current.getCause()) {
+            if (current instanceof SQLException sql && "23505".equals(sql.getSQLState())) {
+                // PostgreSQL 드라이버는 runtimeOnly라 제약 이름을 리플렉션으로 읽는다(SignupService와 같은 방식).
+                try {
+                    Object message =
+                            current.getClass().getMethod("getServerErrorMessage").invoke(current);
+                    return ACTIVE_POST_PER_SESSION.equals(
+                            message.getClass().getMethod("getConstraint").invoke(message));
+                } catch (ReflectiveOperationException | NullPointerException ignored) {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     /**

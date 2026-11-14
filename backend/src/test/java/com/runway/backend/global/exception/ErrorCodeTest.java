@@ -56,6 +56,9 @@ class ErrorCodeTest {
                 "INVALID_STATE",
                 "현재 상태에서는 삭제할 수 없습니다.",
                 "삭제");
+        // S15P31E105-830: 같은 러닝 기록의 두 번째 게시(CMT01).
+        assertContract(
+                ErrorCode.POST_ALREADY_EXISTS, 409, "POST_ALREADY_EXISTS", "이미 공유한 러닝 기록입니다.");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 수정할 수 있습니다.", "수정");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 삭제할 수 있습니다.", "삭제");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 수정·삭제할 수 있습니다.", "수정·삭제");
