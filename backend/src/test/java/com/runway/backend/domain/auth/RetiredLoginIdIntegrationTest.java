@@ -18,13 +18,15 @@ class RetiredLoginIdIntegrationTest extends AuthIntegrationSupport {
     @Autowired JsonMapper mapper;
 
     @Test
-    void retiredLoginDigestStillReservesOriginalCaseSensitiveLoginId() throws Exception {
+    void retiredLoginDigestReservesLoginIdRegardlessOfCase() throws Exception {
         String digest = RetiredLoginId.digest("runner01");
         jdbc.update("UPDATE users SET login_id=?,account_status='WITHDRAWN',withdrawn_at=now() WHERE id=?",
                 digest, user);
         assertThat(digest).hasSize(64).matches("[0-9a-f]{64}").isNotEqualTo("runner01");
         assertThat(signup.loginIdExists("runner01")).isTrue();
-        assertThat(signup.loginIdExists("Runner01")).isFalse();
+        // S15P31E105-831: 아이디는 대소문자 구분 없이 하나다. 소문자 해시로 예약된 아이디는 대소문자만 달라도 예약돼 있다.
+        assertThat(signup.loginIdExists("Runner01")).isTrue();
+        assertThat(signup.loginIdExists("RUNNER01")).isTrue();
         mvc.perform(post("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(
                                 SignupValidationTest.payload("runner01", "새닉네임", false))))

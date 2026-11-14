@@ -394,7 +394,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 | 테이블 | UNIQUE 조합 |
 | --- | --- |
-| users | login_id, nickname 각각 UNIQUE |
+| users | login_id, nickname 각각 대소문자 무시 UNIQUE(`lower()` 식 고유 인덱스, nickname은 ACTIVE만). login_id는 소문자 CHECK(V45) |
 | user_profiles / user_settings | 각각 user_id |
 | user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
@@ -464,8 +464,9 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 가입과 동의 처리 (S15P31E105-222, 2026-10-29 사용자 확정)
 
-- users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다.
-- users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
+- users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다. V45(S15P31E105-831)에서 같은 이름의 `lower(nickname)` 부분 고유 인덱스로 바꿔 대소문자만 다른 닉네임도 중복으로 본다. 저장값은 입력 그대로다.
+- users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다(V45 이후 확인 기준은 아래 항목). 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
+- users.login_id는 V45(S15P31E105-831)부터 대소문자 구분 없이 하나만 존재한다. 서버가 소문자로 바꿔 저장·조회하고 `ck_users_login_id_lower`(login_id = lower(login_id)) CHECK가 이를 보장한다. 고유성은 같은 이름 `uq_users_login_id`의 `lower(login_id)` 고유 인덱스다(V1의 UNIQUE 제약을 교체). 탈퇴 해시는 소문자 16진 64자라 CHECK를 만족하고 일반 아이디와 길이가 달라 겹치지 않는다. V45 이전 탈퇴 해시는 가입 당시 대소문자 그대로 계산했으므로 가입·중복 확인은 소문자 아이디와 보낸 원래 값의 해시를 모두 확인하며, 대소문자만 다른 예전 탈퇴 아이디의 재사용은 막지 못한다(해시를 되돌릴 수 없어 수용한 한계).
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - user_settings 가입 초기값은 bpm_guide_enabled=true, 나머지 알림·음성=false, 위치 OFF, PRIVATE다(S15P31E105-706). V36은 기존 행 중 `updated_at = created_at`(설정을 한 번도 바꾸지 않음)인 행만 bpm_guide_enabled를 켠다. 한계: 설정 PATCH·공개 범위 변경 등 어떤 UPDATE든 한 번 있었던 행은 BPM 안내를 일부러 끄지 않았어도 그대로 false로 남는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
@@ -481,7 +482,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 회원탈퇴와 쓰기 경합 (S15P31E105-248)
 
-V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
+V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE(V45에서 대소문자 무시 `lower()` 식으로 교체, S15P31E105-831), V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
 
 탈퇴 시 users의 NOT NULL은 유지하고 고정 대체값/로그인 ID 해시를 사용한다. 개인 건강/GPS 및 파생 개인화와 탈퇴자가 만든 개인 코스 경로는 실제 삭제하고, 세션 ID·공용 코스·확정 그룹 결과의 최소 사실은 보존한다. 개인 코스를 저장한 타인의 북마크도 탈퇴 정리에서는 삭제한다. 구체 제거/보존 목록은 users.md U18을 따른다. 이미지 삭제 재시도는 기존 WITHDRAWN과 파일 존재로 처리한다.
 

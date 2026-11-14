@@ -96,6 +96,21 @@ class WithdrawalApiIntegrationTest extends RefreshIntegrationSupport {
             mvc.perform(delete("/api/v1/users/me").header("Authorization",auth()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
         assertThat(state()).isEqualTo("ACTIVE");
     }
+    // S15P31E105-831: 실제 U18 탈퇴는 소문자 저장 아이디의 해시로 예약하고 대소문자만 다른 재가입·U16도 막는다.
+    @Test void withdrawnLoginIdStaysReservedRegardlessOfCase() throws Exception {
+        withdraw().andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT login_id FROM users WHERE id=?",String.class,user))
+            .isEqualTo(RetiredLoginId.digest("runner01"));
+        for (String id : new String[]{"RUNNER01","Runner01"}) {
+            assertThat(signup.loginIdExists(id)).isTrue();
+            mvc.perform(get("/api/v1/auth/login-id/availability").param("loginId",id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.loginId").value(id))
+                .andExpect(jsonPath("$.available").value(false));
+            mvc.perform(post("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON)
+                    .content(mapper.writeValueAsString(SignupValidationTest.payload(id,"재가입",false))))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("LOGIN_ID_DUPLICATED"));
+        }
+    }
     @Test void actualWithdrawalScrubsIdentityRevokesAllFamiliesAndIsIdempotent() throws Exception {
         var a=grant(); var b=grant();
         var response=withdraw().andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store")).andReturn();

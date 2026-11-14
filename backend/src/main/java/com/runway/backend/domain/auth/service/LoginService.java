@@ -4,6 +4,7 @@ import com.runway.backend.domain.auth.dto.LoginResponse;
 import com.runway.backend.domain.auth.repository.AuthUserRepository;
 import com.runway.backend.domain.auth.repository.LoginAttemptStore;
 import com.runway.backend.domain.auth.repository.RefreshTokenStore;
+import com.runway.backend.domain.auth.validation.SignupValidator;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -42,7 +43,9 @@ public class LoginService {
         this.attempts = attempts;
     }
 
-    public LoginResponse login(String loginId, String password) {
+    public LoginResponse login(String submittedLoginId, String password) {
+        // 대소문자 구분 없이 같은 아이디로 보고 실패 제한도 한 키로 모은다(users.md U01, S15P31E105-831).
+        String loginId = SignupValidator.normalizeLoginId(submittedLoginId);
         try {
             attempts.ensureAllowed(loginId);
             var found = users.findByLoginId(loginId);

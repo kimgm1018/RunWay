@@ -13,11 +13,15 @@ public class AuthUserRepository {
         this.jdbc = jdbc;
     }
 
+    /**
+     * 대소문자 구분 없이 아이디로 찾는다(S15P31E105-831). 저장값은 항상 소문자이며 lower 식 고유 인덱스를 쓴다. 호출자가 소문자화를
+     * 빠뜨려도 같은 계정을 찾도록 입력에도 lower()를 씌운다.
+     */
     public Optional<Account> findByLoginId(String loginId) {
         return jdbc
                 .query(
                         "SELECT id, login_id, password, account_status::text FROM users WHERE"
-                                + " login_id = ?",
+                                + " lower(login_id) = lower(?)",
                         (rs, n) ->
                                 new Account(
                                         rs.getLong(1),

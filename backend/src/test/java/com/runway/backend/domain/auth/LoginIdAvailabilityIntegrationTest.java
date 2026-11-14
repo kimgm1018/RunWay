@@ -55,7 +55,8 @@ class LoginIdAvailabilityIntegrationTest extends AuthIntegrationSupport {
 
     @Test
     void availableDuplicatedAndWithdrawnAreReadOnly() throws Exception {
-        for (String id : new String[] {"abcd", "a".repeat(16), "Runner01"}) {
+        // 대문자가 섞인 입력도 보낸 그대로 돌려준다(S15P31E105-831, 대소문자 무시 판정은 CaseInsensitiveIdentityIntegrationTest).
+        for (String id : new String[] {"abcd", "a".repeat(16), "Newbie01"}) {
             mvc.perform(get("/api/v1/auth/login-id/availability").param("loginId", id))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.available").value(true))

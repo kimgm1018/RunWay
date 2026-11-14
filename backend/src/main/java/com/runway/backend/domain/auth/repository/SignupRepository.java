@@ -1,5 +1,6 @@
 package com.runway.backend.domain.auth.repository;
 
+import com.runway.backend.domain.auth.validation.SignupValidator;
 import com.runway.backend.domain.auth.validation.SignupValidator.Input;
 import com.runway.backend.domain.auth.service.RetiredLoginId;
 
@@ -14,18 +15,28 @@ public class SignupRepository {
         this.jdbc = jdbc;
     }
 
-    public boolean loginIdExists(String loginId) {
+    /**
+     * 대소문자 구분 없이 같은 아이디가 있거나 탈퇴로 예약됐는지(users.md U15·U16, S15P31E105-831). 사용자가 보낸 원래 값을 받는다.
+     * 새 탈퇴는 소문자 아이디의 해시로 예약되고, 예전 탈퇴는 가입 당시 대소문자 그대로의 해시라 두 해시를 모두 본다. 대소문자만 다른 예전
+     * 탈퇴 아이디는 해시를 되돌릴 수 없어 찾지 못한다(수용한 한계).
+     */
+    public boolean loginIdExists(String submittedLoginId) {
+        String loginId = SignupValidator.normalizeLoginId(submittedLoginId);
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE login_id=? OR (account_status='WITHDRAWN' AND login_id=?))",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE lower(login_id)=?"
+                                + " OR (account_status='WITHDRAWN' AND lower(login_id) IN (?,?)))",
                         Boolean.class,
-                        loginId, RetiredLoginId.digest(loginId)));
+                        loginId,
+                        RetiredLoginId.digest(loginId),
+                        RetiredLoginId.digest(submittedLoginId)));
     }
 
+    /** ACTIVE 회원 가운데 대소문자만 다른 닉네임도 같은 닉네임으로 본다(uq_users_nickname과 같은 lower 식). */
     public boolean nicknameExists(String nickname) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname=? AND account_status='ACTIVE')",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE lower(nickname)=lower(?) AND account_status='ACTIVE')",
                         Boolean.class,
                         nickname));
     }

@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Locale;
 
 @Repository
 public class LoginAttemptStore {
@@ -47,9 +48,10 @@ public class LoginAttemptStore {
         return result.intValue();
     }
 
+    /** 대소문자만 다른 입력도 같은 키로 모아 잠금 우회를 막는다(S15P31E105-831). */
     public static String key(String loginId) {
         if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
-        return "runway:auth:attempt:" + loginId;
+        return "runway:auth:attempt:" + loginId.toLowerCase(Locale.ROOT);
     }
 }

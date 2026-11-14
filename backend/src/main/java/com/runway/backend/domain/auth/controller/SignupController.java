@@ -47,7 +47,7 @@ public class SignupController {
             name = "loginId",
             in = ParameterIn.QUERY,
             required = true,
-            description = "영문·숫자 4~16자. 조회는 가입 예약이 아닙니다.",
+            description = "영문·숫자 4~16자. 대소문자 구분 없이 판정합니다. 조회는 가입 예약이 아닙니다.",
             schema =
                     @Schema(
                             type = "string",
