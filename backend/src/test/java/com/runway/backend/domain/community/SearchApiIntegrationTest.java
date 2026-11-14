@@ -334,6 +334,58 @@ class SearchApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.crews.length()").value(0));
     }
 
+    // S15P31E105-820: q는 trim 후 50 코드 포인트까지 허용하고 51 이상은 400 VALIDATION_ERROR다.
+    @Test
+    void q는_50자까지_허용되고_51자는_400이다() throws Exception {
+        String fifty = "가".repeat(50);
+        for (String type : new String[] {null, "USER", "CREW"}) {
+            mockMvc.perform(searchRequest(fifty, type)).andExpect(status().isOk());
+            mockMvc.perform(searchRequest("  " + fifty + "  ", type)).andExpect(status().isOk());
+            // 이모지 50개는 UTF-16으로 100이지만 코드 포인트 50이라 허용한다.
+            mockMvc.perform(searchRequest("🏃".repeat(50), type)).andExpect(status().isOk());
+
+            for (String tooLong : new String[] {"가".repeat(51), "🏃".repeat(51)}) {
+                mockMvc.perform(searchRequest(tooLong, type))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                        .andExpect(jsonPath("$.message").value("검색어는 50자 이하여야 합니다."))
+                        .andExpect(jsonPath("$.details").isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void 검사순서는_인증_빈검색어_길이_type_순이다() throws Exception {
+        String tooLong = "가".repeat(51);
+        // 토큰이 없으면 길이와 관계없이 401.
+        mockMvc.perform(get("/api/v1/search").param("q", tooLong))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        // 빈 검색어는 길이 검사 전에 QUERY_TOO_SHORT.
+        mockMvc.perform(searchRequest("   ", "잘못"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("QUERY_TOO_SHORT"));
+        // 길이 초과는 type·limit·cursor 검사보다 먼저이며 같은 VALIDATION_ERROR지만 메시지로 구분한다.
+        mockMvc.perform(searchRequest(tooLong, "잘못"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("검색어는 50자 이하여야 합니다."));
+        mockMvc.perform(searchRequest("달리기", "잘못"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("type은 USER 또는 CREW여야 합니다."));
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+            searchRequest(String q, String type) {
+        var request =
+                get("/api/v1/search")
+                        .param("q", q)
+                        .header("Authorization", SecurityTestSupport.bearer(viewerId));
+        if (type != null) {
+            request.param("type", type);
+        }
+        return request;
+    }
+
     private static String readPage(MvcResult result) throws Exception {
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         return com.jayway.jsonpath.JsonPath.read(body, "$.page");

@@ -40,26 +40,29 @@ public interface CrewRepository extends JpaRepository<Crew, Long> {
     List<Crew> searchActiveByRegion(
             @Param("status") CrewStatus status, @Param("regionCode") String regionCode);
 
+    /** 이름 부분 일치. {@code escapedQuery}는 {@code !}를 이스케이프 문자로 처리한 값이다(S15P31E105-820). */
     @Query(
             """
             select c from Crew c
             where c.status = :status
-              and lower(c.name) like lower(concat('%', :q, '%'))
+              and lower(c.name) like lower(concat('%', :escapedQuery, '%')) escape '!'
             order by c.id asc
             """)
-    List<Crew> searchActiveByName(@Param("status") CrewStatus status, @Param("q") String q);
+    List<Crew> searchActiveByName(
+            @Param("status") CrewStatus status, @Param("escapedQuery") String escapedQuery);
 
+    /** 이름 부분 일치와 지역 필터. {@code escapedQuery}는 {@code !}를 이스케이프 문자로 처리한 값이다. */
     @Query(
             """
             select c from Crew c
             where c.status = :status
-              and lower(c.name) like lower(concat('%', :q, '%'))
+              and lower(c.name) like lower(concat('%', :escapedQuery, '%')) escape '!'
               and c.regionCode = :regionCode
             order by c.id asc
             """)
     List<Crew> searchActiveByNameAndRegion(
             @Param("status") CrewStatus status,
-            @Param("q") String q,
+            @Param("escapedQuery") String escapedQuery,
             @Param("regionCode") String regionCode);
 
     /** 통합 검색용 keyset 조회. {@code escapedQuery}는 {@code !}를 이스케이프 문자로 처리한 값이다. */

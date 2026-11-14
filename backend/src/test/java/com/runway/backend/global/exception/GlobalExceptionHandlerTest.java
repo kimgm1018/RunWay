@@ -377,6 +377,35 @@ class GlobalExceptionHandlerTest {
                         "running_sessions WHERE id");
     }
 
+    // S15P31E105-820: Tomcat이 쿼리 문자열·POST 폼 파라미터를 해석하지 못한 경우(InvalidParameterException)는 400이고 값·메시지·스택을 숨긴다.
+    // 본문 크기 초과(errorCode 413)도 이번에는 413이 아니라 같은 400이며, 로그에는 정수 errorCode만 남긴다.
+    @Test
+    void 파라미터를_해석하지_못하면_400이고_값을_응답과_로그에_남기지_않는다(CapturedOutput output) throws Exception {
+        for (String code : new String[] {"400", "413"}) {
+            mvc.perform(
+                            get("/api/v1/__test/invalid-parameter")
+                                    .param("code", code)
+                                    .header("Authorization", SecurityTestSupport.bearer(1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                    .andExpect(jsonPath("$.details").isEmpty())
+                    .andExpect(
+                            content()
+                                    .string(
+                                            org.hamcrest.Matchers.not(
+                                                    org.hamcrest.Matchers.containsString(
+                                                            "private-bad-value"))));
+        }
+
+        org.assertj.core.api.Assertions.assertThat(output.getAll())
+                .contains(
+                        "runway_route=/api/v1/__test/invalid-parameter runway_method=GET"
+                                + " runway_error=VALIDATION_ERROR invalid_parameter errorcode=400",
+                        "runway_route=/api/v1/__test/invalid-parameter runway_method=GET"
+                                + " runway_error=VALIDATION_ERROR invalid_parameter errorcode=413")
+                .doesNotContain("private-bad-value", "Character decoding failed", " ERROR ");
+    }
+
     // S15P31E105-803 회귀: 같은 22 계열이어도 22021·22P05가 아닌 데이터 오류(길이 초과 22001)는 지금처럼 500이다.
     @Test
     void 다른_데이터_오류는_500을_유지한다() throws Exception {
@@ -505,6 +534,14 @@ class GlobalExceptionHandlerTest {
                     "PreparedStatementCallback",
                     "SELECT 1 FROM regions WHERE region_code = '" + regionCode + "' AND name = '" + q + "'",
                     new java.sql.SQLException("invalid byte sequence near " + regionCode + q, "22021"));
+        }
+
+        /** S15P31E105-820: Tomcat이 파라미터를 읽을 때 던지는 예외. 메시지에 입력값이 들어 있고 code는 Tomcat의 errorCode다. */
+        @GetMapping("/api/v1/__test/invalid-parameter")
+        void invalidParameter(@RequestParam(defaultValue = "400") int code) {
+            throw new org.apache.tomcat.util.http.InvalidParameterException(
+                    "Character decoding failed. Parameter [q] with value [private-bad-value] has been ignored.",
+                    code);
         }
 
         @GetMapping("/__test/data-access")

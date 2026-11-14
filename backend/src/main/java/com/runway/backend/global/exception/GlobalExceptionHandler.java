@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -146,6 +147,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ServletRequestBindingException.class)
     ResponseEntity<ApiErrorResponse> handleRequestBinding(
             ServletRequestBindingException exception) {
+        return validation(List.of());
+    }
+
+    /**
+     * Tomcat이 쿼리 문자열·POST 폼 파라미터를 해석하지 못해 파라미터를 처음 읽는 순간 던진다(S15P31E105-820). 깨진 UTF-8 퍼센트 인코딩(`%ED%A0%BD`),
+     * 잘못된 `%`(`%zz`·끝 `%`), 파라미터 개수 초과, 폼 본문 크기 초과(errorCode 413)·읽기 중단이 모두 여기에 온다. 같은 입력은 다시 보내도 같은 결과라
+     * 이번에는 모두 400 VALIDATION_ERROR로 응답하고(본문 크기 초과도 413이 아님), 원인 구분은 로그의 errorCode 정수로만 한다. 예외 메시지에 깨진
+     * 파라미터 이름·값이 들어 있어 응답에도 로그에도 남기지 않고, 경로·메서드·오류 코드와 정수 errorCode만 warn으로 남긴다. 이 처리기가 받지 못하는 경우: 경로 변수의
+     * 깨진 인코딩(DispatcherServlet 앞에서 Tomcat이 거절), PUT·PATCH·DELETE 폼 본문(Spring FormContentFilter가 풀어 Tomcat 예외를 거치지 않음).
+     */
+    @ExceptionHandler(InvalidParameterException.class)
+    ResponseEntity<ApiErrorResponse> handleInvalidParameter(
+            InvalidParameterException exception, HttpServletRequest request) {
+        log.warn(
+                "runway_route={} runway_method={} runway_error={} invalid_parameter errorcode={}",
+                safeRoute(request),
+                request.getMethod(),
+                ErrorCode.VALIDATION_ERROR.code(),
+                exception.getErrorCode());
         return validation(List.of());
     }
 

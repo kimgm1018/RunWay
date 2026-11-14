@@ -20,6 +20,13 @@ class ErrorCodeTest {
         assertContract(ErrorCode.PROFILE_NOT_SET, 404, "PROFILE_NOT_SET", "러닝 초기 설정이 필요합니다.");
         assertContract(ErrorCode.VALIDATION_ERROR, 400, "VALIDATION_ERROR", "요청 값이 유효하지 않습니다.");
         assertContract(ErrorCode.INTERNAL_ERROR, 500, "INTERNAL_ERROR", "서버 오류가 발생했습니다.");
+        // S15P31E105-820: 내부 코드 이름은 공개 code `VALIDATION_ERROR`로 노출된다. {0}은 ApiException 인자로 채운다.
+        assertContract(
+                ErrorCode.VALIDATION_ERROR_SEARCH_QUERY_TOO_LONG,
+                400,
+                "VALIDATION_ERROR",
+                "검색어는 50자 이하여야 합니다.",
+                "50");
         assertContract(
                 ErrorCode.SERVICE_UNAVAILABLE, 503, "SERVICE_UNAVAILABLE", "일시적으로 처리할 수 없습니다.");
         assertContract(ErrorCode.FORBIDDEN, 403, "FORBIDDEN", "접근 권한이 없습니다.");
