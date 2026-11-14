@@ -1355,6 +1355,14 @@ export type SearchPage = {
   cursor: string | null;
 };
 
+// SV01 (S15P31E105-813): where the answer came from — 4.5's prompt after a saved run, or 8.1's tile.
+export type SatisfactionSurveySource = 'RUN_RESULT' | 'SETTINGS';
+export type SatisfactionSurveyAnswer = {
+  score: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  source: SatisfactionSurveySource;
+};
+
 export type Repositories = {
   auth: {
     login: (request: {
@@ -1397,6 +1405,10 @@ export type Repositories = {
   consents: {
     getHealth: () => Promise<boolean>;
     setHealth: (granted: boolean) => Promise<boolean>;
+  };
+  // 8.1d 만족도 조사 (SV01, S15P31E105-813): one answer of 1–5 and an optional comment; repeats are allowed.
+  surveys: {
+    submit: (answer: SatisfactionSurveyAnswer) => Promise<void>;
   };
   // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
   account: {
