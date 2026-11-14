@@ -284,7 +284,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | 테이블 | 역할과 주요 연결 |
 | --- | --- |
 | `regions` | 지역 코드와 시·도/시·군·구 이름 |
-| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부. 자유러닝에서도 CMT01 코스 공유 선택 시 코스 생성 뒤 연결될 수 있음 |
+| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부. 자유러닝에서도 CMT01 코스 공유 선택 시 코스 생성 뒤 연결될 수 있음. 러닝 세션별 미삭제(`deleted_at IS NULL`) 게시글은 하나(부분 UNIQUE `uq_posts_session_active`, V44, S15P31E105-830) |
 | `comments` | 게시글 댓글. parent_comment_id가 없으면 일반 댓글, 있으면 대댓글 |
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
 | `comment_likes` | 회원과 댓글의 좋아요 관계. 행 존재가 LIKE. UNIQUE(comment_id,user_id), FK comments·users, 탈퇴 정리용 `idx_comment_likes_user_id`(user_id), post_likes와 같은 탈퇴 쓰기 차단 트리거(회원 상태만 검사). 부모 삭제 재확인은 V17 가드 대상(`comments`·`post_likes`)이 아니므로 서비스의 저장 전 확인과 조회 시 삭제 댓글 제외에 의존한다. 확인 직후 댓글 삭제가 커밋되면 삭제된 댓글에 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-633, V28) |
@@ -306,7 +306,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 - **세션 제어:** 세션의 현재 제어기기와 중계 폰은 각각 `user_devices`를 참조한다. 제어 기록은 세션·실행기기에 연결되며, 코칭 명령은 `(session_id, coaching_id)` 복합 FK로 같은 세션의 코칭만 참조한다.
 - **코스 등록:** 완료된 본인 세션의 경로를 코스로 등록하고, 이후 여러 세션과 북마크가 같은 코스를 참조한다. 코스 원본과 회원별 북마크는 별개다.
 - **그룹런:** 크루 → 그룹런 → 참가 관계 → 각 참가자의 개인 세션. 그룹 전체 종료와 개인 러닝 종료는 별개다. 참가 시점에는 개인 세션이 없어도 된다.
-- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다. 코스는 연결 세션의 course_id로 찾고, `posts.course_shared`(S15P31E105-632, V27)로 공유 여부만 저장한다. 완료 자유러닝도 명시적인 개인 코스 저장 또는 CMT01 코스 공유 선택 후에는 course_id가 생긴다. 세션에 코스가 없으면 FALSE로 저장하고, FALSE이면 작성자 외 조회자에게 코스 ID를 주지 않는다. 개인 코스는 작성자·기존 북마크 사용자·현재 접근 가능한 공유 게시물의 독자만 조회·저장한다. 게시물 삭제·공유 해제 후 기존 북마크는 유지한다. V27 이전 게시물은 TRUE로 채운다.
+- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다. 코스는 연결 세션의 course_id로 찾고, `posts.course_shared`(S15P31E105-632, V27)로 공유 여부만 저장한다. 완료 자유러닝도 명시적인 개인 코스 저장 또는 CMT01 코스 공유 선택 후에는 course_id가 생긴다. 세션에 코스가 없으면 FALSE로 저장하고, FALSE이면 작성자 외 조회자에게 코스 ID를 주지 않는다. 개인 코스는 작성자·기존 북마크 사용자·현재 접근 가능한 공유 게시물의 독자만 조회·저장한다. 게시물 삭제·공유 해제 후 기존 북마크는 유지한다. V27 이전 게시물은 TRUE로 채운다. 러닝 기록 하나에는 삭제되지 않은 게시글 하나만 연결한다(S15P31E105-830, V44 부분 UNIQUE `uq_posts_session_active`). 게시글을 삭제한 기록은 다시 공유할 수 있어 삭제된 게시글은 같은 세션에 여러 개 남을 수 있다. CMT01은 이미 있으면 `409 POST_ALREADY_EXISTS`다.
 - **지역:** 코스·크루·게시글의 region_code는 regions.region_code를 FK로 참조한다. regions.region_code는 UNIQUE이며, 존재하지 않는 지역 코드 저장을 막는다. 코스 지역 미판정 상태의 NULL은 허용한다.
 
 모든 테이블의 PK는 `BIGINT GENERATED ALWAYS AS IDENTITY`다. DB가 값을 생성하며 PK 직접 지정은 기본 거부한다. FK 타입은 BIGINT를 유지한다. ID의 빈 번호는 정상이며 시각·원본 순서를 ID만으로 판단하지 않는다. 아래 UNIQUE로 회원별 단일 행과 관계 중복을 방지한다.
@@ -337,6 +337,8 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 ### 크루 정원
 
 **크루 최대 정원은 200명이다.** 각 크루의 `capacity`는 1~200명 범위에서 명시하며, DB의 `CHECK (capacity BETWEEN 1 AND 200)`과 기존 NOT NULL로 보장한다. 모든 크루의 정원을 자동 200명으로 설정하거나 기본값을 추가하지 않는다. 실제 승인 인원이 해당 크루 정원을 넘지 않도록 하는 검증과 동시성 처리는 서비스 책임이다. 그룹런 참가 정원과는 별개이며 현재 group_runs에는 capacity가 없다.
+
+**크루 이름 (S15P31E105-829, Flyway V43).** 활동 중인(`status='ACTIVE'`) 크루끼리는 이름이 같을 수 없다. 비교 키는 `lower(btrim(name))`(대소문자·앞뒤 공백 무시)이며 부분 UNIQUE 인덱스 `uq_crews_active_name`이 보장한다. 대소문자 무시는 DB 로케일의 `lower()`를 따른다(ASCII는 항상 무시, 비ASCII 대소문자는 로케일에 따라 다를 수 있음). 해산(INACTIVE) 크루는 인덱스 대상이 아니라 그 이름을 다시 쓸 수 있다. 내부 공백·전각 공백·유니코드 정규화 차이는 다른 이름이다. M03은 같은 식으로 먼저 조회해 `409 CREW_NAME_DUPLICATED`를 내고, 동시 생성은 이 인덱스가 최종 판정한다. 이름을 바꾸는 경로는 아직 없으며, 해산 크루를 다시 ACTIVE로 되돌리는 기능이 생기면 이름 중복 검사(409 변환)가 필요하다. V43은 기존 활동 크루 이름 중복이 있으면 데이터를 바꾸지 않고 실패한다(운영 DB 중복 0건 확인 2026-11-14).
 
 **정원·가입 방식 변경과 동시성 (S15P31E105-570, 2026-11-09 사용자 확정).** 크루장은 M12로 `capacity`와 `join_policy`를 바꾼다. `capacity`는 현재 APPROVED 인원 미만으로 줄일 수 없다. M04 가입 신청·M06 승인·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경은 같은 `crews` 행을 `SELECT … FOR UPDATE`로 먼저 잠근다. 인원을 세는 M04 바로 가입·M06 승인·M12는 잠금 아래에서 세므로 동시에 실행돼도 APPROVED 인원이 `capacity`를 넘지 않고, M08 이양·M11 해산은 M12 변경을 덮어쓰거나 해산 뒤 멤버를 남기지 않는다. INSTANT로 바꿔도 기존 PENDING 행은 그대로 둔다. 기준 SQL·Flyway V21을 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
@@ -392,7 +394,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 | 테이블 | UNIQUE 조합 |
 | --- | --- |
-| users | login_id, nickname 각각 UNIQUE |
+| users | login_id, nickname 각각 대소문자 무시 UNIQUE(`lower()` 식 고유 인덱스, nickname은 ACTIVE만). login_id는 소문자 CHECK(V45) |
 | user_profiles / user_settings | 각각 user_id |
 | user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
@@ -462,8 +464,9 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 가입과 동의 처리 (S15P31E105-222, 2026-10-29 사용자 확정)
 
-- users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다.
-- users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
+- users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다. V45(S15P31E105-831)에서 같은 이름의 `lower(nickname)` 부분 고유 인덱스로 바꿔 대소문자만 다른 닉네임도 중복으로 본다. 저장값은 입력 그대로다.
+- users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다(V45 이후 확인 기준은 아래 항목). 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
+- users.login_id는 V45(S15P31E105-831)부터 대소문자 구분 없이 하나만 존재한다. 서버가 소문자로 바꿔 저장·조회하고 `ck_users_login_id_lower`(login_id = lower(login_id)) CHECK가 이를 보장한다. 고유성은 같은 이름 `uq_users_login_id`의 `lower(login_id)` 고유 인덱스다(V1의 UNIQUE 제약을 교체). 탈퇴 해시는 소문자 16진 64자라 CHECK를 만족하고 일반 아이디와 길이가 달라 겹치지 않는다. V45 이전 탈퇴 해시는 가입 당시 대소문자 그대로 계산했으므로 가입·중복 확인은 소문자 아이디와 보낸 원래 값의 해시를 모두 확인하며, 대소문자만 다른 예전 탈퇴 아이디의 재사용은 막지 못한다(해시를 되돌릴 수 없어 수용한 한계).
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - user_settings 가입 초기값은 bpm_guide_enabled=true, 나머지 알림·음성=false, 위치 OFF, PRIVATE다(S15P31E105-706). V36은 기존 행 중 `updated_at = created_at`(설정을 한 번도 바꾸지 않음)인 행만 bpm_guide_enabled를 켠다. 한계: 설정 PATCH·공개 범위 변경 등 어떤 UPDATE든 한 번 있었던 행은 BPM 안내를 일부러 끄지 않았어도 그대로 false로 남는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
@@ -479,7 +482,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 회원탈퇴와 쓰기 경합 (S15P31E105-248)
 
-V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
+V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE(V45에서 대소문자 무시 `lower()` 식으로 교체, S15P31E105-831), V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
 
 탈퇴 시 users의 NOT NULL은 유지하고 고정 대체값/로그인 ID 해시를 사용한다. 개인 건강/GPS 및 파생 개인화와 탈퇴자가 만든 개인 코스 경로는 실제 삭제하고, 세션 ID·공용 코스·확정 그룹 결과의 최소 사실은 보존한다. 개인 코스를 저장한 타인의 북마크도 탈퇴 정리에서는 삭제한다. 구체 제거/보존 목록은 users.md U18을 따른다. 이미지 삭제 재시도는 기존 WITHDRAWN과 파일 존재로 처리한다.
 

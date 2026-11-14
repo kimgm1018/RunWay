@@ -48,9 +48,9 @@ import {
   scheduleDays,
   scheduleProblem,
   scheduleProblemText,
-  scheduleRefusedText,
   timesOn as timesOnDay,
 } from './groupRunSchedule';
+import { groupRunValidationText } from './groupRunErrors';
 import { BackButton } from '../../components/BackButton';
 import {
   ColorBar,
@@ -687,9 +687,10 @@ export function GroupRunCreateScreen() {
           // answered alike, so the notice does not guess which (S15P31E105-696 review B-1).
           errorCode(error) === 'COURSE_INACCESSIBLE'
           ? '이 코스는 그룹런에 쓸 수 없어요. 다른 코스를 골라 주세요'
-          : // The server's schedule window (S15P31E105-779), for a day and time the form let through.
+          : // 400 VALIDATION_ERROR: the schedule window (S15P31E105-779) or a text that is too long. The answer names
+          // the input the server pointed at instead of always blaming the date and time (S15P31E105-818).
           errorCode(error) === 'VALIDATION_ERROR'
-          ? scheduleRefusedText
+          ? groupRunValidationText(error)
           : !edited
           ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
           : errorCode(error) === 'EDIT_NOT_ALLOWED'

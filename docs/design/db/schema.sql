@@ -1029,7 +1029,11 @@ REFERENCES "regions" (
 
 -- Logical uniqueness, including the reference key for comment parents.
 
-ALTER TABLE "users" ADD CONSTRAINT "uq_users_login_id" UNIQUE ("login_id");
+-- S15P31E105-831 (V45): 아이디는 대소문자 구분 없이 하나만 존재한다. 서버가 소문자로 저장하고 CHECK로 보장한다.
+-- 탈퇴 해시(SHA-256 소문자 16진 64자)도 소문자이며 일반 아이디(4~16자)와 길이가 달라 겹치지 않는다.
+CREATE UNIQUE INDEX "uq_users_login_id" ON "users" (lower("login_id"));
+
+ALTER TABLE "users" ADD CONSTRAINT "ck_users_login_id_lower" CHECK ("login_id" = lower("login_id"));
 
 ALTER TABLE "user_profiles" ADD CONSTRAINT "uq_user_profiles_user_id" UNIQUE ("user_id");
 
@@ -1278,8 +1282,12 @@ CREATE UNIQUE INDEX uq_control_pending ON session_control_events(session_id,devi
     WHERE result IN ('PENDING','UNKNOWN');
 CREATE INDEX ix_control_session_time ON session_control_events(session_id,created_at);
 
--- S15P31E105-222 nickname uniqueness (V4).
-CREATE UNIQUE INDEX "uq_users_nickname" ON "users" ("nickname") WHERE account_status='ACTIVE';
+-- S15P31E105-222 nickname uniqueness (V4, V16 ACTIVE only).
+-- S15P31E105-831 (V45): 대소문자만 다른 닉네임도 같은 닉네임으로 본다. 저장값은 입력 그대로다.
+CREATE UNIQUE INDEX "uq_users_nickname" ON "users" (lower("nickname")) WHERE account_status='ACTIVE';
+
+-- S15P31E105-829 (V43): 활동 중인 크루끼리 이름(대소문자·앞뒤 공백 무시) 중복 금지. 해산(INACTIVE) 크루 이름은 재사용할 수 있다.
+CREATE UNIQUE INDEX uq_crews_active_name ON crews (lower(btrim(name))) WHERE status = 'ACTIVE';
 
 -- S15P31E105-251 (V5): 회원별·유형별 연결 중(unlinked_at IS NULL) 기기는 하나만 허용한다.
 CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
@@ -1289,6 +1297,10 @@ CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
 -- 기존 기록(state_version=0)은 제외한다. S01의 회원별 생성 잠금을 DB에서 한 번 더 보장한다.
 CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
     WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
+
+-- S15P31E105-830 (V44): 러닝 기록(세션)별 미삭제 커뮤니티 글은 하나만 허용한다. 지운 글은 제외해 삭제 후 재공유를 허용한다.
+-- CMT01의 세션 잠금 아래 재검사(409 POST_ALREADY_EXISTS)를 DB에서 한 번 더 보장한다.
+CREATE UNIQUE INDEX uq_posts_session_active ON posts(session_id) WHERE deleted_at IS NULL;
 
 -- S15P31E105-409 (V11): FK는 인덱스를 자동 생성하지 않는다. 사용자별 완료 러닝의 종료 시각 최근순 조회(AI09·AI04 등)용.
 CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended_at DESC);

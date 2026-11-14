@@ -20,9 +20,26 @@ class ErrorCodeTest {
         assertContract(ErrorCode.PROFILE_NOT_SET, 404, "PROFILE_NOT_SET", "러닝 초기 설정이 필요합니다.");
         assertContract(ErrorCode.VALIDATION_ERROR, 400, "VALIDATION_ERROR", "요청 값이 유효하지 않습니다.");
         assertContract(ErrorCode.INTERNAL_ERROR, 500, "INTERNAL_ERROR", "서버 오류가 발생했습니다.");
+        // S15P31E105-820: 내부 코드 이름은 공개 code `VALIDATION_ERROR`로 노출된다. {0}은 ApiException 인자로 채운다.
+        assertContract(
+                ErrorCode.VALIDATION_ERROR_SEARCH_QUERY_TOO_LONG,
+                400,
+                "VALIDATION_ERROR",
+                "검색어는 50자 이하여야 합니다.",
+                "50");
         assertContract(
                 ErrorCode.SERVICE_UNAVAILABLE, 503, "SERVICE_UNAVAILABLE", "일시적으로 처리할 수 없습니다.");
         assertContract(ErrorCode.FORBIDDEN, 403, "FORBIDDEN", "접근 권한이 없습니다.");
+    }
+
+    // S15P31E105-829: 활동 중인 크루 이름 중복(M03)
+    @Test
+    void crewErrorsKeepTheirPublicContract() {
+        assertContract(
+                ErrorCode.CREW_NAME_DUPLICATED,
+                409,
+                "CREW_NAME_DUPLICATED",
+                "이미 사용 중인 크루 이름입니다.");
     }
 
     @Test
@@ -39,6 +56,9 @@ class ErrorCodeTest {
                 "INVALID_STATE",
                 "현재 상태에서는 삭제할 수 없습니다.",
                 "삭제");
+        // S15P31E105-830: 같은 러닝 기록의 두 번째 게시(CMT01).
+        assertContract(
+                ErrorCode.POST_ALREADY_EXISTS, 409, "POST_ALREADY_EXISTS", "이미 공유한 러닝 기록입니다.");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 수정할 수 있습니다.", "수정");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 삭제할 수 있습니다.", "삭제");
         assertContract(ErrorCode.NOT_AUTHOR, 403, "NOT_AUTHOR", "작성자만 수정·삭제할 수 있습니다.", "수정·삭제");

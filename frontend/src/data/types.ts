@@ -675,6 +675,17 @@ export type GroupRunSummary = {
   status: GroupRunStatus;
 };
 
+// A SCHEDULED run whose start passed more than this ago is stale (S15P31E105-823): the host may still start it
+// late (the server sets no deadline), but it no longer takes the 6.0 pin or tops its crew's list.
+export const groupRunLateStartMs = 60 * 60 * 1000;
+
+export const isStaleGroupRun = (
+  run: Pick<GroupRunSummary, 'status' | 'scheduledAt'>,
+  now: number,
+) =>
+  run.status === 'SCHEDULED' &&
+  Date.parse(run.scheduledAt) < now - groupRunLateStartMs;
+
 // 6.0: the run about to start is pinned on top; crews list their upcoming runs.
 export type MyGroupRuns = {
   upcoming: GroupRunSummary | null;
@@ -738,6 +749,7 @@ export type GroupPaceInfo = {
   kmPaces: number[];
   // Where the last km ends (m), to label a last part shorter than 1 km.
   kmDistanceM: number;
+  startStrategy?: { label: string; expectedDurationSec: number };
 };
 
 // S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.

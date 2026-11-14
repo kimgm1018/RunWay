@@ -509,6 +509,7 @@ export function GroupRunDetailScreen() {
               route={run.route}
               paces={run.pace && !run.pace.calculating ? run.pace.kmPaces : []}
               distanceM={run.pace?.kmDistanceM ?? 0}
+              strategy={run.pace?.calculating ? undefined : run.pace?.startStrategy}
               style={styles.mapCard}
             >
               <RunMap
@@ -578,7 +579,7 @@ export function GroupRunDetailScreen() {
                   <StandTag label="취소됨" tone="danger" style={styles.tag} />
                 ) : (
                   <StandTag
-                    label={dDay(run.scheduledAt, now)}
+                    label={dDay(run.scheduledAt, now, run.status)}
                     style={styles.tag}
                   />
                 )}
@@ -712,6 +713,7 @@ export function GroupRunDetailScreen() {
                     <GroupPaceCard
                       pace={run.pace}
                       goal={cardGoal(run)}
+                      showKmPaces={!run.route?.length}
                       change={change}
                       canChangeMode={
                         run.isHost &&

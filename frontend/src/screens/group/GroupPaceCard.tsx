@@ -7,7 +7,7 @@ import type {
   GroupRunParticipant,
   GroupRunSummary,
 } from '../../data';
-import { formatPace } from '../../format';
+import { formatDuration, formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { groupTone, NumText } from './look';
 import { KmPaceToggle } from '../run/KmPacePills';
@@ -172,10 +172,22 @@ export function goalSubLine(goal: CardGoal, goalSecPerKm: number | null) {
   return [distance, time].filter(Boolean).join(' · ') || null;
 }
 
+export function GroupStartStrategy({ strategy }: { strategy: GroupPaceInfo['startStrategy'] }) {
+  if (!strategy) return null;
+  return (
+    <View>
+      <AppText style={styles.title}>오늘의 전략</AppText>
+      <AppText>{strategy.label}</AppText>
+      <AppText>{`예상 완주 시간 ${formatDuration(strategy.expectedDurationSec)}`}</AppText>
+    </View>
+  );
+}
+
 export function GroupPaceCard({
   pace,
   change,
   canChangeMode,
+  showKmPaces = true,
   busy,
   onChangeMode,
   onEditGoal,
@@ -186,6 +198,7 @@ export function GroupPaceCard({
   goal?: CardGoal;
   change: PaceChange | null;
   canChangeMode: boolean;
+  showKmPaces?: boolean;
   busy: boolean;
   onChangeMode: (mode: GroupPaceMode) => void;
   // Only for the host before the run (S15P31E105-702); members just read the goal.
@@ -216,7 +229,7 @@ export function GroupPaceCard({
   const slower = pace.slowerThanGoalCount ?? 0;
   // S15P31E105-739: the km paces of the start plan open on a press (KmPaceToggle), closed at first; not while the
   // server recalculates, nor when it has none.
-  const hasKm = !calculating && pace.kmPaces.length > 0;
+  const hasKm = showKmPaces && !calculating && pace.kmPaces.length > 0;
   return (
     <View style={styles.card}>
       <View style={styles.head}>
@@ -238,7 +251,6 @@ export function GroupPaceCard({
         />
       ) : null}
       <Row label="AI 추천" value={aiValue} sub={aiSub} applied={aiApplied} />
-      {/* The km pills split the AI pace by km, so they read right under it (S15P31E105-739). */}
       {hasKm ? (
         <KmPaceToggle
           paces={pace.kmPaces}

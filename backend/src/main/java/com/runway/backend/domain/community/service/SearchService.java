@@ -12,6 +12,7 @@ import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.global.search.SearchKeywords;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,7 +32,6 @@ public class SearchService {
 
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 50;
-    private static final char LIKE_ESCAPE = '!';
 
     /** `0`=축 소진, `-`=미조회(처음부터), 양수=해당 id 다음부터. */
     private static final Pattern CURSOR_PATTERN =
@@ -49,10 +49,11 @@ public class SearchService {
         if (keyword.isEmpty()) {
             throw new ApiException(ErrorCode.QUERY_TOO_SHORT);
         }
+        SearchKeywords.requireWithinMaxLength(keyword);
         SearchType searchType = parseType(type);
         int pageSize = resolveLimit(limit);
         SearchCursor searchCursor = parseCursor(cursor);
-        String escaped = escapeLike(keyword);
+        String escaped = SearchKeywords.escapeLike(keyword);
 
         List<SearchUserItemResponse> users = null;
         Axis nextUser = Axis.unqueried();
@@ -206,17 +207,6 @@ public class SearchService {
         return Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String escapeLike(String keyword) {
-        StringBuilder builder = new StringBuilder(keyword.length());
-        for (char ch : keyword.toCharArray()) {
-            if (ch == LIKE_ESCAPE || ch == '%' || ch == '_') {
-                builder.append(LIKE_ESCAPE);
-            }
-            builder.append(ch);
-        }
-        return builder.toString();
     }
 
     private static ApiException invalidCursor() {

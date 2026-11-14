@@ -30,6 +30,7 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired com.runway.backend.domain.image.ImageStorage imageStorage;
+    @Autowired com.runway.backend.domain.community.service.PostService postService;
 
     @Test
     void 자유러닝은_명시적으로_저장하고_공유전에는_타인이_볼수없다() throws Exception {
@@ -119,6 +120,59 @@ class RunCourseIntegrationTest extends SharedContextIntegrationSupport {
         } finally {
             imageStorage.deletePersonalImages(other);
         }
+    }
+
+    // S15P31E105-830: 코스 변환이 있는 같은 기록의 동시 공유도 글과 코스가 하나씩만 생긴다. 나머지는 409 POST_ALREADY_EXISTS다.
+    // 코스 변환에 고도 소스가 필요해 경로 스텁을 켠 이 클래스의 컨텍스트에서 확인한다.
+    @Test
+    void 동시20회_코스공유_게시도_글과_코스는_하나다() throws Exception {
+        long owner = user("run_dup_owner", "01090001041");
+        long session = session(owner);
+        point(session, 10, 127.000);
+        point(session, 20, 127.001);
+        var request = new com.runway.backend.domain.community.dto.request.CreatePostRequest(
+                session, "동시 코스 공유", null, null, null, true);
+
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(20);
+        var ready = new java.util.concurrent.CountDownLatch(20);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var results = new java.util.ArrayList<String>();
+        try {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<String>>();
+            for (int i = 0; i < 20; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    try {
+                        return "OK:" + postService.create(owner, request).id();
+                    } catch (com.runway.backend.global.exception.ApiException ex) {
+                        return ex.code() + ":" + ex.details().get("postId");
+                    }
+                }));
+            }
+            assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            for (var future : futures) {
+                results.add(future.get(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+        } finally {
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+
+        var created = results.stream().filter(r -> r.startsWith("OK:")).toList();
+        assertThat(created).hasSize(1);
+        String postId = created.getFirst().substring("OK:".length());
+        assertThat(results).filteredOn(r -> !r.startsWith("OK:"))
+                .hasSize(19)
+                .allMatch(r -> r.equals("POST_ALREADY_EXISTS:" + postId));
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM posts WHERE session_id=? AND deleted_at IS NULL", Integer.class, session))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM courses WHERE source_session_id=?",
+                Integer.class, session)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT course_shared FROM posts WHERE id=?",
+                Boolean.class, Long.parseLong(postId))).isTrue();
     }
 
     @Test

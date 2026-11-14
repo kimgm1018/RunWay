@@ -42,7 +42,6 @@ import {
 import {
   GoButton,
   Logo,
-  OnboardingFooter,
   OnboardingHeader,
   onboardingLook,
   onboardingScreen,
@@ -347,28 +346,6 @@ export function WatchConnectScreen() {
           <View style={styles.headerSide} />
         </View>
       }
-      footer={
-        // 1.7 ends in the same ink button as the other 1.x steps (담당자 결정: 밀어서 → 버튼).
-        connected && !busy ? (
-          <OnboardingFooter>
-            <GoButton title="시작하기" onPress={finish} />
-          </OnboardingFooter>
-        ) : !busy && (connection || error) ? (
-          <OnboardingFooter>
-            {connection ? (
-              <GoButton
-                title={noWatch ? '워치 연결하기' : '다시 연결'}
-                onPress={reconnect}
-              />
-            ) : null}
-            <TextLink
-              title="나중에 연결하기"
-              onPress={finish}
-              style={styles.later}
-            />
-          </OnboardingFooter>
-        ) : undefined
-      }
     >
       <View style={styles.faceArea}>
         <WatchFace
@@ -457,6 +434,27 @@ export function WatchConnectScreen() {
           </View>
         ) : null}
       </View>
+      {/* 다시 연결/나중에 연결하기가 고정 footer로 떠 있으면 아래 권한 카드 위에 겹쳐 보였다
+          (QA 발견, S15P31E105-825). footer prop 대신 일반 콘텐츠로 두어 다른 내용과 함께 스크롤되게 한다. */}
+      {connected && !busy ? (
+        <View style={styles.footerArea}>
+          <GoButton title="시작하기" onPress={finish} />
+        </View>
+      ) : !busy && (connection || error) ? (
+        <View style={styles.footerArea}>
+          {connection ? (
+            <GoButton
+              title={noWatch ? '워치 연결하기' : '다시 연결'}
+              onPress={reconnect}
+            />
+          ) : null}
+          <TextLink
+            title="나중에 연결하기"
+            onPress={finish}
+            style={styles.later}
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -543,5 +541,6 @@ const styles = StyleSheet.create({
   },
   permissionIcon: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   errorBox: { alignItems: 'center', gap: spacing.md },
+  footerArea: { gap: spacing.md, marginTop: spacing.xl },
   later: { alignSelf: 'center' },
 });

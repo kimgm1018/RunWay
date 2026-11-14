@@ -134,3 +134,15 @@ test('debounces rapid input and renders successful empty results', async () => {
   expect(search).toHaveBeenCalledWith('공원');
   expect(text()).toContain('찾는 장소가 없어요');
 });
+
+// S15P31E105-818: the place search stops at the server's 100.
+test('limits the area search to the server limit of 100', async () => {
+  const field = screen.root
+    .findAll(
+      node =>
+        node.props.accessibilityLabel === '지역 검색' &&
+        typeof node.props.onChangeText === 'function',
+    )
+    .pop()!;
+  expect(field.props.maxLength).toBe(100);
+});

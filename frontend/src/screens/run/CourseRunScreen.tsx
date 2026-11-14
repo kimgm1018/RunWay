@@ -18,6 +18,7 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, ThemeProvider, useTheme } from '../../theme';
+import { KmPacePills, visibleKmPaces } from './KmPacePills';
 import { MapScreenFrame } from './MapScreenFrame';
 import { RunMap } from '../../components/RunMap';
 import { gpsLabels, PlaceRetryCard, RunStartBar } from './parts';
@@ -258,7 +259,10 @@ export function CourseRunScreen() {
       : {},
   );
   // The plan's pace per km as map labels (S15P31E105-748). Missing or bad values leave the map without labels.
-  const kmPaces = plan?.segmentPacesSecPerKm ?? [];
+  const kmPaces = visibleKmPaces(
+    plan?.segmentPacesSecPerKm ?? [],
+    plan?.distanceM ?? 0,
+  );
   const kmLabels =
     kmPaces.length > 0 &&
     kmPaces.every(pace => Number.isFinite(pace) && pace > 0)
@@ -411,20 +415,10 @@ export function CourseRunScreen() {
           {plan.segmentPacesSecPerKm.length ? (
             // km별 추천 페이스 (S15P31E105-733): one small pill a km, and where the plan comes from.
             <>
-              <View style={styles.kmRow} accessibilityLabel="km별 추천 페이스">
-                {plan.segmentPacesSecPerKm.map((value, index) => (
-                  <View key={index} style={styles.kmPill}>
-                    <AppText style={styles.kmLabel}>
-                      {/* The last pill of a course that does not end on a whole km is labelled by its end (5.3km). */}
-                      {index === plan.segmentPacesSecPerKm.length - 1 &&
-                      plan.distanceM % 1000 !== 0
-                        ? `${(plan.distanceM / 1000).toFixed(1)}km`
-                        : `${index + 1}km`}
-                    </AppText>
-                    <AppText style={styles.kmPace}>{formatPace(value)}</AppText>
-                  </View>
-                ))}
-              </View>
+              <KmPacePills
+                paces={plan.segmentPacesSecPerKm}
+                distanceM={plan.distanceM}
+              />
               {plan.planSource ? (
                 <AppText
                   style={[
@@ -492,6 +486,7 @@ export function CourseRunScreen() {
               // (S15P31E105-748). No km paces (first run, no server plan): the line alone.
               route={plan?.route}
               paceLabels={kmLabels}
+              pacePlanDistanceM={plan?.distanceM}
               unmeasuredEdges={plan?.unmeasuredEdges}
               position={place?.position ?? undefined}
               placeLabel={
@@ -612,28 +607,6 @@ const styles = StyleSheet.create({
     color: '#67696E',
   },
   caution: { fontFamily: fontFamily.bold, color: '#D44A4A' },
-  kmRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  kmPill: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: k1.light,
-  },
-  kmLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 11,
-    lineHeight: 15,
-    color: '#67696E',
-  },
-  kmPace: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 18,
-    color: ink,
-  },
   calculating: {
     flexDirection: 'row',
     alignItems: 'center',

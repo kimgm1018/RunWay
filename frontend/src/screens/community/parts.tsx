@@ -234,7 +234,12 @@ function Stat({
 }) {
   return (
     <View style={styles.stat}>
-      <AppText style={styles.statValue}>
+      <AppText
+        style={styles.statValue}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
         {value}
         {unit ? <AppText style={styles.statUnit}>{` ${unit}`}</AppText> : null}
       </AppText>
@@ -543,7 +548,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     marginTop: 10,
   },
-  stat: { alignItems: 'center' },
+  // 작은 화면에서 칸이 좁아져도 값이 두 줄로 쪼개지지 않게 줄여서 한 줄로 맞춘다(S15P31E105-819).
+  stat: { alignItems: 'center', flexShrink: 1, minWidth: 0 },
   statValue: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 17,

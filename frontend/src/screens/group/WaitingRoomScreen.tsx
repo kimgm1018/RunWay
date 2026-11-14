@@ -57,7 +57,8 @@ import {
   StandTag,
   standType,
 } from './stand';
-import { KmPaceToggle } from '../run/KmPacePills';
+import { GroupStartStrategy } from './GroupPaceCard';
+import { KmPaceToggle, visibleKmPaces } from '../run/KmPacePills';
 import { RunMap } from '../../components/RunMap';
 import { CourseMapZoom } from './CourseMapZoom';
 
@@ -189,11 +190,13 @@ function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
                 route={run.route}
                 paces={km}
                 distanceM={run.pace?.kmDistanceM ?? 0}
+                strategy={run.pace?.startStrategy}
                 style={styles.kmMap}
               >
                 <RunMap
                   route={run.route}
-                  paceLabels={km.map(value => formatPace(value))}
+                  paceLabels={visibleKmPaces(km, run.pace?.kmDistanceM ?? 0).map(formatPace)}
+                  pacePlanDistanceM={run.pace?.kmDistanceM}
                   fitTo={run.route}
                   interactive={false}
                   poles={false}
@@ -202,7 +205,9 @@ function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
                   style={StyleSheet.absoluteFill}
                 />
               </CourseMapZoom>
-            ) : undefined
+            ) : (
+              <GroupStartStrategy strategy={run.pace?.startStrategy} />
+            )
           }
         />
       ) : null}

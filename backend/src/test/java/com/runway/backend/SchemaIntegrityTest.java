@@ -149,6 +149,24 @@ class SchemaIntegrityTest {
         }
     }
 
+    private void rejectsWith(String state, String constraint, String sql) throws SQLException {
+        var savepoint = connection.setSavepoint();
+        try {
+            var exception = catchThrowable(() -> execute(sql));
+            assertThat(exception)
+                    .as("Expected SQLSTATE %s on %s", state, constraint)
+                    .isInstanceOfSatisfying(
+                            SQLException.class,
+                            error -> {
+                                assertThat(error.getSQLState()).isEqualTo(state);
+                                assertThat(error.getMessage()).contains("\"" + constraint + "\"");
+                            });
+        } finally {
+            connection.rollback(savepoint);
+            connection.releaseSavepoint(savepoint);
+        }
+    }
+
     private void rejects(String state, String sql) throws SQLException {
         var savepoint = connection.setSavepoint();
         try {
@@ -259,6 +277,25 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND"
                                         + " tablename='user_consent_events'"))
                 .isZero();
+    }
+
+    // S15P31E105-831: 아이디는 소문자로만 저장되고, 아이디·ACTIVE 닉네임은 대소문자만 달라도 같은 값이다.
+    @Test
+    void loginIdIsLowercaseAndCaseInsensitivelyUnique() throws Exception {
+        execute(userSql("abc12"));
+        rejectsWith("23505", "uq_users_nickname", userSql("abc13").replace("'abc13','2000", "'ABC12','2000"));
+        rejectsWith("23514", "ck_users_login_id_lower", userSql("RUNNER02"));
+        rejectsWith("23505", "uq_users_login_id", userSql("abc12").replace("'abc12','2000", "'other','2000"));
+        // 탈퇴 회원은 닉네임 판정 대상이 아니다.
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,
+                    health_data_access,account_status,withdrawn_at)
+                VALUES ('%s','!WITHDRAWN!','Abc12','1970-01-01','MALE','00000000000','DISAGREE',
+                    'WITHDRAWN',now())
+                """
+                        .formatted("a".repeat(64)));
+        assertThat(number("SELECT count(*) FROM users WHERE lower(nickname)='abc12'")).isEqualTo(2);
     }
 
     @Test
@@ -385,6 +422,24 @@ class SchemaIntegrityTest {
                 "INSERT INTO crews(owner_id,name,capacity) VALUES (" + user + ",'invalid',NULL)");
         rejects("23502", "UPDATE crews SET capacity=NULL WHERE id=" + crew);
         assertThat(number("SELECT capacity FROM crews WHERE id=" + crew)).isEqualTo(10);
+    }
+
+    // S15P31E105-829: 활동 중인 크루끼리만 이름(대소문자·앞뒤 공백 무시)이 유일하다. 해산 크루 이름은 다시 쓸 수 있다.
+    @Test
+    void activeCrewNamesAreUniqueIgnoringCaseAndOuterSpaces() throws Exception {
+        String insert = "INSERT INTO crews(owner_id,name,capacity,status) VALUES (" + user + ",'%s',10,'%s')";
+        insert(insert.formatted("Same", "ACTIVE"));
+        rejects("23505", insert.formatted("Same", "ACTIVE"));
+        rejects("23505", insert.formatted("SAME", "ACTIVE"));
+        rejects("23505", insert.formatted("  same ", "ACTIVE"));
+        // 내부 공백이 다르면 다른 이름이다.
+        insert(insert.formatted("Sa me", "ACTIVE"));
+        // 해산(INACTIVE) 크루와는 겹쳐도 된다. 해산끼리도 겹칠 수 있다.
+        insert(insert.formatted("Gone", "INACTIVE"));
+        insert(insert.formatted("gone", "ACTIVE"));
+        insert(insert.formatted("GONE", "INACTIVE"));
+        assertThat(number("SELECT count(*) FROM crews WHERE lower(btrim(name))='gone'"))
+                .isEqualTo(3);
     }
 
     @Test

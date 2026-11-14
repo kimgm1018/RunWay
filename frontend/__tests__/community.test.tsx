@@ -30,6 +30,7 @@ import {
 import { routeLengthM, walkAlong, type LngLat } from '../src/geo';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
+import { existingPostId } from '../src/screens/community/PostWriteScreen';
 import { Avatar } from '../src/screens/community/parts';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
 import {
@@ -263,6 +264,15 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
     .join(' ');
   for (const label of ['거리', '시간', '평균 페이스']) {
     expect(words).toContain(label);
+  }
+  // 작은 화면·큰 글자에서도 시간·거리·페이스 값이 두 줄로 쪼개지지 않게 한 줄로 줄여 맞춘다(S15P31E105-819).
+  const valueTexts = first
+    .findAllByType(Text)
+    .filter(node => node.props.adjustsFontSizeToFit === true);
+  expect(valueTexts.length).toBeGreaterThanOrEqual(3);
+  for (const node of valueTexts) {
+    expect(node.props.numberOfLines).toBe(1);
+    expect(node.props.minimumFontScale).toBe(0.7);
   }
   // The page on screen shows its shared course on the real map (S15P31E105-521), and the pages just above and
   // below draw theirs ahead (사용자 요청: 지도를 더 빨리). Pages further off wait on the map's light ground with no
@@ -1506,10 +1516,12 @@ test('7.4b 기록 tiles load their own OSM thumbnail with my token and no live m
       node.props.testID === 'course-basemap' &&
       typeof node.props.onLoad === 'function',
   );
-  expect(image.props.source).toEqual({
-    uri: 'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
-    headers: { Authorization: 'Bearer access-756' },
-  });
+  expect(image.props.source).toEqual([
+    {
+      uri: 'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
+      headers: { Authorization: 'Bearer access-756' },
+    },
+  ]);
   // No run tile ever holds a live Naver map, with or without a picture.
   expect(runTiles.flatMap(tile => tile.findAllByType(RunMap))).toHaveLength(0);
   // The tile without a picture keeps its outline drawn from the S11 points.
@@ -1871,6 +1883,151 @@ test('7.3 asks the measured start region for a free run and shows none when none
     courseShared: true,
     regionCode: null,
   });
+});
+
+// S15P31E105-830: a run has one post. 게시 on a run I already shared opens that post in place of the draft.
+async function openShareOf(
+  repositories: Repositories,
+  params: { fromRecords?: boolean } = {},
+) {
+  const screen = await openCommunity(repositories);
+  const recent = repositories.records.getRecent('recent', 1);
+  await settle(50);
+  const [record] = await recent;
+  const navigation = screen.root.findByType(CommunityScreen).props.navigation;
+  await act(async () =>
+    navigation.navigate('PostWrite', { recordId: record.id, ...params }),
+  );
+  await settle(50);
+  return { screen, recordId: record.id };
+}
+
+const openPostIds = (screen: Screen) =>
+  screen.root
+    .findAllByType(PostDetailScreen)
+    .map(node => node.props.route?.params?.postId);
+
+test.each([false, true])(
+  '7.3 on a run already shared says so and opens that post instead (fromRecords %s)',
+  async fromRecords => {
+    const repositories = createMockRepositories({ latencyMs: 0 });
+    const { screen, recordId } = await openShareOf(repositories, {
+      fromRecords,
+    });
+    // The run was shared meanwhile (another 기록 공유 entry, another phone, or a post whose answer was lost).
+    // The fixtures may have shared this run already; then that post is the one to open.
+    const first = repositories.community
+      .create(recordId, {
+        body: '먼저 쓴 글',
+        courseShared: true,
+        regionCode: null,
+      })
+      .then(
+        created => created.id,
+        (error: unknown) => existingPostId(error),
+      );
+    await settle(50);
+    const sharedId = await first;
+    expect(sharedId).not.toBeNull();
+
+    await type(screen, '글 내용', '다시 쓴 글');
+    await press(screen, '게시');
+    await settle(100);
+
+    expect(texts(screen)).toContain('이미 공유한 기록이에요');
+    expect(texts(screen)).not.toContain('러닝 기록을 공유했어요');
+    expect(openPostIds(screen)).toEqual([sharedId]);
+    // replace: back from the post never returns to the draft that cannot be posted.
+    expect(
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === '글 내용' &&
+          node.props.onChangeText,
+      ),
+    ).toHaveLength(0);
+  },
+);
+
+test('7.3 409 without the post id only says so and keeps the draft open with what I wrote', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const created = jest.fn(async () => {
+    throw new DataError(
+      'POST_ALREADY_EXISTS',
+      '이미 공유한 러닝 기록입니다.',
+      null,
+      409,
+      {},
+    );
+  });
+  repositories.community.create = created;
+  const { screen } = await openShareOf(repositories, { fromRecords: true });
+
+  await type(screen, '글 내용', '지켜야 할 글');
+  await press(screen, '게시');
+  await settle(100);
+
+  expect(created).toHaveBeenCalledTimes(1);
+  expect(texts(screen)).toContain('이미 공유한 기록이에요');
+  expect(openPostIds(screen)).toEqual([]);
+  expect(labelled(screen, '글 내용', 'onChangeText').props.value).toBe(
+    '지켜야 할 글',
+  );
+  // 게시 is enabled again for another try.
+  expect(labelled(screen, '게시').props.disabled).toBeFalsy();
+});
+
+test('the server post id of a 409 is read as the app post id, and other errors give none', () => {
+  const conflict = (details: Record<string, unknown> | null) =>
+    new DataError('POST_ALREADY_EXISTS', 'x', null, 409, details);
+  expect(existingPostId(conflict({ postId: 101 }))).toBe('101');
+  expect(existingPostId(conflict({ postId: 'post-mine-1' }))).toBe(
+    'post-mine-1',
+  );
+  expect(existingPostId(conflict({}))).toBeNull();
+  expect(existingPostId(conflict(null))).toBeNull();
+  expect(existingPostId(conflict({ postId: 1.5 }))).toBeNull();
+  expect(existingPostId(conflict({ postId: '' }))).toBeNull();
+  expect(
+    existingPostId(
+      new DataError('INVALID_POST', 'x', null, 422, { postId: 101 }),
+    ),
+  ).toBeNull();
+  expect(existingPostId(new Error('x'))).toBeNull();
+});
+
+test('the mock answers a second post of the same run with 409 and the first post id, as CMT01', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const recent = repositories.records.getRecent('recent', 1);
+  await settle(50);
+  const [record] = await recent;
+  const draft = { body: null, courseShared: true, regionCode: null };
+  // The run may already be shared in the fixtures; after that one is deleted, sharing it again is allowed.
+  const before = repositories.community.create(record.id, draft).then(
+    () => null,
+    (error: unknown) => existingPostId(error),
+  );
+  await settle(50);
+  const existing = await before;
+  if (existing !== null) {
+    const removed = repositories.community.remove(existing);
+    await settle(50);
+    await removed;
+  }
+
+  const first = repositories.community.create(record.id, draft);
+  await settle(50);
+  const { id } = await first;
+  const second = repositories.community.create(record.id, draft).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await settle(50);
+  const failure = await second;
+
+  expect(failure).toBeInstanceOf(DataError);
+  expect((failure as DataError).code).toBe('POST_ALREADY_EXISTS');
+  expect((failure as DataError).status).toBe(409);
+  expect((failure as DataError).details).toEqual({ postId: id });
 });
 
 // S15P31E105-647: 7.1 reads 20 posts a page and the next near the end, until the last page.

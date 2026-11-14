@@ -62,6 +62,7 @@ public enum ErrorCode {
             HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
     NICKNAME_DUPLICATED(HttpStatus.CONFLICT, "NICKNAME_DUPLICATED", "이미 사용 중인 닉네임입니다."),
     LOGIN_ID_DUPLICATED(HttpStatus.CONFLICT, "LOGIN_ID_DUPLICATED", "이미 사용 중인 아이디입니다."),
+    CREW_NAME_DUPLICATED(HttpStatus.CONFLICT, "CREW_NAME_DUPLICATED", "이미 사용 중인 크루 이름입니다."),
     INVALID_CONSENT(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CONSENT", "요청 값이 유효하지 않습니다."),
     INVALID_SETTING(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SETTING", "요청한 설정이 유효하지 않습니다."),
     INVALID_VISIBILITY(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_VISIBILITY", "공개 설정 값이 유효하지 않습니다."),
@@ -96,6 +97,7 @@ public enum ErrorCode {
     INVALID_POST(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_POST", "공유할 수 있는 완료 러닝 기록이 아닙니다."),
     INVALID_REGION(HttpStatus.BAD_REQUEST, "INVALID_REGION", "존재하지 않는 지역 코드입니다."),
     POST_NOT_FOUND(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다."),
+    POST_ALREADY_EXISTS(HttpStatus.CONFLICT, "POST_ALREADY_EXISTS", "이미 공유한 러닝 기록입니다."),
     POST_SCOPE_INVALID(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "scope는 ALL 또는 FOLLOWING만 허용됩니다."),
     ACCOUNT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCOUNT_ACCESS_DENIED", "비공개 계정 게시물에 접근할 수 없습니다."),
     RESOURCE_NOT_OWNED(HttpStatus.FORBIDDEN, "RESOURCE_NOT_OWNED", "본인 소유 자원이 아닙니다."),
@@ -106,6 +108,8 @@ public enum ErrorCode {
     VALIDATION_ERROR_COMMUNITY_PARSE_TYPE(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "type은 USER 또는 CREW여야 합니다."),
     QUERY_TOO_SHORT(HttpStatus.BAD_REQUEST, "QUERY_TOO_SHORT", "검색어가 너무 짧습니다."),
+    VALIDATION_ERROR_SEARCH_QUERY_TOO_LONG(
+            HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "검색어는 {0}자 이하여야 합니다."),
     COURSE_NOT_FOUND(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", "코스를 찾을 수 없습니다."),
     INVALID_SEARCH(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", "예상 시간을 계산할 수 없습니다."),
     INVALID_SEARCH_COURSE_REQUIRE_POSITIVE(

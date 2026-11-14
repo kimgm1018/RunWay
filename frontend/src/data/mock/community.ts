@@ -365,6 +365,22 @@ export function createCommunityMock({
     },
     getShareable: recordId => respond(shareableOf(record(recordId))),
     create: (recordId, draft) => {
+      // As CMT01 (S15P31E105-830): one post per run. A run I already shared answers 409 with that post's id.
+      const runId = record(recordId).id;
+      const shared = posts.find(
+        post => post.author.userId === me.userId && post.record.id === runId,
+      );
+      if (shared) {
+        return fail(
+          new DataError(
+            'POST_ALREADY_EXISTS',
+            '이미 공유한 러닝 기록입니다.',
+            null,
+            409,
+            { postId: shared.id },
+          ),
+        );
+      }
       const id = `post-mine-${nextId++}`;
       posts = [
         {

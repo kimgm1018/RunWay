@@ -632,11 +632,26 @@ test('the mock pages 20 at a time and keeps 내 스크랩 · 좋아요 in the or
 
 test('the mock reads past 20 with the cursor and a post taken out between pages skips nothing', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
-  const { community, records } = repositories;
-  // 25 more of my posts, so the feed has more than a page.
-  const [run] = await records.getRecent('recent', 1);
+  const { community, run } = repositories;
+  // 25 more of my posts, so the feed has more than a page. A run has one post (S15P31E105-830), so each shares a
+  // run of its own.
   for (let index = 0; index < 25; index += 1) {
-    await community.create(run.id, {
+    const { recordId } = await run.saveRecord({
+      mode: 'FREE',
+      courseId: null,
+      groupRunId: null,
+      startedAt: '2026-10-01T06:00:00+09:00',
+      durationSec: 1800,
+      distanceM: 5000,
+      averagePaceSecPerKm: 360,
+      averageHeartRate: null,
+      averageCadence: null,
+      route: null,
+      goalDistanceM: null,
+      goalPaceSecPerKm: null,
+      sessionId: null,
+    });
+    await community.create(recordId!, {
       body: `post ${index}`,
       courseShared: false,
     });

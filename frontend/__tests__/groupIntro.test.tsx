@@ -3,10 +3,8 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories } from '../src/data';
-import {
-  GroupIntro,
-  setGroupIntroSeenForTest,
-} from '../src/screens/group/GroupIntro';
+import { setGroupIntroSeenForTest } from '../src/data/group/groupIntroSeen';
+import { GroupIntro } from '../src/screens/group/GroupIntro';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -57,7 +55,7 @@ beforeEach(() => {
   jest.useFakeTimers({
     doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
   });
-  // jest.setup.js marks the intro seen; this file shows it as on a fresh launch.
+  // jest.setup.js marks the intro seen; this file starts each case as a fresh install (empty keystore).
   setGroupIntroSeenForTest(false);
 });
 
@@ -89,7 +87,7 @@ async function openApp() {
   return screen!;
 }
 
-test('the group tab opens on its intro once per launch, and 함께 달리러 가기 opens 6.0', async () => {
+test('the group tab opens on its intro for a member who has not seen it, and 함께 달리러 가기 opens 6.0', async () => {
   const screen = await openApp();
   await press(screen, '그룹');
   expect(screen.root.findAllByType(GroupIntro)).toHaveLength(1);
@@ -103,6 +101,47 @@ test('the group tab opens on its intro once per launch, and 함께 달리러 가
   // Back to the group tab in the same launch: straight to 6.0.
   await press(screen, '홈');
   await press(screen, '그룹');
+  expect(screen.root.findAllByType(GroupIntro)).toHaveLength(0);
+  expect(texts(screen)).toContain('광안리 새벽 크루');
+});
+
+async function relaunch(screen: Screen) {
+  await act(async () => screen.unmount());
+  mounted = null;
+  // A new launch remembers nothing in memory; only the keystore carries over.
+  setGroupIntroSeenForTest(false);
+  return openApp();
+}
+
+test('S15P31E105-697: once seen, the intro stays away after the app is launched again', async () => {
+  let screen = await openApp();
+  await press(screen, '그룹');
+  await press(screen, '함께 달리러 가기');
+
+  screen = await relaunch(screen);
+  await press(screen, '그룹');
+  expect(screen.root.findAllByType(GroupIntro)).toHaveLength(0);
+  expect(texts(screen)).toContain('광안리 새벽 크루');
+});
+
+test('S15P31E105-697: leaving the intro without 함께 달리러 가기 shows it again on the next launch', async () => {
+  let screen = await openApp();
+  await press(screen, '그룹');
+  expect(screen.root.findAllByType(GroupIntro)).toHaveLength(1);
+
+  screen = await relaunch(screen);
+  await press(screen, '그룹');
+  expect(screen.root.findAllByType(GroupIntro)).toHaveLength(1);
+});
+
+test('S15P31E105-697: an unreadable keystore still opens the tab on the intro, and 함께 달리러 가기 works', async () => {
+  const Keychain = require('react-native-keychain');
+  Keychain.getGenericPassword.mockRejectedValueOnce(new Error('locked'));
+  const screen = await openApp();
+  await press(screen, '그룹');
+  expect(screen.root.findAllByType(GroupIntro)).toHaveLength(1);
+
+  await press(screen, '함께 달리러 가기');
   expect(screen.root.findAllByType(GroupIntro)).toHaveLength(0);
   expect(texts(screen)).toContain('광안리 새벽 크루');
 });

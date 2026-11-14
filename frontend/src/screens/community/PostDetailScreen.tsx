@@ -83,7 +83,12 @@ function Stat({
 }) {
   return (
     <View style={styles.stat}>
-      <AppText style={styles.statValue}>
+      <AppText
+        style={styles.statValue}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
         {value}
         {unit ? <AppText style={styles.statUnit}>{` ${unit}`}</AppText> : null}
       </AppText>
@@ -760,7 +765,8 @@ const styles = StyleSheet.create({
   },
   stats: { gap: 16 },
   statsRow: { flexDirection: 'row', justifyContent: 'center', columnGap: 40 },
-  stat: { alignItems: 'center', minWidth: 110 },
+  // 320dp에서도 두 칸이 한 줄에 들어가도록 줄어들 수 있게 하고 값은 한 줄로 유지한다(S15P31E105-819).
+  stat: { alignItems: 'center', minWidth: 90, flexShrink: 1 },
   statValue: {
     fontFamily: fontFamily.bold,
     letterSpacing: -0.6,

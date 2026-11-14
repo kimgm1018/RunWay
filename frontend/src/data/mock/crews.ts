@@ -189,6 +189,20 @@ export function createCrewMock({
     },
     listJoinRequests: crewId => respond(requests.get(crewId) ?? []),
     create: draft => {
+      // S15P31E105-829: 활동 중인(해산하지 않은) 크루끼리 이름 중복 금지, 대소문자·앞뒤 공백 무시. 서버 M03과 같은 규칙이다.
+      const key = draft.name.trim().toLowerCase();
+      if (
+        directory.some(
+          crew =>
+            !inactive.has(crew.id) && crew.name.trim().toLowerCase() === key,
+        )
+      )
+        return fail(
+          new DataError(
+            'CREW_NAME_DUPLICATED',
+            '이미 사용 중인 크루 이름이에요',
+          ),
+        );
       const id = `crew-new-${directory.length + 1}`;
       directory = [
         ...directory,

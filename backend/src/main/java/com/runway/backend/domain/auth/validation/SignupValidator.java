@@ -13,6 +13,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -66,7 +67,9 @@ public class SignupValidator {
             throw new ApiException(ErrorCode.INVALID_PROFILE);
         if (request.consents() == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         List<Consent> consents = consents(request.consents());
-        return new Input(loginId, password, nickname, birth, gender, phone, consents);
+        // 아이디는 대소문자 구분 없이 하나만 존재한다. 소문자로 저장·조회한다(users.md U15, S15P31E105-831).
+        return new Input(
+                normalizeLoginId(loginId), password, nickname, birth, gender, phone, consents);
     }
 
     /** 인증 증명(users.md U15, S15P31E105-560). 없으면 비어 있고, 문자열이 아니거나 비정상 길이면 400이다. */
@@ -81,6 +84,15 @@ public class SignupValidator {
     public static void validateLoginId(String loginId) {
         if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
+    }
+
+    /**
+     * 형식을 확인한 아이디를 소문자로 바꾼다(S15P31E105-831). 허용 문자가 ASCII 영문·숫자뿐이라 {@link Locale#ROOT}와
+     * PostgreSQL {@code lower()}의 결과가 로캘과 관계없이 같다. 저장·조회·로그인 실패 키 모두 이 값을 쓴다.
+     */
+    public static String normalizeLoginId(String loginId) {
+        validateLoginId(loginId);
+        return loginId.toLowerCase(Locale.ROOT);
     }
 
     private static List<Consent> consents(Object raw) {

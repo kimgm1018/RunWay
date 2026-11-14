@@ -6,6 +6,7 @@ import { DataError, errorCode, useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { spacing } from '../../theme';
+import { LOGIN_ID_MAX } from '../inputLimits';
 import {
   GoButton,
   InlineError,
@@ -137,6 +138,7 @@ export function LoginScreen() {
           placeholder="아이디를 입력해 주세요"
           value={loginId}
           onChangeText={setLoginId}
+          maxLength={LOGIN_ID_MAX}
           autoCapitalize="none"
           autoCorrect={false}
           textContentType="username"

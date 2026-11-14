@@ -218,10 +218,10 @@ beforeEach(() => {
 // so every test file starts on 'mock'; a test that needs the server path sets 'api' itself and restores it.
 require('./src/config').appConfig.dataSource = 'mock';
 
-// 그룹 탭 첫 화면 shows once per launch (S15P31E105-563); tests open the group tab straight onto 6.0 unless
+// 그룹 탭 첫 화면 shows once per member (S15P31E105-697); tests open the group tab straight onto 6.0 unless
 // they turn it back on (groupIntro.test.tsx).
 beforeEach(() => {
-  require('./src/screens/group/GroupIntro').setGroupIntroSeenForTest(true);
+  require('./src/data/group/groupIntroSeen').setGroupIntroSeenForTest(true);
 });
 
 // AppText draws figure and Latin runs in Archivo as nested Texts (S15P31E105-662). Component tests read a line's

@@ -34,8 +34,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -86,10 +86,18 @@ public class RunningSessionService {
      * <p>활성 세션 검사는 회원 잠금 뒤 새 스냅샷을 읽어야 하므로 READ COMMITTED를 명시한다(REPEATABLE READ면 잠금 전 스냅샷이 고정돼 동시
      * 생성이 모두 통과한다). 세션을 만드는 다른 경로도 같은 회원 잠금을 쓰며, 잠금을 놓친 경로는 부분 UNIQUE
      * uq_running_sessions_active(V8)가 막는다.
+     *
+     * <p>이 메서드에는 트랜잭션 선언을 두지 않는다(S15P31E105-822). 사전 조회·계획 준비는 트랜잭션 범위 밖에서 조회마다 커넥션을 빌렸다 바로
+     * 반납한다. {@code @Transactional(NOT_SUPPORTED)}를 두면 빈 트랜잭션 동기화 범위가 열린다. JDBC 커넥션은 저장 트랜잭션을 시작할 때 반납되지만,
+     * 동기화 범위에 묶인 EntityManager 커넥션은 쥔 채 저장용 커넥션을 또 기다린다. 동시 요청이 풀 크기를 넘으면 서로 기다리다 모두 커넥션 대기
+     * 시간초과(503)로 끝난다.
+     *
+     * <p>호출자 트랜잭션 안에서 부르면 맨 앞에서 {@link IllegalStateException}으로 거절한다. AI 계획 호출(AI09 개인 계획 최대 40초, 재시도
+     * 포함, AiPersonalPacePlanConfig)을 DB 트랜잭션 안에서 하지 않기 위해서다.
      */
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RunningSessionResponse create(
             long userId, CreateRunningSessionRequest request, Instant serverReceiveAt) {
+        requireNoActiveTransaction("create");
         access.requireActiveUser(userId);
         SessionAccess.requireOwnedDevice(
                 userId,
@@ -190,13 +198,19 @@ public class RunningSessionService {
         return access.response(session, serverReceiveAt);
     }
 
-    /** S08 UPDATE_GOAL / TAKE_OVER_PHONE / ABORT_UNCONFIRMED_START. 변경 후 전체 상태를 반환한다. */
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    /**
+     * S08 UPDATE_GOAL / TAKE_OVER_PHONE / ABORT_UNCONFIRMED_START. 변경 후 전체 상태를 반환한다.
+     *
+     * <p>이 메서드에도 트랜잭션 선언을 두지 않는다(S15P31E105-822, {@link #create} 참고). UPDATE_GOAL의 사전 조회가 쥔 커넥션을 AI09 개인 계획
+     * 호출(최대 40초, 재시도 포함) 동안 붙잡지 않게 한다. 호출자 트랜잭션 안에서 부르면 작업 종류와 관계없이 맨 앞에서 {@link
+     * IllegalStateException}으로 거절한다.
+     */
     public RunningSessionResponse update(
             long userId,
             long sessionId,
             UpdateRunningSessionRequest request,
             Instant serverReceiveAt) {
+        requireNoActiveTransaction("update");
         SessionPlanPreparation.Prepared prepared = null;
         if (request.operation() == UpdateRunningSessionRequest.Operation.UPDATE_GOAL) {
             access.requireActiveUser(userId);
@@ -512,6 +526,14 @@ public class RunningSessionService {
                                 session.getControlDeviceId(),
                                 EnumSet.of(ControlResult.PENDING))
                         .isPresent();
+    }
+
+    /** 사전 조회·AI 호출이 호출자 트랜잭션에 합류하지 않도록 직접 거절한다(S15P31E105-822). */
+    private static void requireNoActiveTransaction(String operation) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "RunningSessionService." + operation + " requires no active transaction");
+        }
     }
 
     private TransactionTemplate writeTransaction() {

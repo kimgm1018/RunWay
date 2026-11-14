@@ -1,12 +1,13 @@
 import React, { useState, type ReactNode } from 'react';
 import { Modal, Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Icon } from '../../components';
+import { AppText, Icon, LightGlass } from '../../components';
 import { RunMap } from '../../components/RunMap';
-import { formatPace } from '../../format';
+import type { GroupPaceInfo } from '../../data';
+import { formatDuration, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
-import { fontFamily } from '../../theme';
-import { KmPacePills } from '../run/KmPacePills';
+import { fontFamily, size } from '../../theme';
+import { KmPacePills, visibleKmPaces } from '../run/KmPacePills';
 import { stand } from './stand';
 
 // S15P31E105-739: a group run's course map opens full screen on a press, like the solo course start map
@@ -19,6 +20,7 @@ export function CourseMapModal({
   route,
   paces,
   distanceM,
+  strategy,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -26,8 +28,10 @@ export function CourseMapModal({
   // One pace a km (sec/km); empty leaves the line alone.
   paces: number[];
   distanceM: number;
+  strategy?: GroupPaceInfo['startStrategy'];
 }) {
   const insets = useSafeAreaInsets();
+  const mapPaces = visibleKmPaces(paces, distanceM);
   return (
     <Modal
       visible={visible}
@@ -41,10 +45,11 @@ export function CourseMapModal({
         <RunMap
           route={route}
           paceLabels={
-            paces.length ? paces.map(value => formatPace(value)) : undefined
+            mapPaces.length ? mapPaces.map(value => formatPace(value)) : undefined
           }
+          pacePlanDistanceM={distanceM}
           fitTo={route}
-          area={{ top: 0.12, bottom: paces.length ? 0.62 : 0.88 }}
+          area={{ top: 0.12, bottom: strategy ? 0.55 : paces.length ? 0.62 : 0.88 }}
           look="mint"
           style={StyleSheet.absoluteFill}
         />
@@ -58,13 +63,23 @@ export function CourseMapModal({
           <Icon name="close" color={stand.onMint} size={20} />
         </Pressable>
         {paces.length ? (
-          <View
-            style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
-            accessibilityLabel="km별 페이스"
+          <LightGlass
+            radius={34}
+            style={[styles.sheet, { bottom: Math.max(insets.bottom, size.tabBarInset) }]}
           >
-            <AppText style={styles.sheetTitle}>km별 페이스</AppText>
+            {strategy ? (
+              <View>
+                <AppText style={styles.strategyTitle}>오늘의 전략</AppText>
+                <AppText style={styles.strategyLabel}>{strategy.label}</AppText>
+                <AppText style={styles.strategyGoal}>
+                  {`목표 ${formatPace(strategy.expectedDurationSec * 1000 / distanceM)} · 예상 ${formatDuration(strategy.expectedDurationSec)}`}
+                </AppText>
+              </View>
+            ) : (
+              <AppText style={styles.sheetTitle}>km별 페이스</AppText>
+            )}
             <KmPacePills paces={paces} distanceM={distanceM} />
-          </View>
+          </LightGlass>
         ) : null}
       </View>
     </Modal>
@@ -76,12 +91,14 @@ export function CourseMapZoom({
   route,
   paces,
   distanceM,
+  strategy,
   children,
   style,
 }: {
   route: LngLat[];
   paces: number[];
   distanceM: number;
+  strategy?: GroupPaceInfo['startStrategy'];
   children: ReactNode;
   style?: object;
 }) {
@@ -112,6 +129,7 @@ export function CourseMapZoom({
         route={route}
         paces={paces}
         distanceM={distanceM}
+        strategy={strategy}
       />
     </>
   );
@@ -131,14 +149,29 @@ const styles = StyleSheet.create({
   },
   sheet: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: 16,
-    paddingHorizontal: 20,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    backgroundColor: '#FFFFFF',
+    left: 8,
+    right: 8,
+    padding: 18,
+  },
+  strategyTitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#67696E',
+  },
+  strategyLabel: {
+    marginTop: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 27,
+    letterSpacing: -0.5,
+    color: '#02050E',
+  },
+  strategyGoal: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#67696E',
   },
   sheetTitle: {
     fontFamily: fontFamily.bold,

@@ -26,6 +26,7 @@ public class LoginIdAvailabilityService {
         String id = values[0];
         SignupValidator.validateLoginId(id);
         try {
+            // 대소문자 구분 없이 판정하고 응답 loginId는 보낸 값 그대로 돌려준다(앱이 입력값과 비교, S15P31E105-831).
             boolean exists = users.loginIdExists(id);
             return new LoginIdAvailabilityResponse(id, !exists, exists ? "DUPLICATED" : null);
         } catch (DataAccessException exception) {

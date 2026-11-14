@@ -14,6 +14,7 @@ import { RunMap } from '../../components/RunMap';
 import { useRepositories, type MeetingPlace, type Place } from '../../data';
 import { placeNameOf } from '../../data/placeName';
 import { ThemeProvider } from '../../theme';
+import { PLACE_SEARCH_MAX } from '../inputLimits';
 import {
   CURRENT_PLACE_NAME,
   locationFailureNotice,
@@ -164,6 +165,7 @@ export function CoursePlacePicker({
                   accessibilityLabel="장소·주소 검색"
                   placeholder="장소·주소 검색"
                   value={query}
+                  maxLength={PLACE_SEARCH_MAX}
                   onChangeText={text => {
                     setQuery(text);
                     setResults(null);
