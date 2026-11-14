@@ -164,7 +164,12 @@ function Day({
             <AppText style={[styles.weekday, { color: ink }]}>
               {weekdays[weekdayIndex(day)]}
             </AppText>
-            <AppText style={[styles.date, { color: ink }]}>
+            <AppText
+              style={[styles.date, { color: ink }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
               {String(dayNumber(day))}
             </AppText>
           </View>

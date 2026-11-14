@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { createMockRepositories, DataProvider } from '../../../data';
 import { earliestDay, WeekStrip } from '../DatePicker';
@@ -58,5 +59,21 @@ test('the week strip dims days after today', () => {
   const strip = days(screen);
   expect(strip.get('11월 13일')).toBe(false);
   expect(strip.get('11월 14일')).toBe(true);
+  act(() => screen.unmount());
+});
+
+// 320dp 화면에서 두 자리 날짜("10")가 "1"/"0" 두 줄로 쪼개졌다(S15P31E105-828, QA 발견). 칸이 좁아져도
+// 날짜 숫자는 줄어들며 한 줄을 유지하게 한다.
+test('the day number shrinks to stay on one line', () => {
+  const screen = render('2026-11-10', '2026-11-13');
+  const dateTexts = screen.root
+    .findAllByType(Text)
+    .filter(node => node.props.children === '10' || node.props.children === 10);
+  expect(dateTexts.length).toBeGreaterThan(0);
+  for (const node of dateTexts) {
+    expect(node.props.numberOfLines).toBe(1);
+    expect(node.props.adjustsFontSizeToFit).toBe(true);
+    expect(node.props.minimumFontScale).toBe(0.7);
+  }
   act(() => screen.unmount());
 });
