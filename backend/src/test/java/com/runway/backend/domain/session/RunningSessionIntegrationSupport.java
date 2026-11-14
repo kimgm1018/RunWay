@@ -222,7 +222,7 @@ abstract class RunningSessionIntegrationSupport {
     protected long insertGroupRun(String status, boolean ended) {
         long crewId =
                 jdbc.queryForObject(
-                        "INSERT INTO crews(owner_id,name,capacity) VALUES (?,'크루',10) RETURNING id",
+                        "INSERT INTO crews(owner_id,name,capacity) VALUES (?,'크루-'||gen_random_uuid(),10) RETURNING id",
                         Long.class,
                         userId);
         return jdbc.queryForObject(

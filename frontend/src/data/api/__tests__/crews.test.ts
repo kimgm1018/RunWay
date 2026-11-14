@@ -804,3 +804,65 @@ test('목업 해산은 비소유자를 거부하고 소유자 해산 후 검색�
     code: 'CREW_NOT_FOUND',
   });
 });
+
+// 6.3 크루 만들기 (S15P31E105-829): 활동 중인 크루와 이름이 같으면 M03이 409 CREW_NAME_DUPLICATED로 거절한다.
+test('M03 409 CREW_NAME_DUPLICATED reaches the screen as the same code', async () => {
+  serve((path, init) => {
+    if (path === '/crews' && init.method === 'POST') {
+      return respond(409, {
+        code: 'CREW_NAME_DUPLICATED',
+        message: '이미 사용 중인 크루 이름입니다.',
+        details: {},
+      });
+    }
+    return undefined;
+  });
+  const { crews } = api();
+
+  await expect(
+    crews.create({
+      name: '광안리 새벽 크루',
+      area: '광안리해수욕장 입구',
+      address: '부산 수영구 광안해변로 219',
+      description: null,
+      joinPolicy: 'APPROVAL',
+      capacity: 20,
+      photo: null,
+    }),
+  ).rejects.toMatchObject({ code: 'CREW_NAME_DUPLICATED' });
+});
+
+test('the mock M03 refuses a name an active crew has, ignoring case and outer spaces, and allows it after a dissolve', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  const draft = {
+    area: '부산',
+    address: '부산',
+    description: null,
+    capacity: 20,
+    joinPolicy: 'APPROVAL' as const,
+    photo: null,
+  };
+  const taken = '광안리 새벽 크루';
+
+  await expect(crews.create({ ...draft, name: taken })).rejects.toMatchObject({
+    code: 'CREW_NAME_DUPLICATED',
+  });
+  await expect(
+    crews.create({ ...draft, name: ` ${taken} ` }),
+  ).rejects.toMatchObject({ code: 'CREW_NAME_DUPLICATED' });
+
+  const { id } = await crews.create({ ...draft, name: 'Mock Run Crew' });
+  await expect(
+    crews.create({ ...draft, name: ' MOCK run crew' }),
+  ).rejects.toMatchObject({ code: 'CREW_NAME_DUPLICATED' });
+  // A different name, even with a different inner space, is allowed.
+  await expect(
+    crews.create({ ...draft, name: 'Mock  Run Crew' }),
+  ).resolves.toEqual({ id: expect.any(String) });
+
+  // A dissolved crew gives its name back.
+  await crews.dissolve(id);
+  await expect(
+    crews.create({ ...draft, name: 'mock run crew' }),
+  ).resolves.toEqual({ id: expect.any(String) });
+});

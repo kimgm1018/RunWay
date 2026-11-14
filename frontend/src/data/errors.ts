@@ -6,6 +6,8 @@ export const dataErrorCodes = [
   'LOGIN_ID_DUPLICATED',
   // U15 회원가입.
   'NICKNAME_DUPLICATED',
+  // M03 크루 이름이 활동 중인 다른 크루와 같음 (crews.md, S15P31E105-829).
+  'CREW_NAME_DUPLICATED',
   'INVALID_PROFILE',
   'INVALID_PASSWORD_POLICY',
   'INVALID_CONSENT',

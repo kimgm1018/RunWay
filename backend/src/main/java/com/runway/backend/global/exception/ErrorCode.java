@@ -62,6 +62,7 @@ public enum ErrorCode {
             HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
     NICKNAME_DUPLICATED(HttpStatus.CONFLICT, "NICKNAME_DUPLICATED", "이미 사용 중인 닉네임입니다."),
     LOGIN_ID_DUPLICATED(HttpStatus.CONFLICT, "LOGIN_ID_DUPLICATED", "이미 사용 중인 아이디입니다."),
+    CREW_NAME_DUPLICATED(HttpStatus.CONFLICT, "CREW_NAME_DUPLICATED", "이미 사용 중인 크루 이름입니다."),
     INVALID_CONSENT(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CONSENT", "요청 값이 유효하지 않습니다."),
     INVALID_SETTING(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SETTING", "요청한 설정이 유효하지 않습니다."),
     INVALID_VISIBILITY(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_VISIBILITY", "공개 설정 값이 유효하지 않습니다."),

@@ -143,7 +143,7 @@ test('an unreadable error body still becomes a DataError', async () => {
 });
 
 test('other 4xx codes the app does not know become UNKNOWN', async () => {
-  fetchMock.mockResolvedValue(respond(409, { code: 'CREW_NAME_DUPLICATED' }));
+  fetchMock.mockResolvedValue(respond(409, { code: 'SOME_UNKNOWN_CONFLICT' }));
   const error = await failure(apiRequest('/crews', { method: 'POST' }));
   expect(error.code).toBe('UNKNOWN');
 });
