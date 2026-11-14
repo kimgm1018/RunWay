@@ -45,9 +45,11 @@ export const imageAddress = (path: string | null | undefined) =>
 // F02 checks the viewer's token, so <Image> gets the signed-in user's Authorization header. Without a session the
 // request goes without it and the server answers 404, which the card treats as no picture.
 // The token goes only to the API server itself (its origin and a path below it), never to another host or scheme.
+// RN 0.85.3 Image.android forwards source headers only for an array source. A single object loses the header,
+// so F02 treats the owner as anonymous and returns 404 (S15P31E105-832).
 export function ownImageSource(uri: string) {
   const token = tokenStore.current()?.accessToken;
   return token && uri.startsWith(serverOrigin + '/')
-    ? { uri, headers: { Authorization: `Bearer ${token}` } }
+    ? [{ uri, headers: { Authorization: `Bearer ${token}` } }]
     : { uri };
 }

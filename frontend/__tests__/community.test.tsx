@@ -1516,10 +1516,12 @@ test('7.4b 기록 tiles load their own OSM thumbnail with my token and no live m
       node.props.testID === 'course-basemap' &&
       typeof node.props.onLoad === 'function',
   );
-  expect(image.props.source).toEqual({
-    uri: 'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
-    headers: { Authorization: 'Bearer access-756' },
-  });
+  expect(image.props.source).toEqual([
+    {
+      uri: 'https://k15e105.p.ssafy.io/api/v1/images/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d',
+      headers: { Authorization: 'Bearer access-756' },
+    },
+  ]);
   // No run tile ever holds a live Naver map, with or without a picture.
   expect(runTiles.flatMap(tile => tile.findAllByType(RunMap))).toHaveLength(0);
   // The tile without a picture keeps its outline drawn from the S11 points.
