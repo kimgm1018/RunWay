@@ -936,6 +936,9 @@ export function createMockRepositories(
         );
         return respond(undefined, options);
       },
+      // Sample data never reaches FCM; the token is accepted and dropped.
+      registerPushToken: _token => respond(undefined, options),
+      unregisterPushToken: _token => respond(undefined, options),
     },
     run: {
       getCurrentPlace: () => respond(fixtures.currentPlace, options),

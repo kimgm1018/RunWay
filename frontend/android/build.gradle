@@ -15,6 +15,8 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // S15P31E105-815 (ADR-0025): applied by the app module only when google-services.json is present.
+        classpath("com.google.gms:google-services:4.5.0")
     }
 }
 

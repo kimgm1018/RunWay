@@ -22,6 +22,8 @@ import {
   setWatchHealthConsent,
 } from '../health/watchHealth';
 import { retryPendingLogouts, revokeOnServer } from './serverLogout';
+import { firebasePushDevice, type PushDevice } from '../push/pushDevice';
+import { forgetPushToken, releasePushToken } from '../push/pushRegistration';
 
 type SessionValue = {
   signedIn: boolean;
@@ -47,14 +49,17 @@ const SessionContext = createContext<SessionValue | null>(null);
 export function SessionProvider({
   children,
   initialSignedIn = false,
+  pushDevice = firebasePushDevice,
 }: {
   children: React.ReactNode;
   initialSignedIn?: boolean;
+  // S15P31E105-815: device push on this phone; tests pass a fake.
+  pushDevice?: PushDevice;
 }) {
   const [signedIn, setSignedIn] = useState(initialSignedIn);
   const [restoring, setRestoring] = useState(!initialSignedIn);
   const [loginRequired, setLoginRequired] = useState(false);
-  const { auth } = useRepositories();
+  const { auth, notifications } = useRepositories();
 
   // S15P31E105-393: a logout whose U03 got no answer is sent again once per launch. Fire and forget.
   useEffect(() => {
@@ -116,6 +121,8 @@ export function SessionProvider({
             // Reauthentication is not withdrawal of health-data consent.
             clearApiIdentityCache();
             tokenStore.clear().catch(() => {});
+            // S15P31E105-815: a signed-out phone shows no more pushes for this account.
+            forgetPushToken(pushDevice);
             setLoginRequired(true);
             setSignedIn(false);
           },
@@ -123,7 +130,7 @@ export function SessionProvider({
       ],
     );
     return false;
-  }, []);
+  }, [pushDevice]);
 
   const holdTokens = useCallback((tokens: AuthTokens) => {
     tokenStore.hold(tokens);
@@ -142,6 +149,8 @@ export function SessionProvider({
   // Waits for U03 (5 seconds at most) so the server forgets the login, then leaves like signOut. A failed U03
   // still signs out here; revokeOnServer keeps the token for the next launch instead of calling it revoked.
   const logOut = useCallback(async () => {
+    // S15P31E105-815: N04 needs the access token, so this phone leaves the account's push targets first (3 s at most).
+    await releasePushToken(pushDevice, notifications);
     const refreshToken = tokenStore.current()?.refreshToken;
     // Invalidate pending U02 before waiting for U03. Old refresh tokens can revoke their family.
     void tokenStore.clear().catch(() => {});
@@ -150,7 +159,7 @@ export function SessionProvider({
       await revokeOnServer(auth.logout, refreshToken);
     }
     if (tokenStore.session() === leaving) signOut();
-  }, [auth, signOut]);
+  }, [auth, notifications, pushDevice, signOut]);
 
   // S15P31E105-313: a login or a restored session hands the server's current consent (W05) to the watch, since
   // signOut left it at DISAGREE. If W05 cannot be read, only a saved consent whose delivery failed is re-sent.
@@ -178,9 +187,11 @@ export function SessionProvider({
   const expireSession = useCallback(() => {
     clearApiIdentityCache();
     clearSpotifySession().catch(() => {});
+    // S15P31E105-815: no access token for N04 any more; delete the phone's token so it stops showing pushes.
+    forgetPushToken(pushDevice);
     setLoginRequired(true);
     setSignedIn(false);
-  }, []);
+  }, [pushDevice]);
   useEffect(() => onUnauthorized(expireSession), [expireSession]);
 
   const value = useMemo(

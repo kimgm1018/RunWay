@@ -3,3 +3,8 @@ packages:
 nodeLinker: hoisted
 patchedDependencies:
   '@mj-studio/react-native-naver-map@2.9.1': patches/@mj-studio__react-native-naver-map@2.9.1.patch
+# S15P31E105-815: postinstall scripts pulled in by @react-native-firebase (Firebase JS SDK). Not needed on React
+# Native: @firebase/util writes web auto-init defaults and protobufjs only checks versions.
+allowBuilds:
+  '@firebase/util': false
+  protobufjs: false

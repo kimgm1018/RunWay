@@ -56,6 +56,11 @@ runway:
       api-key: ${BACKEND_SOLAPI_API_KEY:}
       api-secret: ${BACKEND_SOLAPI_API_SECRET:}
       sender-number: ${BACKEND_SOLAPI_SENDER_NUMBER:}
+  push:
+    # 앱 밖 푸시(FCM HTTP v1, ADR-0025). 끄면 발송하지 않고 알림 행은 PENDING으로 남는다(알림함은 그대로 동작).
+    enabled: ${BACKEND_PUSH_ENABLED:false}
+    # Firebase 서비스 계정 JSON 전체를 base64로 인코딩한 값. 서버에 평문 키 파일을 두지 않는다.
+    service-account-base64: ${BACKEND_FCM_SERVICE_ACCOUNT_BASE64:}
   auth:
     trusted-proxies: ${BACKEND_AUTH_TRUSTED_PROXIES:}
     signup:

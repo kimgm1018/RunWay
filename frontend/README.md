@@ -119,6 +119,25 @@ Maps Application `runway-mobile`의 **Client ID**가 필요하며, 없으면 Gra
 - 지도·현재 위치·코스 선은 설정 > 개발용 > 지도 확인에서 확인합니다.
 - iOS 키 설정(`Info.plist`의 `NMFNcpKeyId`)은 macOS/Xcode 환경에서 후속으로 추가합니다.
 
+## 앱 밖 푸시 알림 (FCM, S15P31E105-815)
+
+알림함에 쌓이는 알림을 Android 기기 푸시로도 받습니다([ADR-0025](../docs/adr/0025-fcm-device-push.md),
+[notifications.md](../docs/design/api/notifications.md)). `@react-native-firebase/messaging`을 쓰며 iOS는 범위 밖이라
+iOS 자동 연결에서 제외했습니다(`react-native.config.js`).
+
+- Firebase 콘솔에서 Android 앱(패키지명 `com.runway.health`)을 등록하고 받은 `google-services.json`을
+  `android/app/google-services.json`에 둡니다. 이 파일은 Git에서 제외되며 개발자가 각자 로컬에 둡니다.
+- 파일이 없으면 Google Services 플러그인을 적용하지 않아 기존처럼 빌드되고, 푸시만 꺼집니다(토큰 등록·수신 없음).
+- 로그인하면 Android 13 이상에서 알림 권한을 묻고, 허용하면 FCM 토큰을 N03으로 등록합니다. 거절하면 등록하지 않고
+  이전에 등록한 토큰을 N04로 지웁니다. 로그아웃 직전에 N04로 토큰을 지우고 기기 토큰도 삭제합니다(최대 3초).
+  로그인 만료·러닝 전 다시 로그인처럼 로그아웃 없이 세션이 끝나면 기기 토큰만 삭제합니다. 다음 로그인은 이전 삭제가
+  끝날 때까지(최대 15초) 기다렸다가 새 토큰을 등록합니다.
+- 푸시를 누르면 알림함에서 누를 때와 같은 화면이 열립니다. 팔로우 요청·알 수 없는 종류는 알림 화면을 엽니다.
+  앱이 켜져 있을 때 온 푸시는 시스템 알림을 띄우지 않고 홈의 알림 표시만 바로 갱신합니다.
+- 알림 채널은 `runway_default`(이름 "알림")이며 앱 시작 시 만듭니다(`firebase.json`, `MainApplication.kt`).
+- 서버 쪽 키(`BACKEND_FCM_SERVICE_ACCOUNT_BASE64`)·켜기 설정은 [백엔드 README](../backend/README.md)를 따릅니다.
+- 실제 수신은 서버 푸시를 켠 환경과 실기기에서 확인합니다. 자동 테스트는 가짜 기기·서버로 검증합니다.
+
 ## Spotify 연동
 
 Android의 음악 카드와 러닝 중 플레이어는 공식 **App Remote 0.8.0**으로 휴대폰 Spotify 앱에 연결한다

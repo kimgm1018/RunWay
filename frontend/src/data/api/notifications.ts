@@ -1,3 +1,4 @@
+import { isNotificationKind } from '../notificationKinds';
 import type { NotificationKind, NotificationList, Repositories } from '../types';
 import { apiRequest } from './http';
 
@@ -17,22 +18,10 @@ type NotificationListResponse = {
   unreadCount: number;
 };
 
-const knownKinds: readonly string[] = [
-  'GROUP_RUN_PARTICIPATION_CANCELLED',
-  'GROUP_RUN_START_REMINDER',
-  'CREW_JOIN_APPROVED',
-  'CREW_JOIN_REJECTED',
-  'CREW_JOIN_REQUESTED',
-  'POST_COMMENT',
-  'NEW_FOLLOWER',
-  'FOLLOW_REQUEST',
-  'FOLLOW_APPROVED',
-] satisfies NotificationKind[];
-
 const isKnown = (
   item: NotificationResponse,
 ): item is NotificationResponse & { kind: NotificationKind } =>
-  knownKinds.includes(item.kind);
+  isNotificationKind(item.kind);
 
 const pageOf = (response: NotificationListResponse): NotificationList => ({
   items: response.items.filter(isKnown).map(item => ({
@@ -70,5 +59,16 @@ export const notificationsApi: Repositories['notifications'] = {
     apiRequest<void>('/notifications/read-all', {
       method: 'POST',
       query: { upToId },
+    }),
+  // N03/N04 (S15P31E105-815, ADR-0025). Android is the only platform the server accepts.
+  registerPushToken: token =>
+    apiRequest<void>('/notifications/push-tokens', {
+      method: 'PUT',
+      body: { token, platform: 'ANDROID' },
+    }),
+  unregisterPushToken: token =>
+    apiRequest<void>('/notifications/push-tokens', {
+      method: 'DELETE',
+      body: { token },
     }),
 };

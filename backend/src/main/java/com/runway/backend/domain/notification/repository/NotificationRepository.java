@@ -39,7 +39,10 @@ public class NotificationRepository {
                 .findFirst();
     }
 
-    /** Inserts SENT row; returns empty when dedupe_key already exists. */
+    /**
+     * Inserts a PENDING row (push not sent yet, ADR-0025); returns empty when dedupe_key already exists. The row is
+     * visible in the inbox regardless of the push outcome.
+     */
     public Optional<Long> insertIgnoringDuplicate(
             long userId, String kind, long targetId, String message, String dedupeKey) {
         List<Long> ids =
@@ -49,7 +52,7 @@ public class NotificationRepository {
                             user_id, sent_at, delivery_status, message,
                             notification_type, target_id, dedupe_key)
                         VALUES (
-                            ?, now(), 'SENT'::notifications_delivery_status_enum, ?,
+                            ?, NULL, 'PENDING'::notifications_delivery_status_enum, ?,
                             ?, ?, ?)
                         ON CONFLICT (dedupe_key) DO NOTHING
                         RETURNING id
@@ -61,6 +64,50 @@ public class NotificationRepository {
                         targetId,
                         dedupeKey);
         return ids.stream().findFirst();
+    }
+
+    public record PushRow(long id, long userId, String kind, String message, long targetId) {}
+
+    /** The row to push, only while its push is still PENDING. */
+    public Optional<PushRow> findPendingForPush(long id) {
+        return jdbc.query(
+                        """
+                        SELECT id, user_id, notification_type, message, target_id
+                        FROM notifications
+                        WHERE id=? AND delivery_status='PENDING'
+                        """,
+                        (rs, n) ->
+                                new PushRow(
+                                        rs.getLong(1),
+                                        rs.getLong(2),
+                                        rs.getString(3),
+                                        rs.getString(4),
+                                        rs.getLong(5)),
+                        id)
+                .stream()
+                .findFirst();
+    }
+
+    /** At least one device accepted the push. */
+    public int markPushSent(long id) {
+        return jdbc.update(
+                """
+                UPDATE notifications
+                SET delivery_status='SENT'::notifications_delivery_status_enum, sent_at=now()
+                WHERE id=? AND delivery_status='PENDING'
+                """,
+                id);
+    }
+
+    /** Every device token of the recipient failed. */
+    public int markPushFailed(long id) {
+        return jdbc.update(
+                """
+                UPDATE notifications
+                SET delivery_status='FAILED'::notifications_delivery_status_enum
+                WHERE id=? AND delivery_status='PENDING'
+                """,
+                id);
     }
 
     /** Removes the inbox row of a logical event (for example a withdrawn join request). */

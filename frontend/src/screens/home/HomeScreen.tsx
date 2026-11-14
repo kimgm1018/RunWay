@@ -54,7 +54,7 @@ import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
 import { onHealthRecordsUploaded } from '../../health/healthRecordsUploaded';
 import { RecordsPanel } from './RecordsPanel';
-import { startNotificationRefresh } from './notificationRefresh';
+import { onPushReceived, startNotificationRefresh } from './notificationRefresh';
 import {
   RevealTopContext,
   revealOffset,
@@ -403,9 +403,14 @@ export function HomeScreen() {
       const stopNotificationRefresh = startNotificationRefresh(() => {
         void refreshNotifications({ keepOnError: true });
       });
+      // S15P31E105-815: a push that arrives while 2.1 is open shows no system notification; refresh the dot now.
+      const stopPushRefresh = onPushReceived(() => {
+        void refreshNotifications({ keepOnError: true });
+      });
       return () => {
         subscription.remove();
         stopNotificationRefresh();
+        stopPushRefresh();
       };
     }, [refreshMe, refreshNotifications, refreshCondition, reloadWatch]),
   );

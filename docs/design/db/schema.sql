@@ -521,6 +521,10 @@ CREATE TABLE "notifications" (
 	"dedupe_key"	VARCHAR(200)		NOT NULL
 );
 
+COMMENT ON COLUMN "notifications"."delivery_status" IS '앱 밖 푸시 결과. PENDING=미발송(토큰 없음·푸시 꺼짐·발송 전), SENT=1개 이상 기기 전송 성공, FAILED=모든 기기 전송 실패. V42 이전 행은 앱 내 저장 의미의 SENT';
+
+COMMENT ON COLUMN "notifications"."sent_at" IS '푸시가 1개 이상 기기에 처음 전송된 시각. 미발송이면 NULL';
+
 COMMENT ON COLUMN "notifications"."notification_type" IS '알림 종류 코드. GROUP_RUN_PARTICIPATION_CANCELLED: G13 그룹런 취소(코드명 유지, 참가 취소 알림 아님), CREW_JOIN_APPROVED: 크루 가입 승인, CREW_JOIN_REJECTED: 크루 가입 거절, CREW_JOIN_REQUESTED: 승인제 크루 새 가입 신청(크루장 수신), POST_COMMENT: 게시물 댓글, GROUP_RUN_START_REMINDER: 그룹런 시작 임박, NEW_FOLLOWER: 공개 계정 새 팔로워, FOLLOW_REQUEST: 비공개 팔로우 요청, FOLLOW_APPROVED: 수동 팔로우 승인. 알림 종류로 target_id의 대상과 이동 화면을 결정하며 별도 target_type은 두지 않는다.';
 
 COMMENT ON COLUMN "notifications"."target_id" IS '알림 클릭 시 이동 대상 ID. GROUP_RUN_PARTICIPATION_CANCELLED/GROUP_RUN_START_REMINDER는 group_runs.id(그룹런 상세), CREW_JOIN_APPROVED/CREW_JOIN_REJECTED/CREW_JOIN_REQUESTED는 crews.id(크루 상세), POST_COMMENT는 posts.id(게시글 상세), NEW_FOLLOWER/FOLLOW_REQUEST는 행위자 users.id, FOLLOW_APPROVED는 승인자 users.id. 여러 테이블을 가리키므로 단일 FK는 두지 않고 서비스에서 종류별 대상 존재와 현재 열람 권한을 검증한다. 삭제된 대상은 이동 불가로 안내한다.';
@@ -1850,4 +1854,38 @@ CREATE INDEX "idx_satisfaction_survey_responses_created_at" ON "satisfaction_sur
 
 -- 탈퇴(V17)와 같은 쓰기 차단. 탈퇴(진행) 회원의 새 응답 저장을 거절한다.
 CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON "satisfaction_survey_responses"
+    FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner('user', 'user_id');
+
+-- S15P31E105-815 (V42, ADR-0025): 앱 밖 푸시(FCM)용 기기 토큰. 앱이 N03으로 등록하고 로그아웃 전 N04로 해제한다.
+-- 한 토큰은 한 기기를 가리키므로 전역 UNIQUE이며, 같은 기기에서 다른 계정으로 로그인하면 소유자를 옮긴다.
+-- FCM이 무효(UNREGISTERED 등)로 응답한 토큰과 탈퇴(U18) 회원의 토큰은 삭제한다. 회원당 최근 10개만 유지한다.
+CREATE TABLE "push_device_tokens" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "user_id" BIGINT NOT NULL,
+    "token" VARCHAR(512) NOT NULL,
+    "platform" VARCHAR(20) NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    "updated_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    CONSTRAINT "PK_PUSH_DEVICE_TOKENS" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_push_device_tokens_token" UNIQUE ("token"),
+    CONSTRAINT "ck_push_device_tokens_platform" CHECK ("platform" IN ('ANDROID')),
+    CONSTRAINT "FK_users_TO_push_device_tokens_1"
+        FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE
+);
+
+COMMENT ON TABLE "push_device_tokens" IS '앱 밖 푸시(FCM) 기기 등록 토큰. 알림함 행이 생기면 커밋 후 수신자의 토큰들로 발송한다(ADR-0025)';
+COMMENT ON COLUMN "push_device_tokens"."user_id" IS '토큰을 등록한 회원 ID. 같은 토큰을 다른 회원이 등록하면 그 회원으로 바뀐다';
+COMMENT ON COLUMN "push_device_tokens"."token" IS 'FCM 등록 토큰(앱 getToken 값). 전역 UNIQUE. 로그에는 앞 8자만 남긴다';
+COMMENT ON COLUMN "push_device_tokens"."platform" IS '기기 플랫폼. 현재 ANDROID만 허용(iOS APNs 제외)';
+COMMENT ON COLUMN "push_device_tokens"."created_at" IS '최초 등록일시';
+COMMENT ON COLUMN "push_device_tokens"."updated_at" IS '마지막 등록(재등록) 일시. 회원당 10개 상한 정리 기준';
+
+CREATE INDEX "idx_push_device_tokens_user_updated" ON "push_device_tokens" ("user_id", "updated_at");
+
+CREATE TRIGGER "trg_push_device_tokens_updated_at"
+    BEFORE UPDATE ON "push_device_tokens"
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 탈퇴(V17)와 같은 쓰기 차단. 탈퇴(진행) 회원의 새 토큰 등록·소유자 이전을 거절한다.
+CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON "push_device_tokens"
     FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner('user', 'user_id');
