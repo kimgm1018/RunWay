@@ -264,6 +264,15 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
   for (const label of ['거리', '시간', '평균 페이스']) {
     expect(words).toContain(label);
   }
+  // 작은 화면·큰 글자에서도 시간·거리·페이스 값이 두 줄로 쪼개지지 않게 한 줄로 줄여 맞춘다(S15P31E105-819).
+  const valueTexts = first
+    .findAllByType(Text)
+    .filter(node => node.props.adjustsFontSizeToFit === true);
+  expect(valueTexts.length).toBeGreaterThanOrEqual(3);
+  for (const node of valueTexts) {
+    expect(node.props.numberOfLines).toBe(1);
+    expect(node.props.minimumFontScale).toBe(0.7);
+  }
   // The page on screen shows its shared course on the real map (S15P31E105-521), and the pages just above and
   // below draw theirs ahead (사용자 요청: 지도를 더 빨리). Pages further off wait on the map's light ground with no
   // dark drawn map or 예시 경로, so the feed holds at most three native maps.
