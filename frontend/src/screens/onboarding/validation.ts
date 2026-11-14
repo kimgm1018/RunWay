@@ -1,7 +1,7 @@
 // Input rules from docs/design/api/users.md (U01·U15) and the messages on prototype v15 1.x.
 
 export const loginIdRule = '영문/숫자 4~16자';
-export const nicknameRule = '2–10자 · 그룹런과 커뮤니티에 표시돼요';
+export const nicknameRule = '한글·영문·숫자 2–10자 · 그룹런과 커뮤니티에 표시돼요';
 
 export function isValidLoginId(value: string) {
   return /^[A-Za-z0-9]{4,16}$/.test(value);
@@ -116,9 +116,23 @@ export function digitsOnly(value: string) {
   return value.replace(/\D/g, '');
 }
 
-// Korean mobile numbers, stored as digits only (U15 phoneNumber).
+// 서버와 같은 규칙: 010으로 시작하는 숫자 11자리(users.md U15·U28 phoneNumber, S15P31E105-781). 숫자만 저장한다.
 export function isValidPhoneNumber(digits: string) {
-  return /^01[016789]\d{7,8}$/.test(digits);
+  return /^010\d{8}$/.test(digits);
+}
+
+// 휴대폰 번호 칸 아래 안내. 앞자리가 010이 아니면 바로, 자릿수가 모자라면 칸을 벗어난 뒤(done) 알린다.
+export function phoneNumberError(digits: string, done = false) {
+  if (!digits) {
+    return null;
+  }
+  if (!'010'.startsWith(digits.slice(0, 3))) {
+    return '010으로 시작하는 휴대폰 번호만 쓸 수 있어요';
+  }
+  if (done && !isValidPhoneNumber(digits)) {
+    return '휴대폰 번호 11자리를 입력해 주세요';
+  }
+  return null;
 }
 
 export function formatPhoneNumber(digits: string) {
@@ -139,9 +153,29 @@ export function isValidVerificationCode(value: string) {
   return /^\d{6}$/.test(value);
 }
 
+// 서버와 같은 닉네임 규칙(users.md U15·U05, S15P31E105-781): 완성형 한글·영문·숫자만 2~10자. 앞뒤 공백은 잘라서 보낸다.
 export function isValidNickname(value: string) {
-  const length = [...value.trim()].length;
-  return length >= 2 && length <= 10;
+  return /^[가-힣A-Za-z0-9]{2,10}$/.test(value.trim());
+}
+
+// 닉네임 칸 아래 안내. 공백·허용하지 않는 문자는 바로, 길이 부족은 칸을 벗어난 뒤(done) 알린다.
+export function nicknameError(value: string, done = false) {
+  const nickname = value.trim();
+  if (!nickname) {
+    return null;
+  }
+  if (/\s/.test(nickname)) {
+    return '닉네임에는 공백을 쓸 수 없어요';
+  }
+  // 한글을 조합하는 중에는 끝 글자가 잠깐 자모(ㅈ 등)가 된다. 칸을 벗어나기 전에는 이것만으로 안내하지 않는다(781 리뷰 B-2).
+  const composing = done ? nickname : nickname.replace(/[ㄱ-ㆎ]$/, '');
+  if (/[^가-힣A-Za-z0-9]/.test(composing)) {
+    return '한글·영문·숫자만 쓸 수 있어요';
+  }
+  if ([...nickname].length > 10 || (done && [...nickname].length < 2)) {
+    return '닉네임은 2–10자로 입력해 주세요';
+  }
+  return null;
 }
 
 export function daysInMonth(year: number, month: number) {

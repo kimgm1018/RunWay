@@ -37,6 +37,7 @@ import { fontFamily, useTheme } from '../theme';
 import { navigateTo } from './navigateTo';
 import { PillTabBar } from './PillTabBar';
 import { ShareLinkOpener } from './ShareLinkOpener';
+import { PushBridge } from '../push/PushBridge';
 import {
   authRoutes,
   groupTabRoutes,
@@ -267,6 +268,7 @@ export function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <ShareLinkOpener navigation={navigationRef} signedIn={signedIn} />
+      <PushBridge navigation={navigationRef} signedIn={signedIn} />
       <SignUpDraftProvider>
         <CourseSearchProvider>
           <RunSessionProvider>

@@ -463,6 +463,9 @@ export type NotificationList = {
   unreadCount: number;
   // Null on the last page (N01 nextCursor / hasNext).
   nextCursor: string | null;
+  // S15P31E105-801: the newest server id on this page, counting kinds the app leaves out, so leaving 2.9 also marks
+  // those read (N02 upToId). Absent when the page has no numeric id (mock data, an empty page).
+  newestId?: number;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -927,6 +930,12 @@ export type BasicProfile = Pick<
   'nickname' | 'birthDate' | 'gender'
 >;
 
+// U05 기본 정보 저장. 닉네임은 바꿀 때만 보낸다: 서버는 보낸 닉네임만 검사해서, 규칙(S15P31E105-781) 이전에 저장한
+// 닉네임도 그대로 두고 성별·생일을 저장할 수 있다.
+export type BasicProfileChange = Omit<BasicProfile, 'nickname'> & {
+  nickname?: string;
+};
+
 export type LoginIdAvailability = {
   loginId: string;
   available: boolean;
@@ -1346,6 +1355,14 @@ export type SearchPage = {
   cursor: string | null;
 };
 
+// SV01 (S15P31E105-813): where the answer came from — 4.5's prompt after a saved run, or 8.1's tile.
+export type SatisfactionSurveySource = 'RUN_RESULT' | 'SETTINGS';
+export type SatisfactionSurveyAnswer = {
+  score: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  source: SatisfactionSurveySource;
+};
+
 export type Repositories = {
   auth: {
     login: (request: {
@@ -1369,7 +1386,7 @@ export type Repositories = {
   };
   profile: {
     getMe: () => Promise<UserProfile>;
-    updateBasic: (profile: BasicProfile) => Promise<void>;
+    updateBasic: (profile: BasicProfileChange) => Promise<void>;
     // null until the first U07 save (404 PROFILE_NOT_SET).
     getRunningProfile: () => Promise<RunningProfile | null>;
     saveRunningProfile: (
@@ -1388,6 +1405,10 @@ export type Repositories = {
   consents: {
     getHealth: () => Promise<boolean>;
     setHealth: (granted: boolean) => Promise<boolean>;
+  };
+  // 8.1d 만족도 조사 (SV01, S15P31E105-813): one answer of 1–5 and an optional comment; repeats are allowed.
+  surveys: {
+    submit: (answer: SatisfactionSurveyAnswer) => Promise<void>;
   };
   // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
   account: {
@@ -1625,7 +1646,11 @@ export type Repositories = {
   notifications: {
     // N01: cursor null/omitted reads the newest page (limit 50).
     list: (cursor?: string | null) => Promise<NotificationList>;
-    markAllRead: () => Promise<void>;
+    // N02: marks the caller's unread rows read; with upToId only rows whose id is at most it (S15P31E105-801).
+    markAllRead: (upToId?: number) => Promise<void>;
+    // N03/N04 (S15P31E105-815): this device's FCM token for device push. Both are idempotent on the server.
+    registerPushToken: (token: string) => Promise<void>;
+    unregisterPushToken: (token: string) => Promise<void>;
   };
   run: {
     getCurrentPlace: () => Promise<CurrentPlace>;

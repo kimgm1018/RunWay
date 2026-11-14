@@ -614,6 +614,10 @@ export function createMockRepositories(
         return respond(healthConsent, options);
       },
     },
+    // SV01: the mock keeps nothing; the server only stores the answer.
+    surveys: {
+      submit: () => respond(undefined, options),
+    },
     account: {
       // U17: like the server, a crew I lead blocks withdrawal until it is handed over or dissolved (users.md,
       // 2026-11-05 확정 정책: 자동 후임 선정 없음).
@@ -924,10 +928,17 @@ export function createMockRepositories(
           options,
         );
       },
-      markAllRead: () => {
-        notifications = notifications.map(item => ({ ...item, read: true }));
+      markAllRead: upToId => {
+        notifications = notifications.map(item =>
+          upToId === undefined || Number(item.id) <= upToId
+            ? { ...item, read: true }
+            : item,
+        );
         return respond(undefined, options);
       },
+      // Sample data never reaches FCM; the token is accepted and dropped.
+      registerPushToken: _token => respond(undefined, options),
+      unregisterPushToken: _token => respond(undefined, options),
     },
     run: {
       getCurrentPlace: () => respond(fixtures.currentPlace, options),

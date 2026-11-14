@@ -1,5 +1,8 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
-import type { FollowListKind } from '../data/types';
+import type {
+  FollowListKind,
+  SatisfactionSurveySource,
+} from '../data/types';
 import type {
   AuthRouteName,
   GroupTabRouteName,
@@ -45,6 +48,7 @@ export type RootStackParamList = Record<
     | 'PostEdit'
     | 'RunnerProfile'
     | 'FollowList'
+    | 'SatisfactionSurvey'
   >,
   undefined
 > & {
@@ -57,6 +61,8 @@ export type RootStackParamList = Record<
   PostWrite: { recordId: string; fromRecords?: boolean } | undefined;
   PostEdit: { postId: string } | undefined;
   RunnerProfile: { userId: string } | undefined;
+  // 8.1d: where it was opened from; 8.1's tile when left out (S15P31E105-813).
+  SatisfactionSurvey: { source: SatisfactionSurveySource } | undefined;
   // 7.4c opens on one of the runner's two lists.
   FollowList: { userId: string; kind: FollowListKind; nickname: string };
   // 6.x open one group run; 6.8 makes one in a crew. Without an id they fall back to the next run.

@@ -33,6 +33,9 @@ services:
       # 파일을 바꾸면 아래 마운트 경로와 SHA를 함께 바꾼다. 불일치 시 C01만 503 GRADE_NOT_READY다. 되돌리기: 부산 clip(45faaa5e…).
       BACKEND_COURSE_DEM_PATH: /data/dem/copernicus_glo30_national.tif
       BACKEND_COURSE_DEM_SHA256: 21f8a77e60e409cfc252c2a22df8119ca822dc538b4d9aa8ca28858ff24920f2
+      # 앱 밖 푸시(FCM, S15P31E105-815, ADR-0025). 서비스 계정 키는 아래 Secret 파일(base64 한 줄)에서 읽는다.
+      # 끄려면 "false"로 바꾼다. 켠 상태에서 키가 비었거나 해석할 수 없으면 기동이 실패한다.
+      BACKEND_PUSH_ENABLED: "true"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -41,6 +44,7 @@ services:
         export BACKEND_JWT_SECRET_BASE64="$$(cat /run/secrets/jwt_secret_base64)"
         export BACKEND_DOCS_PASSWORD_HASH="$$(cat /run/secrets/docs_password_hash)"
         export BACKEND_REDIS_PASSWORD="$$(cat /run/secrets/redis_app_password)"
+        export BACKEND_FCM_SERVICE_ACCOUNT_BASE64="$$(cat /run/secrets/fcm_service_account_base64)"
         # 고정된 환경변수만 읽고 파일 내용을 셸 코드로 실행하지 않는다.
         while IFS= read -r setting || [ -n "$$setting" ]; do
           case "$$setting" in
@@ -89,6 +93,12 @@ services:
       - type: bind
         source: /home/ubuntu/runway/secrets/backend/docs-password-hash
         target: /run/secrets/docs_password_hash
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/fcm-service-account-base64
+        target: /run/secrets/fcm_service_account_base64
         read_only: true
         bind:
           create_host_path: false

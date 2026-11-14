@@ -43,6 +43,10 @@ runway:
   group-pace:
     enabled: ${BACKEND_GROUP_PACE_ENABLED:false}
     base-url: ${BACKEND_AI_BASE_URL:}
+    # S15P31E105-817: 기동 후 start-delay(AI 준비 대기)가 지나면 출발 추천은 있는데 km 비율이 없는 예정 그룹런을 예정 시각이 지금과 가까운 순(미래 방 먼저)으로 최대 backfill-limit개 한 번 다시 계산한다(하루 넘게 지난 방 제외). 끄려면 BACKEND_GROUP_PACE_BACKFILL_ON_STARTUP=false. 곧 열릴 방을 먼저 처리한다.
+    backfill-on-startup: ${BACKEND_GROUP_PACE_BACKFILL_ON_STARTUP:true}
+    backfill-limit: ${BACKEND_GROUP_PACE_BACKFILL_LIMIT:100}
+    backfill-start-delay: ${BACKEND_GROUP_PACE_BACKFILL_START_DELAY:PT30S}
   places:
     enabled: ${BACKEND_PLACE_SEARCH_ENABLED:false}
     search-client-id: ${BACKEND_NAVER_SEARCH_CLIENT_ID:}
@@ -56,6 +60,11 @@ runway:
       api-key: ${BACKEND_SOLAPI_API_KEY:}
       api-secret: ${BACKEND_SOLAPI_API_SECRET:}
       sender-number: ${BACKEND_SOLAPI_SENDER_NUMBER:}
+  push:
+    # 앱 밖 푸시(FCM HTTP v1, ADR-0025). 끄면 발송하지 않고 알림 행은 PENDING으로 남는다(알림함은 그대로 동작).
+    enabled: ${BACKEND_PUSH_ENABLED:false}
+    # Firebase 서비스 계정 JSON 전체를 base64로 인코딩한 값. 서버에 평문 키 파일을 두지 않는다.
+    service-account-base64: ${BACKEND_FCM_SERVICE_ACCOUNT_BASE64:}
   auth:
     trusted-proxies: ${BACKEND_AUTH_TRUSTED_PROXIES:}
     signup:

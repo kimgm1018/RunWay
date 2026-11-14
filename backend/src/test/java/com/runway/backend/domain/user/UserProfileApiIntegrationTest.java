@@ -12,6 +12,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -223,6 +224,54 @@ class UserProfileApiIntegrationTest {
                                 .header("Authorization", SecurityTestSupport.bearer(userId))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"birthDate\":\"1930-05-06\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PROFILE"));
+    }
+
+    // S15P31E105-781: 닉네임은 완성형 한글·영문·숫자만. 거절하면 저장된 닉네임은 그대로다.
+    @Test
+    void U05_허용하지_않는_닉네임_400() throws Exception {
+        for (String nickname : List.of("😀😀", "러너!", "홍 길동", "ㅋㅋ")) {
+            mockMvc.perform(
+                            patch("/api/v1/users/me")
+                                    .header("Authorization", SecurityTestSupport.bearer(userId))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"nickname\":\"" + nickname + "\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_PROFILE"));
+        }
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT nickname FROM users WHERE id = ?", String.class, userId))
+                .isEqualTo("러너");
+    }
+
+    // 새 규칙 전에 저장된 닉네임은 생략하거나 그대로 보내면 유지하고 다른 항목을 저장할 수 있다(S15P31E105-781).
+    @Test
+    void U05_규칙밖_기존닉네임_생략하거나_그대로면_다른항목_저장() throws Exception {
+        jdbc.update("UPDATE users SET nickname = '😀😀' WHERE id = ?", userId);
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"gender\":\"FEMALE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("😀😀"))
+                .andExpect(jsonPath("$.gender").value("FEMALE"));
+        // 이전 앱처럼 저장된 닉네임을 그대로 다시 보내도 막지 않는다. 다른 규칙 밖 닉네임으로 바꾸는 것은 거절한다.
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"nickname\":\"😀😀\",\"gender\":\"MALE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("😀😀"))
+                .andExpect(jsonPath("$.gender").value("MALE"));
+        mockMvc.perform(
+                        patch("/api/v1/users/me")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"nickname\":\"😀😀😀\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PROFILE"));
     }

@@ -132,6 +132,22 @@ class CommentApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.items[0].body").value("비공개 댓글"));
     }
 
+    // S15P31E105-803: 댓글 본문의 NUL(U+0000)은 500이 아니라 400 VALIDATION_ERROR이고 댓글을 만들지 않는다.
+    @Test
+    void NUL이든_댓글본문은_400_VALIDATION_ERROR() throws Exception {
+        long commentsBefore = jdbc.queryForObject("SELECT count(*) FROM comments", Long.class);
+        mockMvc.perform(
+                        post("/api/v1/posts/{postId}/comments", publicPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"body\":\"좋은\\u0000러닝\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject("SELECT count(*) FROM comments", Long.class))
+                .isEqualTo(commentsBefore);
+    }
+
     @Test
     void 루트댓글작성_201_대댓글작성_201_공백본문_422_EMPTY_COMMENT() throws Exception {
         MvcResult created =

@@ -43,6 +43,22 @@ U28·U29 휴대전화 인증과 U30 비밀번호 재설정은 서버가 SOLAPI S
 - 운영 Compose/Secret 주입은 인프라 담당자와 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
 - 공급자에 중복 방지 키가 없어 자동 재시도는 하지 않는다. 자동 테스트는 가짜 HTTP 서버를 쓰며 실제 문자를 보내지 않는다. 실제 수신은 실기기에서 따로 검증한다.
 
+## 앱 밖 푸시(FCM) 설정 (S15P31E105-815)
+
+알림함 행이 생기면 커밋 후 수신자의 Android 기기로 FCM HTTP v1 푸시를 보낸다([ADR-0025](../docs/adr/0025-fcm-device-push.md), [notifications.md](../docs/design/api/notifications.md)).
+기본 `BACKEND_PUSH_ENABLED=false`에서는 푸시를 보내지 않고 알림 행이 `PENDING`으로 남는다. 알림함 API는 그대로 동작한다.
+
+| 변수 | 용도 |
+| --- | --- |
+| `BACKEND_PUSH_ENABLED` | 푸시 발송 켜기 |
+| `BACKEND_FCM_SERVICE_ACCOUNT_BASE64` | Firebase 서비스 계정 JSON 전체를 base64 한 줄로 인코딩한 값 |
+
+- Firebase 프로젝트 생성·Android 앱 등록·서비스 계정 키 발급은 사용자가 콘솔에서 직접 한다. 키 JSON 파일은 저장소 밖에 두고 base64 값만 로컬 `.env` 또는 인프라 Secret으로 주입한다.
+- 켰는데 값이 없거나 해석할 수 없으면 변수 이름만 안내하고 기동을 실패시킨다. 로그에는 토큰 앞 8자와 FCM 오류 코드만 남긴다.
+- 서비스 계정 키는 앱 `google-services.json`과 **같은 Firebase 프로젝트**에서 발급한다. 다르면 FCM이 `SENDER_ID_MISMATCH`를 돌려주고 서버가 그 토큰들을 무효로 보고 삭제한다(앱을 다시 열면 재등록).
+- 운영 Compose/Secret 주입은 인프라 담당자와 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
+- 자동 테스트는 가짜 발송기로 검증하며 실제 FCM을 호출하지 않는다. 실제 수신은 실기기에서 따로 검증한다.
+
 Java 21·Spring MVC 기반의 실행·테스트 초기 구성과 서비스용 Flyway 마이그레이션 V1을 포함한다.
 크루·게시글·댓글 API는 공통 JWT 인증을 사용한다. 문서 접속 인증과 회원 API 인증은 구분한다.
 

@@ -77,6 +77,12 @@ export function postFailure(error: unknown, action: '게시' | '저장') {
       return '내가 쓴 게시물만 수정할 수 있어요';
     case 'VALIDATION_ERROR':
       return '글 내용을 확인해 주세요';
+    // CMT01: the region sent with the post is not in the server's list (S15P31E105-778). 7.3 takes that region
+    // from the run's start (the 지역 line under the map), not from any setting, so there is nothing to re-pick; the
+    // failed post keeps what was written (the screen stays open). Say what failed and that the text is kept,
+    // never to reopen the app, which would lose it (S15P31E105-803 리뷰 A-2).
+    case 'INVALID_REGION':
+      return '이 기록의 지역을 확인하지 못해 게시하지 못했어요. 쓴 글은 그대로 있어요';
     case 'NETWORK_ERROR':
       return '인터넷 연결을 확인한 뒤 다시 시도해 주세요';
     default:

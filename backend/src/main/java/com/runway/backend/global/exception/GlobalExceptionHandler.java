@@ -53,6 +53,9 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /** 문자열 값을 DB가 받을 수 없을 때의 SQLState(S15P31E105-803, {@link #unstorableTextSqlState}). */
+    private static final Set<String> UNSTORABLE_TEXT_SQL_STATES = Set.of("22021", "22P05");
+
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiErrorResponse> handleApiException(
             ApiException exception, HttpServletRequest request) {
@@ -236,6 +239,17 @@ public class GlobalExceptionHandler {
             Exception exception, HttpServletRequest request) {
         ErrorCode guard = withdrawalGuard(exception);
         if (guard != null) return response(guard, Map.of());
+        String unstorable = unstorableTextSqlState(exception);
+        if (unstorable != null) {
+            // 원인을 찾을 수 있게 경로·메서드·SQLState만 남긴다. 입력 원문·파라미터·SQL·스택은 남기지 않는다(S15P31E105-803 리뷰 A-1·B-1).
+            log.warn(
+                    "runway_route={} runway_method={} runway_error={} unstorable_text sqlstate={}",
+                    safeRoute(request),
+                    request.getMethod(),
+                    ErrorCode.VALIDATION_ERROR.code(),
+                    unstorable);
+            return validation(List.of());
+        }
         logServerError(request, ErrorCode.INTERNAL_ERROR.code(), "처리하지 못한 예외", exception);
         return response(ErrorCode.INTERNAL_ERROR, Map.of());
     }
@@ -254,6 +268,23 @@ public class GlobalExceptionHandler {
         Object matchedPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         String route = matchedPattern == null ? "unknown" : matchedPattern.toString();
         return API_ROUTE_PATTERN.matcher(route).matches() ? route : "unknown";
+    }
+
+    /**
+     * PostgreSQL이 문자열 값을 저장·비교할 수 없어 거절한 경우(S15P31E105-803). 입력 문자열의 NUL(U+0000)이 대표적이며
+     * 22021(invalid byte sequence for encoding)·22P05(untranslatable character)만 해당한다. 같은 입력은 다시 보내도 같은
+     * 결과라 400 VALIDATION_ERROR로 응답한다. 그 밖의 22xxx(길이 초과 22001 등)와 제약 위반은 지금처럼 500이다.
+     * 해당하면 그 SQLState, 아니면 null을 돌려준다.
+     */
+    private static String unstorableTextSqlState(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException first) {
+                for (SQLException sql = first; sql != null; sql = sql.getNextException()) {
+                    if (UNSTORABLE_TEXT_SQL_STATES.contains(sql.getSQLState())) return sql.getSQLState();
+                }
+            }
+        }
+        return null;
     }
 
     private static ErrorCode withdrawalGuard(Throwable exception) {

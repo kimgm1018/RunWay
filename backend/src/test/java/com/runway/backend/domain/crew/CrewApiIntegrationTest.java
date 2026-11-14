@@ -1193,6 +1193,37 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(status().isCreated());
     }
 
+    // S15P31E105-803: regionCode의 NUL(U+0000)은 PostgreSQL이 받지 못해(22021) 500이 났다. 크루 생성은 없는 지역과 같은
+    // 422 INVALID_CREW(기존 코드)이고 크루를 만들지 않으며, 크루 검색 지역 필터·검색어는 400 VALIDATION_ERROR다.
+    @Test
+    void NUL이든_지역코드_크루생성은_422_INVALID_CREW_검색은_400() throws Exception {
+        long crewsBefore = jdbc.queryForObject("SELECT count(*) FROM crews", Long.class);
+        mockMvc.perform(
+                        post("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"name\":\"지역 크루\",\"capacity\":10,\"regionCode\":\"11\\u000010\"}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INVALID_CREW"));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject("SELECT count(*) FROM crews", Long.class))
+                .isEqualTo(crewsBefore);
+        mockMvc.perform(
+                        get("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .param("regionCode", "11" + (char) 0 + "10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        // 리뷰 반영: 검색어 q의 NUL도 같은 400(crews.md M01).
+        mockMvc.perform(
+                        get("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .param("q", "러닝" + (char) 0 + "크루"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
     private long createCrew(long ownerId, String name, int capacity) throws Exception {
         MvcResult created =
                 mockMvc.perform(

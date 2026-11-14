@@ -149,6 +149,8 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
   장소 검색은 배포 전에 EC2의 `~/runway/secrets/backend/place-search.env`를 준비한다. 파일 소유자는 `10001:10001`, 권한은 `400`으로 설정한다.
   [백엔드 README](../backend/README.md)의 장소 검색 변수 5개를 줄마다 `이름=값` 형식으로 입력한다. 값에 따옴표는 붙이지 않는다.
   API HUB·Maps 키 4개를 모두 채운 뒤 `BACKEND_PLACE_SEARCH_ENABLED=true`로 켠다. 키 준비 전에는 `false`로 둔다.
+  앱 밖 푸시(FCM, ADR-0025)는 EC2의 `~/runway/secrets/backend/fcm-service-account-base64`에 Firebase 서비스 계정 JSON 전체를 base64 한 줄로 둔다.
+  소유자 `10001:10001`, 권한 `400`. compose가 `BACKEND_FCM_SERVICE_ACCOUNT_BASE64`로 읽고 `BACKEND_PUSH_ENABLED`로 켠다. 파일이 없으면 배포가 실패하고, 값이 잘못되면 기동이 실패한다.
 
 최초 readiness 전환 때만 `BACKEND_LEGACY_HEALTH_IMAGE_ID`에 기존 컨테이너의 정확한 `sha256:...` 이미지 ID를 지정할 수 있다.
 해당 이미지의 배포 전·복구 검사에만 기존 시작 로그·404 확인을 허용하며, 미설정·ID 불일치 시 우회하지 않는다.

@@ -1,3 +1,4 @@
+import { isNotificationKind } from '../notificationKinds';
 import type { NotificationKind, NotificationList, Repositories } from '../types';
 import { apiRequest } from './http';
 
@@ -17,22 +18,10 @@ type NotificationListResponse = {
   unreadCount: number;
 };
 
-const knownKinds: readonly string[] = [
-  'GROUP_RUN_PARTICIPATION_CANCELLED',
-  'GROUP_RUN_START_REMINDER',
-  'CREW_JOIN_APPROVED',
-  'CREW_JOIN_REJECTED',
-  'CREW_JOIN_REQUESTED',
-  'POST_COMMENT',
-  'NEW_FOLLOWER',
-  'FOLLOW_REQUEST',
-  'FOLLOW_APPROVED',
-] satisfies NotificationKind[];
-
 const isKnown = (
   item: NotificationResponse,
 ): item is NotificationResponse & { kind: NotificationKind } =>
-  knownKinds.includes(item.kind);
+  isNotificationKind(item.kind);
 
 const pageOf = (response: NotificationListResponse): NotificationList => ({
   items: response.items.filter(isKnown).map(item => ({
@@ -45,6 +34,16 @@ const pageOf = (response: NotificationListResponse): NotificationList => ({
   })),
   unreadCount: response.unreadCount,
   nextCursor: response.hasNext ? response.nextCursor : null,
+  // S15P31E105-801: taken before the unknown kinds are left out, so N02 upToId covers them too.
+  newestId: response.items.reduce<number | undefined>(
+    (newest, item) =>
+      Number.isSafeInteger(item.id) &&
+      item.id > 0 &&
+      (newest === undefined || item.id > newest)
+        ? item.id
+        : newest,
+    undefined,
+  ),
 });
 
 // N01 pages of up to 50; cursor null reads the newest page. A kind this app does not know yet is left out.
@@ -56,6 +55,20 @@ export const notificationsApi: Repositories['notifications'] = {
     );
     return pageOf(response);
   },
-  markAllRead: () =>
-    apiRequest<void>('/notifications/read-all', { method: 'POST' }),
+  markAllRead: upToId =>
+    apiRequest<void>('/notifications/read-all', {
+      method: 'POST',
+      query: { upToId },
+    }),
+  // N03/N04 (S15P31E105-815, ADR-0025). Android is the only platform the server accepts.
+  registerPushToken: token =>
+    apiRequest<void>('/notifications/push-tokens', {
+      method: 'PUT',
+      body: { token, platform: 'ANDROID' },
+    }),
+  unregisterPushToken: token =>
+    apiRequest<void>('/notifications/push-tokens', {
+      method: 'DELETE',
+      body: { token },
+    }),
 };

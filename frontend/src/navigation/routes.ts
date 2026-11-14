@@ -78,6 +78,7 @@ export const mainRoutes = [
   'Settings',
   'LocationSetting',
   'DataLicense',
+  'SatisfactionSurvey',
   'WatchConnect',
   'Withdraw',
   'WithdrawPassword',
@@ -452,6 +453,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     links: [
       'LocationSetting',
       'DataLicense',
+      'SatisfactionSurvey',
       'WatchConnect',
       'Withdraw',
       'signOut',
@@ -467,6 +469,13 @@ export const routes: Record<RouteName, RouteInfo> = {
   DataLicense: {
     code: '8.1c',
     title: '데이터 라이선스',
+    task: SETTINGS,
+    links: ['Settings'],
+  },
+  // S15P31E105-813: 1–5 and an optional comment (SV01), from 8.1's tile or 4.5's prompt after a saved run.
+  SatisfactionSurvey: {
+    code: '8.1d',
+    title: '만족도 조사',
     task: SETTINGS,
     links: ['Settings'],
   },

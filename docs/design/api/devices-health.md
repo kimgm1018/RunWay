@@ -24,7 +24,7 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 
 - W07과 아래 173번 온라인 계약의 전송 방식·저장 확인·재시도·폰 인계 규칙은 사용자 승인 기준이다.
 - W01~W03 기기 등록·조회·해제는 S15P31E105-251에서 확정한 아래 계약을 따른다. W04~W05 동의 변경·조회와 철회 순서 보장은 S15P31E105-250에서 확정한 아래 계약을 따른다. W06은 S15P31E105-252에서 확정한 일상 심박 추정값 계약을 따르며 다른 건강 레코드는 후속 확정이다. 통신 방식이 확정됐다고 해당 API의 저장 모델까지 확정된 것은 아니다.
-- user_devices에는 기기 ID·회원·유형·연결/해제시각만 있다. 설치 식별자·기기 메타데이터·푸시 토큰·마지막 통신시각은 저장하지 않는다. 회원별·유형별 연결 중 기기는 하나다(`uq_user_devices_active`). users.health_data_access는 현재 건강정보 동의 값이다. 가입 시 동의는 U15, 가입 후 변경·조회와 철회 시 동시 처리는 W04·W05를 따른다.
+- user_devices에는 기기 ID·회원·유형·연결/해제시각만 있다. 설치 식별자·기기 메타데이터·푸시 토큰·마지막 통신시각은 저장하지 않는다(푸시 토큰은 `push_device_tokens`, [N03](notifications.md#n03-푸시-토큰-등록)). 회원별·유형별 연결 중 기기는 하나다(`uq_user_devices_active`). users.health_data_access는 현재 건강정보 동의 값이다. 가입 시 동의는 U15, 가입 후 변경·조회와 철회 시 동시 처리는 W04·W05를 따른다.
 
 ## W01 기기 등록
 
@@ -62,7 +62,7 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 |---|---|:---:|---|
 | `deviceType` | string | O | `PHONE` 또는 `WATCH`(대문자). 숫자·소문자·그 밖의 값은 400 |
 
-설치 식별자(`installationId`)·manufacturer·model·osVersion·appVersion·capabilities·pushToken은 저장하지 않으므로 계약에서 제외했다. 이전 클라이언트가 보내도 무시한다. 푸시 토큰 등록 경로는 알림 업무에서 별도로 정한다.
+설치 식별자(`installationId`)·manufacturer·model·osVersion·appVersion·capabilities·pushToken은 저장하지 않으므로 계약에서 제외했다. 이전 클라이언트가 보내도 무시한다. 푸시 토큰은 [N03·N04](notifications.md#n03-푸시-토큰-등록)로 등록·해제한다(S15P31E105-815).
 
 ```json
 {
@@ -121,7 +121,7 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 
 - [x] 설치 식별자는 저장하지 않고, 회원별·유형별 연결 중 기기 1대로 중복 등록을 막는다. 계정 변경·다른 실물 기기 교체는 W03 해제 후 W01
 - [x] manufacturer/model/osVersion/appVersion/capabilities는 이번 범위에서 받지 않고 저장하지 않는다
-- [x] pushToken은 이 API에서 받지 않는다. 등록·갱신·폐기 경로는 알림 업무에서 정한다
+- [x] pushToken은 이 API에서 받지 않는다. 등록·갱신·폐기는 [N03·N04](notifications.md#n03-푸시-토큰-등록)(S15P31E105-815)
 - [x] 신규 201, 같은 유형 재요청 200(같은 본문). 409는 사용하지 않는다
 
 ## W02 등록 기기 조회

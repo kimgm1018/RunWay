@@ -88,7 +88,10 @@ public class PostService {
         // S15P31E105-778: 없는 지역은 외래키 오류(500) 전에, 이미지 키는 크루 사진과 같은 규칙(본인 POST 폴더·uuid·jpg/png·파일
         // 존재)으로 먼저 거절한다. 코스 변환보다 앞에 두어 거절된 요청이 코스를 만들지 않게 한다.
         String regionCode = blankToNull(request.regionCode());
-        if (regionCode != null && !regionExistsRepository.existsByRegionCode(regionCode)) {
+        // S15P31E105-803: 제어 문자(NUL 등)가 든 값은 DB 조회 전에 없는 지역과 같이 거절한다. NUL은 PostgreSQL이 받지 못해 500이 났다.
+        if (regionCode != null
+                && (regionCode.chars().anyMatch(Character::isISOControl)
+                        || !regionExistsRepository.existsByRegionCode(regionCode))) {
             throw new ApiException(ErrorCode.INVALID_REGION);
         }
         String imageKey = blankToNull(request.imageKey());

@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-12 · ERD ver.3 · **37개 테이블 / 336개 컬럼 / 65개 FK**
+기준: 2026-11-14 · ERD ver.3 · **39개 테이블 / 348개 컬럼 / 67개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -226,7 +226,7 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | pace_basis_user_id | BIGINT NULL, FK users.id ON DELETE SET NULL | AI 추천의 기준 회원(가장 느린 계획의 주인) |
 | slower_than_goal_count | INTEGER NULL, CHECK >= 0 | 시작 계산 대상 중 AI09 계획이 목표 페이스보다 느린 회원 수. 목표가 없으면 NULL |
 | start_requested_at | TIMESTAMPTZ NULL | 시작 재계산 요청 시각. 성공·포기 시 NULL. 값이 있고 120초 안(DB 시계)이면 계산 중으로 본다 |
-| start_segment_ratios | JSONB NULL, CHECK 배열 | 출발 추천 기준 회원의 AI09 계획 km 구간 비율 `[{startDistanceM, endDistanceM, ratio}]`(S15P31E105-739, V39). 재계산 요청 시 NULL, 비율 검증(0.85~1.20, 0부터 연속, 1 km 이하, 목표 거리로 끝남) 실패 시 NULL |
+| start_segment_ratios | JSONB NULL, CHECK 배열 | 출발 추천 기준 회원의 AI09 계획 km 구간 비율 `[{startDistanceM, endDistanceM, ratio}]`(S15P31E105-739, V39). 재계산 요청 시 NULL, 비율 검증(0.85~1.20, 0부터 연속, 1 km 이하, 목표 거리로 끝남) 실패 시 NULL. V39 배포 전에 계산된 행도 NULL이며 서버 기동 시 한 번 다시 계산해 채운다(S15P31E105-817, 목표 거리가 있고 예정 시각이 하루 넘게 지나지 않은 `SCHEDULED` 방만, 한 기동에 최대 100개) |
 
 - `last_change_direction`과 `last_change_at`은 모두 NULL이거나 모두 값이 있어야 한다.
 - `trg_group_run_pace_state_updated_at` BEFORE UPDATE 트리거가 공통 `set_updated_at()` 함수로 갱신 시각을 기록한다.
@@ -291,7 +291,14 @@ H08은 완료(`status = COMPLETED`) 기록에만 발급한다. H09는 연결된 
 | `post_bookmarks` | 회원의 게시글 스크랩(저장) 관계. post_likes와 같은 구조·유니크 제약·탈퇴 쓰기 차단(회원 상태 검사)이며 본인만 목록을 본다. 다만 V17 가드의 부모 게시물 삭제 재확인은 `comments`·`post_likes`에만 적용되므로, 스크랩은 서비스의 저장 전 확인과 목록 조회의 삭제 글 제외에 의존한다. 확인 직후 게시물 삭제가 커밋되면 삭제된 글에 보이지 않는 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-634, V29) |
 | `user_follows` | 팔로우 요청/성립 관계와 승인 여부 |
 | `follow_request_history` | 요청별 최종 처리 결과와 재전송 판별. 자동 삭제하지 않음 |
-| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`) |
+| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`). `delivery_status`/`sent_at`은 V42부터 앱 밖 푸시 결과(PENDING 미발송·SENT 1개 이상 기기 성공·FAILED 모든 기기 실패)이며 V42 이전 행의 SENT는 앱 내 저장 의미로 남는다 (S15P31E105-815) |
+| `push_device_tokens` | 앱 밖 푸시(FCM) 기기 등록 토큰. 회원(FK users)·토큰(VARCHAR(512), 전역 UNIQUE)·플랫폼(`ANDROID`만, CHECK)·등록/재등록 시각. 같은 토큰을 다른 회원이 등록하면 소유자를 옮기고, 회원당 `updated_at` 최근 10개만 남긴다. FCM이 무효로 응답한 토큰과 탈퇴(U18) 회원의 토큰은 삭제한다. 탈퇴 쓰기 차단 트리거(회원 상태 검사)와 `idx_push_device_tokens_user_updated`(user_id, updated_at)를 둔다 (S15P31E105-815, ADR-0025, V42) |
+
+### 서비스 만족도
+
+| 테이블 | 역할과 주요 연결 |
+| --- | --- |
+| `satisfaction_survey_responses` | 서비스 만족도 조사 응답(V41, S15P31E105-813). SV01로 회원이 1~5점(`score` CHECK 1~5)과 선택 의견(`comment`, 앞뒤 공백 제거 후 1~1000자, 없으면 NULL)을 제출한다. `source`는 `RUN_RESULT`(러닝 결과 화면 안내)·`SETTINGS`(설정 진입) CHECK. 같은 회원의 여러 번 제출을 허용해 회원 기준 UNIQUE가 없다. 기간 집계용 `idx_satisfaction_survey_responses_created_at`. 탈퇴 쓰기 차단 트리거(회원 상태 검사)로 탈퇴(진행) 회원의 새 응답을 막고, 회원 탈퇴(U18)는 응답 행과 의견을 **보존**한다(2026-11-14 사용자 결정). 집계 SQL은 [SV01 응답 집계](../api/satisfaction-surveys.md#응답-집계) |
 
 ## 3. 핵심 관계와 데이터 흐름
 
@@ -335,7 +342,7 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 
 ## 5. 알림 종류와 화면 이동
 
-`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다. 2026-11-06(S15P31E105-458): 앱 내 알림함용이며 `dedupe_key VARCHAR(200) NOT NULL UNIQUE`로 논리 사건 중복 삽입을 막는다. FCM 토큰 저장은 이 테이블 범위가 아니다.
+`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다. 2026-11-06(S15P31E105-458): 앱 내 알림함용이며 `dedupe_key VARCHAR(200) NOT NULL UNIQUE`로 논리 사건 중복 삽입을 막는다. FCM 토큰은 이 테이블이 아니라 `push_device_tokens`에 저장한다. 2026-11-14(S15P31E105-815): 새 행은 커밋 후 같은 종류·대상 ID를 FCM data(`notificationId`·`kind`·`targetId`)로 기기에 푸시하며, 앱은 푸시를 눌렀을 때도 아래 표와 같은 화면을 연다.
 
 | 알림 종류 | notification_type | target_id | 클릭 시 이동 |
 | --- | --- | --- | --- |
@@ -413,6 +420,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | regions | region_code |
 | comments | post_id, id (부모 복합 FK의 참조 키) |
 | notifications | dedupe_key |
+| push_device_tokens | token |
 
 기기는 회원별·유형별로 연결 중인 행을 하나만 둔다. 해제 후 재등록은 새 행을 만들어 연결·해제 이력을 보존하며, 설치 식별자는 저장하지 않는다(기기 API W01~W03). 크루 재가입은 같은 `(crew_id,user_id)` 행을 갱신한다. 상태 전이 시 요청·가입·탈퇴 시각을 새 상태에 맞게 정리하는 책임은 서비스에 있다. 가입 이력 전체를 별도 행으로 누적하는 모델은 이번 범위가 아니다. 로그인 아이디의 대소문자 정규화·탈퇴 후 재사용 정책은 이 UNIQUE만으로 결정되지 않는다.
 

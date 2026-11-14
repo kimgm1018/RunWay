@@ -63,8 +63,9 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
                 // S15P31E105-706: BPM 안내만 기본 켬이다.
                 .andExpect(jsonPath("$.bpmGuideEnabled").value(true))
                 .andExpect(jsonPath("$.locationRecordingMode").value("OFF"))
-                .andExpect(jsonPath("$.notifications.groupRun").value(false))
-                .andExpect(jsonPath("$.notifications.community").value(false));
+                // S15P31E105-801: 그룹·커뮤니티 알림은 기본 켬이다(새 계정도 알림함을 받는다).
+                .andExpect(jsonPath("$.notifications.groupRun").value(true))
+                .andExpect(jsonPath("$.notifications.community").value(true));
         assertThat(body.get("user").get("loginId").asString()).isEqualTo("newrunner");
         var saved =
                 jdbc.queryForMap(
@@ -81,12 +82,9 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
                                 id))
                 .isZero();
         var settings = jdbc.queryForMap("SELECT * FROM user_settings WHERE user_id=?", id);
-        for (String key :
-                new String[] {
-                    "voice_coaching_enabled",
-                    "group_notifications_enabled",
-                    "community_notifications_enabled"
-                }) assertThat(settings.get(key)).isEqualTo(false);
+        assertThat(settings.get("voice_coaching_enabled")).isEqualTo(false);
+        assertThat(settings.get("group_notifications_enabled")).isEqualTo(true);
+        assertThat(settings.get("community_notifications_enabled")).isEqualTo(true);
         assertThat(settings.get("bpm_guide_enabled")).isEqualTo(true);
         assertThat(settings.get("location_collection_mode").toString()).isEqualTo("OFF");
         assertThat(settings.get("account_visibility").toString()).isEqualTo("PRIVATE");

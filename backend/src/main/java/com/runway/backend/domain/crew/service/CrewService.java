@@ -70,7 +70,10 @@ public class CrewService {
     public CrewCreateResponse create(long userId, CreateCrewRequest request) {
         requireExistingUser(userId);
         String regionCode = blankToNull(request.regionCode());
-        if (regionCode != null && !regionExistsRepository.existsByRegionCode(regionCode)) {
+        // S15P31E105-803: 제어 문자(NUL 등)가 든 값은 DB 조회 전에 없는 지역과 같이 거절한다(PostgreSQL이 NUL을 받지 못해 500이 났다).
+        if (regionCode != null
+                && (regionCode.chars().anyMatch(Character::isISOControl)
+                        || !regionExistsRepository.existsByRegionCode(regionCode))) {
             throw new ApiException(ErrorCode.INVALID_CREW);
         }
 

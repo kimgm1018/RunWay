@@ -205,6 +205,25 @@ public class GroupPaceRepository {
                         rs.getBigDecimal("pace")), groupId);
     }
 
+    /**
+     * 기동 시 다시 계산할 예정 그룹런(S15P31E105-817): 출발 페이스는 있는데 km 비율이 NULL이다. 목표 거리가 없으면 계산이 비율을 만들지
+     * 않으므로, 예정 시각이 하루 넘게 지난 채 방치된 방은 의미가 없으므로 제외한다. 곧 열릴 미래 방을 먼저, 그다음 지난 방을 각각 예정 시각이 지금과
+     * 가까운 순으로 최대 limit개(지난 방이 미래 방을 상한 밖으로 밀어내지 않는다).
+     */
+    public List<Long> findStartBackfillTargets(int limit) {
+        return jdbc.queryForList("""
+                SELECT s.group_run_id FROM group_run_pace_state s
+                JOIN group_runs g ON g.id = s.group_run_id
+                WHERE g.status = 'SCHEDULED' AND g.goal_distance > 0
+                  AND g.scheduled_at > now() - interval '1 day'
+                  AND s.start_recommended_pace_sec_per_km IS NOT NULL
+                  AND s.start_segment_ratios IS NULL
+                ORDER BY (g.scheduled_at < now()), ABS(EXTRACT(EPOCH FROM (g.scheduled_at - now()))),
+                         s.group_run_id
+                LIMIT ?
+                """, Long.class, limit);
+    }
+
     public List<Runner> runners(long groupId) {
         return jdbc.query("""
                 SELECT p.user_id, s.id, s.status::text, s.started_at,

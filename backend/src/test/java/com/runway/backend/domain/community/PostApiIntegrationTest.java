@@ -11,10 +11,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.domain.image.ImageStorage;
+import com.runway.backend.domain.image.ImageStorageProperties;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedContextIntegrationSupport;
 import org.junit.jupiter.api.BeforeEach;
 import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,7 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ImageStorage imageStorage;
+    @Autowired private ImageStorageProperties imageStorageProperties;
 
     private long viewerId;
     private long publicAuthorId;
@@ -193,6 +196,79 @@ class PostApiIntegrationTest extends SharedContextIntegrationSupport {
         } finally {
             imageStorage.deletePersonalImages(viewerId);
         }
+    }
+
+    // S15P31E105-803: 위 테스트의 거절 키는 모두 저장소에 없는 파일이라 파일 존재 검사만으로도 통과한다. 실제로 있는 파일로
+    // 소유자 검사(남의 POST 폴더)와 용도 검사(본인 CREW 폴더)를 각각 고정한다.
+    @Test
+    void 글이미지키_실제로있는_남의POST파일과_본인CREW파일도_403() throws Exception {
+        byte[] png = new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47};
+        String othersRealPostKey = "images/post/" + outsiderId + "/" + UUID.randomUUID() + ".png";
+        String ownRealCrewKey = "images/crew/" + viewerId + "/" + UUID.randomUUID() + ".png";
+        imageStorage.store(othersRealPostKey, new ByteArrayInputStream(png), png.length);
+        imageStorage.store(ownRealCrewKey, new ByteArrayInputStream(png), png.length);
+        try {
+            org.assertj.core.api.Assertions.assertThat(imageStorage.exists(othersRealPostKey)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(imageStorage.exists(ownRealCrewKey)).isTrue();
+            long postsBefore = jdbc.queryForObject("SELECT count(*) FROM posts", Long.class);
+            for (String key : new String[] {othersRealPostKey, ownRealCrewKey}) {
+                mockMvc.perform(
+                                post("/api/v1/posts")
+                                        .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"sessionId":%d,"imageKey":"%s"}
+                                                """
+                                                        .formatted(
+                                                                insertSession(viewerId, "COMPLETED"),
+                                                                key)))
+                        .andExpect(status().isForbidden())
+                        .andExpect(jsonPath("$.code").value("RESOURCE_NOT_OWNED"));
+            }
+            org.assertj.core.api.Assertions.assertThat(
+                            jdbc.queryForObject("SELECT count(*) FROM posts", Long.class))
+                    .isEqualTo(postsBefore);
+        } finally {
+            imageStorage.deletePersonalImages(outsiderId);
+            // deletePersonalImages는 크루 사진을 지우지 않으므로 이 테스트가 만든 파일만 직접 지운다.
+            Files.deleteIfExists(imageStorageProperties.resolvedRoot().resolve(ownRealCrewKey));
+        }
+    }
+
+    // S15P31E105-803: 문자열의 NUL(U+0000)은 PostgreSQL이 받지 못해(22021) 500이 났다. 글 작성 regionCode는 없는 지역과 같은
+    // 400 INVALID_REGION, 그 밖의 문자열(본문)과 피드 지역 필터는 400 VALIDATION_ERROR다. 거절된 요청은 글을 만들지 않는다.
+    @Test
+    void NUL이든_지역코드와_본문은_400이고_글을_만들지_않는다() throws Exception {
+        long postsBefore = jdbc.queryForObject("SELECT count(*) FROM posts", Long.class);
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"regionCode\":\"11\\u000010\"}"
+                                                .formatted(insertSession(viewerId, "COMPLETED"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REGION"));
+        mockMvc.perform(
+                        post("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"sessionId\":%d,\"body\":\"오늘\\u0000러닝\"}"
+                                                .formatted(insertSession(viewerId, "COMPLETED"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject("SELECT count(*) FROM posts", Long.class))
+                .isEqualTo(postsBefore);
+
+        mockMvc.perform(
+                        get("/api/v1/posts")
+                                .header("Authorization", SecurityTestSupport.bearer(viewerId))
+                                .param("regionCode", "11" + (char) 0 + "10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     // S15P31E105-778: 없는 지역 코드는 DB 외래키 오류(500) 전에 400 INVALID_REGION으로 거절한다.

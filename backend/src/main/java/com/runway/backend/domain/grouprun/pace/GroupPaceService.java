@@ -86,6 +86,14 @@ public class GroupPaceService {
         }
     }
 
+    /**
+     * 기동 시 한 번 다시 계산할 예정 그룹런(S15P31E105-817): 출발 페이스는 있는데 km 비율이 없는 것(V39 배포 전에 계산됨). 기능이
+     * 꺼져 있으면 테이블을 읽지 않는다.
+     */
+    public List<Long> startBackfillTargets(int limit) {
+        return enabled ? states.findStartBackfillTargets(limit) : List.of();
+    }
+
     /** Called inside the existing group mutation transaction. */
     public void membershipOrGoalChanged(long groupId) {
         if (!enabled) return;
@@ -254,8 +262,9 @@ public class GroupPaceService {
         membershipOrGoalChanged(groupId);
     }
 
-    public void evaluateStart(long groupId) {
-        if (!enabled) return;
+    /** @return 새 출발 추천을 저장했으면 true. 계산할 수 없거나 변경에 밀려 버렸으면 false. */
+    public boolean evaluateStart(long groupId) {
+        if (!enabled) return false;
         StartInput input = tx.execute(status -> {
             references.lockGroupRun(groupId);
             var state = states.find(groupId).orElse(null);
@@ -280,7 +289,7 @@ public class GroupPaceService {
             return new StartInput(group, state.updatedAt(), selected, state.goalMode(),
                     displayedPaces(consented));
         });
-        if (input == null) return;
+        if (input == null) return false;
         var goal = new SessionGoal(null, null, input.group().goalDistance(), null, null);
         Integer goalPace = goalPace(input.group());
         Integer aiPace = null;
@@ -292,18 +301,18 @@ public class GroupPaceService {
             var candidate = selected.candidate();
             if (candidate.consent() && !states.consented(candidate.userId())) {
                 abandon(groupId, input.token());
-                return;
+                return false;
             }
             var result = plans.plan(candidate.userId(), goal);
             var state = states.find(groupId).orElse(null);
             // Superseded by a newer join/leave/edit/mode change: that calculation owns the state now.
-            if (state == null || !java.util.Objects.equals(state.updatedAt(), input.token())) return;
+            if (state == null || !java.util.Objects.equals(state.updatedAt(), input.token())) return false;
             if (result.isEmpty() || result.get().pace() == null || result.get().pace().signum() <= 0
                     || result.get().distance() == null
                     || result.get().distance().compareTo(BigDecimal.valueOf(goal.distanceM())) != 0
                     || !java.util.Objects.equals(result.get().userId(), candidate.userId())) {
                 abandon(groupId, input.token());
-                return;
+                return false;
             }
             int pace = result.get().pace().setScale(0, RoundingMode.HALF_UP).intValueExact();
             if (aiPace == null || pace > aiPace) {
@@ -329,7 +338,7 @@ public class GroupPaceService {
         int applied = input.goalMode() && goalPace != null ? goalPace : aiPace;
         var start = new GroupPaceRepository.Start(applied, aiPace, basis,
                 goalPace == null ? null : slower, segments);
-        tx.execute(status -> {
+        return Boolean.TRUE.equals(tx.execute(status -> {
             references.lockGroupRun(groupId);
             if (input.selected().stream().anyMatch(r -> r.candidate().consent()
                     && !states.consented(r.candidate().userId()))) {
@@ -337,7 +346,7 @@ public class GroupPaceService {
                 return false;
             }
             return states.saveStart(groupId, input.token(), start);
-        });
+        }));
     }
 
     static final BigDecimal MIN_RATIO = new BigDecimal("0.85");

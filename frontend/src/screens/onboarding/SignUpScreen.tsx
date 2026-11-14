@@ -34,6 +34,7 @@ import {
   passwordCharsNotice,
   passwordGuide,
   passwordRule,
+  phoneNumberError,
 } from './validation';
 
 // Waits for typing to pause before asking U16 whether the ID is free (users.md suggests about 500ms).
@@ -90,6 +91,8 @@ export function SignUpScreen() {
   );
   const idCheck = useLoginIdCheck(loginId);
   const phone = usePhoneVerification('SIGN_UP');
+  // 휴대폰 번호 칸을 한 번 벗어나면 자릿수 부족도 알린다.
+  const [phoneDone, setPhoneDone] = useState(false);
 
   // 아무것도 입력하지 않았으면 안 글씨(규칙)만 보이고 아래 안내는 없다(S15P31E105-646).
   const idState = idDropped
@@ -143,10 +146,14 @@ export function SignUpScreen() {
     />
   );
   // 기본 안내 문구는 두지 않는다(S15P31E105-646 담당자 결정). 인증 완료와 오류만 알린다.
+  // 서버가 받지 않는 번호(010 + 8자리가 아님)는 인증 요청 전에 칸 아래에 이유를 보인다(S15P31E105-781).
+  const phoneFormatError = phoneNumberError(phone.phoneNumber, phoneDone);
   const phoneHelper = verified
     ? { status: 'success' as const, helper: '본인 인증됐어요' }
     : phone.error?.field === 'phone'
     ? { status: 'error' as const, helper: phone.error.message }
+    : phoneFormatError
+    ? { status: 'error' as const, helper: phoneFormatError }
     : { status: 'default' as const, helper: undefined };
 
   const ready =
@@ -230,7 +237,11 @@ export function SignUpScreen() {
         icon="handset"
         label="전화번호"
         value={formatPhoneNumber(phone.phoneNumber)}
-        onChangeText={phone.setPhoneNumber}
+        onChangeText={text => {
+          phone.setPhoneNumber(text);
+          setPhoneDone(false);
+        }}
+        onBlur={() => setPhoneDone(true)}
         keyboardType="phone-pad"
         textContentType="telephoneNumber"
         placeholder="010-0000-0000"

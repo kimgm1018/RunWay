@@ -4,6 +4,7 @@ import com.runway.backend.domain.notification.dto.response.NotificationListRespo
 import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,9 +28,15 @@ public class NotificationController {
         return notifications.list(CurrentUserIdResolver.requireUserId(user), cursor, limit);
     }
 
+    /**
+     * N02. Without {@code upToId} every unread row of the caller is marked read; with it only rows whose id is at most
+     * {@code upToId} (S15P31E105-801: the inbox sends the newest id it showed, so a row created meanwhile stays unread).
+     */
     @PostMapping("/read-all")
-    public ResponseEntity<Void> readAll(@AuthenticationPrincipal AuthenticatedUser user) {
-        notifications.markAllRead(CurrentUserIdResolver.requireUserId(user));
+    public ResponseEntity<Void> readAll(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(required = false) @Positive Long upToId) {
+        notifications.markAllRead(CurrentUserIdResolver.requireUserId(user), upToId);
         return ResponseEntity.noContent().build();
     }
 }

@@ -54,6 +54,7 @@ import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
 import { onHealthRecordsUploaded } from '../../health/healthRecordsUploaded';
 import { RecordsPanel } from './RecordsPanel';
+import { onPushReceived, startNotificationRefresh } from './notificationRefresh';
 import {
   RevealTopContext,
   revealOffset,
@@ -396,7 +397,21 @@ export function HomeScreen() {
         }
         previous = state;
       });
-      return () => subscription.remove();
+      // S15P31E105-801: the bell's dot follows new rows without pulling to refresh — again on return to the app and
+      // every minute while 2.1 stays in the foreground (never in the background or on another screen).
+      // A failed background read keeps the rows already shown, so one miss does not turn the dot off.
+      const stopNotificationRefresh = startNotificationRefresh(() => {
+        void refreshNotifications({ keepOnError: true });
+      });
+      // S15P31E105-815: a push that arrives while 2.1 is open shows no system notification; refresh the dot now.
+      const stopPushRefresh = onPushReceived(() => {
+        void refreshNotifications({ keepOnError: true });
+      });
+      return () => {
+        subscription.remove();
+        stopNotificationRefresh();
+        stopPushRefresh();
+      };
     }, [refreshMe, refreshNotifications, refreshCondition, reloadWatch]),
   );
   // S15P31E105-675: once this phone's health records reached W06, read today's readiness again after the server had

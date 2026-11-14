@@ -21,7 +21,8 @@ public record SignupRequest(
                         requiredMode = Schema.RequiredMode.REQUIRED,
                         type = "string",
                         minLength = 2,
-                        maxLength = 10)
+                        maxLength = 10,
+                        pattern = "^[가-힣A-Za-z0-9]{2,10}$")
                 Object nickname,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, type = "string", format = "date")
                 Object birthDate,
