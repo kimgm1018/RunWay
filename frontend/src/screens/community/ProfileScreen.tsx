@@ -77,7 +77,6 @@ import {
 import { communityLook } from './look';
 import { BackButton } from '../../components/BackButton';
 import { runRouteOf } from '../../components/mapRoute';
-import { GlassIconButton } from '../../components/GlassIconButton';
 import { usePostPages } from './usePostPages';
 import { PhotoZoom, zoomablePhoto } from './PhotoZoom';
 
@@ -105,8 +104,8 @@ const look = {
   ink: communityLook.ink,
   inkSub: 'rgba(2,5,14,0.6)',
   inkMuted: 'rgba(2,5,14,0.45)',
-  lightGlass: 'rgba(255,255,255,0.55)',
-  lightGlassEdge: 'rgba(255,255,255,0.8)',
+  // Hairlines between the counts, the lines and under the tabs.
+  rule: 'rgba(2,5,14,0.12)',
 };
 
 const levelLabels: Record<SelfReportedLevel, string> = {
@@ -548,11 +547,12 @@ function ProfileTabs({
             accessibilityLabel={tab.label}
             accessibilityState={{ selected: on }}
             onPress={() => onChange(tab.id)}
-            style={[styles.tab, on && styles.tabOn]}
+            style={styles.tab}
           >
             <AppText style={[styles.tabText, on && styles.tabTextOn]}>
               {tab.label}
             </AppText>
+            <View style={[styles.tabBar, on && styles.tabBarOn]} />
           </Pressable>
         );
       })}
@@ -1002,6 +1002,16 @@ function Profile({
   const tileWidth = Math.floor((screenWidth - 32 - tileGap) / 2);
   // The page's scroll drives the picture's blur behind it.
   const scrollY = useRef(new Animated.Value(0)).current;
+  // S15P31E105-765: once the mist under the picture reaches the status bar, a mist band slides in behind it and
+  // the clock turns dark, so the counts do not run under the status bar.
+  const bandFrom = Math.max(heroHeight - panelLead - insets.top - 48, 0);
+  const bandAt = bandFrom + 48;
+  const band = scrollY.interpolate({
+    inputRange: [bandFrom, bandAt],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const [onMist, setOnMist] = useState(false);
   const loadMoreRef = useRef<(() => void) | null>(null);
   const onNearEnd = useCallback((loadMore: (() => void) | null) => {
     loadMoreRef.current = loadMore;
@@ -1032,6 +1042,8 @@ function Profile({
       tellViewport();
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
+      const past = contentOffset.y > bandFrom + 24;
+      setOnMist(current => (current === past ? current : past));
       if (
         layoutMeasurement.height + contentOffset.y >=
         contentSize.height - 320
@@ -1039,7 +1051,7 @@ function Profile({
         loadMoreRef.current?.();
       }
     },
-    [tellViewport],
+    [bandFrom, tellViewport],
   );
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -1108,12 +1120,22 @@ function Profile({
               <BackButton tone="dark" onPress={() => navigation.goBack()} />
             )}
             {profile.isMe ? (
-              <GlassIconButton
-                icon="settings"
-                tone="dark"
+              // S15P31E105-765: the bare gear, no glass circle (담당자 요청). A soft shadow keeps it readable on a
+              // pale photo.
+              <PressableScale
+                accessibilityRole="button"
                 accessibilityLabel="설정"
                 onPress={() => navigateTo(navigation, 'Settings')}
-              />
+                hitSlop={10}
+                style={styles.settings}
+              >
+                <Icon
+                  name="settings"
+                  color={look.white}
+                  size={26}
+                  strokeWidth={1.9}
+                />
+              </PressableScale>
             ) : null}
           </View>
           <View style={styles.name}>
@@ -1128,6 +1150,25 @@ function Profile({
           </View>
         </View>
         <View style={styles.body}>
+          <View style={styles.counts}>
+            <Count
+              value={countText(profile.followerCount)}
+              label="팔로워"
+              onPress={openList('followers')}
+            />
+            <View style={styles.countRule} />
+            <Count
+              value={countText(profile.followingCount)}
+              label="팔로잉"
+              onPress={openList('following')}
+            />
+            <View style={styles.countRule} />
+            <Count
+              value={locked ? '–' : String(profile.monthly.runCount)}
+              unit={locked ? undefined : '회'}
+              label="이번 달 러닝"
+            />
+          </View>
           {profile.isMe ? (
             <MainButton
               label="프로필 수정"
@@ -1142,48 +1183,60 @@ function Profile({
               onPress={onFollow}
             />
           )}
-          <View style={styles.counts}>
-            <Count
-              value={countText(profile.followerCount)}
-              label="팔로워"
-              onPress={openList('followers')}
-            />
-            <Count
-              value={countText(profile.followingCount)}
-              label="팔로잉"
-              onPress={openList('following')}
-            />
-            <Count
-              value={locked ? '–' : String(profile.monthly.runCount)}
-              unit={locked ? undefined : '회'}
-              label="이번 달 러닝"
-            />
+          <View style={styles.rows}>
+            {profile.isMe ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  requestText ? `팔로우 요청 ${requestText}` : '팔로우 요청'
+                }
+                onPress={() => setRequestsOpen(true)}
+                style={({ pressed }) => [
+                  styles.row,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <Icon
+                  name="userPlus"
+                  color={look.inkSub}
+                  size={18}
+                  strokeWidth={1.8}
+                />
+                <AppText style={styles.rowTitle}>팔로우 요청</AppText>
+                <View style={styles.flex} />
+                {requestText ? (
+                  <AppText style={styles.rowValue}>{requestText}</AppText>
+                ) : null}
+                <Icon
+                  name="forward"
+                  color={look.inkMuted}
+                  size={14}
+                  strokeWidth={2.2}
+                />
+              </Pressable>
+            ) : null}
+            {locked ? null : (
+              <View style={styles.row}>
+                <Icon
+                  name="activity"
+                  color={look.inkSub}
+                  size={18}
+                  strokeWidth={1.8}
+                />
+                <AppText style={styles.rowTitle}>
+                  {profile.isMe ? '이번 달 러닝' : '이번 달 공유한 러닝'}
+                </AppText>
+                <View style={styles.flex} />
+                <AppText style={styles.rowValue}>
+                  {`${formatKm(profile.monthly.totalDistanceM, 1)}km · 평균 ${
+                    profile.monthly.averagePaceSecPerKm
+                      ? formatPace(profile.monthly.averagePaceSecPerKm)
+                      : '– –'
+                  }`}
+                </AppText>
+              </View>
+            )}
           </View>
-          {profile.isMe ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                requestText ? `팔로우 요청 ${requestText}` : '팔로우 요청'
-              }
-              onPress={() => setRequestsOpen(true)}
-              style={({ pressed }) => [
-                styles.card,
-                pressed && styles.cardPressed,
-              ]}
-            >
-              <AppText style={styles.cardTitle}>팔로우 요청</AppText>
-              <View style={styles.flex} />
-              {requestText ? (
-                <AppText style={styles.cardValue}>{requestText}</AppText>
-              ) : null}
-              <Icon
-                name="forward"
-                color={look.inkMuted}
-                size={14}
-                strokeWidth={2.2}
-              />
-            </Pressable>
-          ) : null}
           {locked ? (
             <View style={styles.locked}>
               <Icon name="lock" color={look.inkSub} size={22} />
@@ -1193,19 +1246,6 @@ function Profile({
             </View>
           ) : (
             <>
-              <View style={styles.card}>
-                <AppText style={styles.cardTitle}>
-                  {profile.isMe ? '이번 달 러닝' : '이번 달 공유한 러닝'}
-                </AppText>
-                <View style={styles.flex} />
-                <AppText style={styles.cardValue}>
-                  {`${formatKm(profile.monthly.totalDistanceM, 1)}km · 평균 ${
-                    profile.monthly.averagePaceSecPerKm
-                      ? formatPace(profile.monthly.averagePaceSecPerKm)
-                      : '– –'
-                  }`}
-                </AppText>
-              </View>
               {profile.isMe ? (
                 <MyProfileLists tileWidth={tileWidth} onNearEnd={onNearEnd} />
               ) : (
@@ -1219,6 +1259,11 @@ function Profile({
           )}
         </View>
       </Animated.ScrollView>
+      <StatusBar barStyle={onMist ? 'dark-content' : 'light-content'} />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.band, { height: insets.top, opacity: band }]}
+      />
       {profile.isMe ? (
         <FollowRequestSheet
           visible={requestsOpen}
@@ -1328,6 +1373,16 @@ export function MyProfileTabScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // The status bar's mist band (DESIGN.md 2-3 스크롤 헤더 띠), with a hairline below.
+  band: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(233,239,242,0.94)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(2,5,14,0.12)',
+  },
   flex: { flex: 1 },
   loading: { marginTop: 120 },
   busy: { opacity: 0.45 },
@@ -1355,6 +1410,22 @@ const styles = StyleSheet.create({
   },
   letter: { position: 'absolute', left: 0 },
   hero: { justifyContent: 'flex-end' },
+  settings: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    filter: [
+      {
+        dropShadow: {
+          offsetX: 0,
+          offsetY: 1,
+          standardDeviation: 4,
+          color: 'rgba(2,5,14,0.45)',
+        },
+      },
+    ],
+  },
   topBar: {
     position: 'absolute',
     left: 16,
@@ -1386,10 +1457,11 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
   },
   body: { paddingHorizontal: 16, paddingTop: 16 },
-  // The wide navy button, 54 high.
+  // The wide navy button, 50 high, under the counts.
   main: {
-    height: 54,
-    borderRadius: 27,
+    marginTop: 18,
+    height: 50,
+    borderRadius: 25,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1398,18 +1470,23 @@ const styles = StyleSheet.create({
   },
   mainText: {
     fontFamily: fontFamily.bold,
-    fontSize: 16,
+    fontSize: 15.5,
     lineHeight: 21,
     color: look.white,
   },
-  // 팔로워 · 팔로잉 · 이번 달 러닝, each centred in a third.
-  counts: { flexDirection: 'row', marginTop: 20 },
-  count: { flex: 1, alignItems: 'center' },
+  // 팔로워 | 팔로잉 | 이번 달 러닝: bare numbers in thirds, split by thin rules (S15P31E105-765, no boxes).
+  counts: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  count: { flex: 1, alignItems: 'center', paddingVertical: 4 },
   countPressed: { opacity: 0.6 },
+  countRule: {
+    width: StyleSheet.hairlineWidth,
+    height: 30,
+    backgroundColor: look.rule,
+  },
   countValue: {
     fontFamily: fontFamily.numberMedium,
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     color: look.ink,
   },
   countUnit: {
@@ -1418,34 +1495,32 @@ const styles = StyleSheet.create({
     color: look.inkSub,
   },
   countLabel: {
-    marginTop: 2,
+    marginTop: 1,
     fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12.5,
+    lineHeight: 17,
     color: look.inkSub,
   },
-  // The glass card, as the reference's bio box.
-  card: {
-    marginTop: 16,
-    minHeight: 52,
+  // 이번 달 러닝 · 팔로우 요청 as flat lines: icon + words, a hairline below, no card.
+  rows: { marginTop: 14 },
+  row: {
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: look.lightGlassEdge,
-    backgroundColor: look.lightGlass,
+    gap: 10,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: look.rule,
   },
-  cardPressed: { backgroundColor: 'rgba(255,255,255,0.8)' },
-  cardTitle: {
+  rowPressed: { opacity: 0.6 },
+  rowTitle: {
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
     color: look.ink,
   },
-  cardValue: {
+  rowValue: {
+    flexShrink: 1,
     fontFamily: fontFamily.medium,
     fontSize: 14,
     lineHeight: 19,
@@ -1467,37 +1542,37 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: look.ink,
   },
-  // S15P31E105-732: 기록 · 스크랩 · 저장된 코스 across the profile width.
+  // S15P31E105-732 · 765: 기록 · 스크랩 · 저장된 코스 as underline tabs over one hairline, like the 7.1 feed.
   tabs: {
-    marginTop: 28,
-    marginBottom: 12,
+    marginTop: 22,
+    marginBottom: 14,
     flexDirection: 'row',
-    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: look.rule,
   },
   tab: {
     flex: 1,
-    height: 36,
-    borderRadius: 18,
+    height: 44,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.45)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: look.lightGlassEdge,
-  },
-  tabOn: {
-    backgroundColor: look.ink,
-    borderColor: look.ink,
+    justifyContent: 'flex-end',
   },
   tabText: {
+    paddingBottom: 10,
     fontFamily: fontFamily.medium,
-    fontSize: 13,
-    lineHeight: 18,
-    color: look.inkSub,
+    fontSize: 14.5,
+    lineHeight: 20,
+    color: look.inkMuted,
   },
   tabTextOn: {
     fontFamily: fontFamily.bold,
-    color: look.white,
+    color: look.ink,
   },
+  tabBar: {
+    alignSelf: 'stretch',
+    height: 2,
+    marginBottom: -StyleSheet.hairlineWidth,
+  },
+  tabBarOn: { backgroundColor: look.ink },
   pager: { width: '100%' },
   pagerPage: { flex: 1 },
   moreSpinner: { marginTop: 16 },
