@@ -15,7 +15,11 @@ import {
   Icon,
   type IconName,
 } from '../../components';
-import type { GroupRunSummary, MeetingPlace } from '../../data';
+import {
+  groupRunLateStartMs,
+  type GroupRunSummary,
+  type MeetingPlace,
+} from '../../data';
 import { formatClockTime, formatDotDateWeekday } from '../../format';
 import {
   fontFamily,
@@ -43,21 +47,35 @@ const kstMidnight = (value: string | Date) => {
   );
 };
 
-// D-4, or 오늘 on the day.
-export function dDay(scheduledAt: string, now: Date) {
+// D-4, or 오늘 on the day. A run whose day has passed reads 지남, not 오늘 (S15P31E105-823); one under way says so
+// whatever its date.
+export function dDay(
+  scheduledAt: string,
+  now: Date,
+  status?: GroupRunSummary['status'],
+) {
+  if (status === 'RUNNING') {
+    return '진행 중';
+  }
   const days = Math.round(
     (kstMidnight(scheduledAt) - kstMidnight(now)) / dayMs,
   );
-  return days <= 0 ? '오늘' : `D-${days}`;
+  if (days < 0) {
+    return '지남';
+  }
+  return days === 0 ? '오늘' : `D-${days}`;
 }
 
-// 15분 뒤 출발
+// 15분 뒤 출발. Past the start it stays 곧 출발 while the host may still begin late, then says the time has
+// passed (S15P31E105-823).
 export function startsIn(scheduledAt: string, now: Date) {
   const minutes = Math.round(
     (Date.parse(scheduledAt) - now.getTime()) / minuteMs,
   );
   if (minutes <= 0) {
-    return '곧 출발';
+    return -minutes * minuteMs <= groupRunLateStartMs
+      ? '곧 출발'
+      : '출발 시각 지남';
   }
   return minutes >= 60
     ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 뒤 출발`

@@ -50,10 +50,14 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
   const navigation = useNavigation();
   const { clock } = useRepositories();
   const now = clock.now();
+  // A run under way keeps the pin (S15P31E105-823) and says so instead of 곧 출발.
+  const running = run.status === 'RUNNING';
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`${run.title}, ${startsIn(run.scheduledAt, now)}`}
+      accessibilityLabel={`${run.title}, ${
+        running ? '진행 중' : startsIn(run.scheduledAt, now)
+      }`}
       onPress={() =>
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
@@ -63,7 +67,10 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
         <View style={styles.flex}>
           {/* Crew, time and place only (담당자 요청). The run's title is on 6.4, and the title and how soon it
               starts stay in the label for screen readers. */}
-          <StandTag label="곧 출발" style={styles.soonChip} />
+          <StandTag
+            label={running ? '진행 중' : '곧 출발'}
+            style={styles.soonChip}
+          />
           <AppText style={styles.upcomingTitle} numberOfLines={1}>
             {run.crewName}
           </AppText>
@@ -105,7 +112,7 @@ function RunCard({
 }) {
   const navigation = useNavigation();
   const { clock } = useRepositories();
-  const day = dDay(run.scheduledAt, clock.now());
+  const day = dDay(run.scheduledAt, clock.now(), run.status);
   // Hosts cannot leave their own run; only SCHEDULED runs accept join toggles (6.4, S15P31E105-637).
   const canToggle = !run.isHost && run.status === 'SCHEDULED';
   return (
