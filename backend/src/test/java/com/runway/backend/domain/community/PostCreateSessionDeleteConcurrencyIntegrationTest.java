@@ -123,6 +123,47 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
         }
     }
 
+    /**
+     * S15P31E105-830. 글이 이미 있는 기록을 다시 공유하면서 S09가 겹쳐도 세션→게시물 잠금 순서는 그대로다. S09가 먼저면 CMT01은 INVALID_POST,
+     * CMT01이 먼저면 409 POST_ALREADY_EXISTS이고 이어서 S09가 기존 글을 지운다. 어느 쪽이든 삭제된 세션에 미삭제 글이 남지 않는다.
+     */
+    @RepeatedTest(10)
+    void 글이_있는_기록의_재공유와_S09가_겹쳐도_미삭제글이_남지_않는다() throws Exception {
+        long sessionId = insertCompletedSession(userId, watchId, phoneId, "READY");
+        jdbc.update(
+                "INSERT INTO posts(author_id, session_id, body) VALUES (?, ?, '기존 글')",
+                userId,
+                sessionId);
+        CreatePostRequest request = new CreatePostRequest(sessionId, "재공유", null, null, null, null);
+
+        List<String> results =
+                runTogether(
+                        List.of(
+                                () -> {
+                                    postService.create(userId, request);
+                                    return "OK";
+                                },
+                                () -> {
+                                    runningSessionService.delete(userId, sessionId);
+                                    return "OK";
+                                }));
+
+        assertThat(results.get(1)).isEqualTo("OK");
+        assertThat(results.get(0)).isIn("POST_ALREADY_EXISTS", "INVALID_POST");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM posts WHERE session_id = ? AND deleted_at IS NULL",
+                                Integer.class,
+                                sessionId))
+                .isZero();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM posts WHERE session_id = ?",
+                                Integer.class,
+                                sessionId))
+                .isEqualTo(1);
+    }
+
     private List<String> runTogether(List<Callable<String>> tasks) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
         CountDownLatch ready = new CountDownLatch(tasks.size());

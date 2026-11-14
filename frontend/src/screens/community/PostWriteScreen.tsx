@@ -32,6 +32,7 @@ import {
   useToast,
 } from '../../components';
 import {
+  DataError,
   errorCode,
   useRepositories,
   useResource,
@@ -70,6 +71,9 @@ export function postFailure(error: unknown, action: '게시' | '저장') {
       return '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요';
     case 'RESOURCE_NOT_OWNED':
       return '내 러닝 기록만 공유할 수 있어요';
+    // CMT01: one post per run (S15P31E105-830). With the post's id the screen opens it after this message.
+    case 'POST_ALREADY_EXISTS':
+      return '이미 공유한 기록이에요';
     // CMT04: the post is gone, or is someone else's.
     case 'POST_NOT_FOUND':
       return '이미 삭제된 게시물이에요';
@@ -90,6 +94,19 @@ export function postFailure(error: unknown, action: '게시' | '저장') {
         ? '게시하지 못했어요. 잠시 후 다시 시도해 주세요'
         : '저장하지 못했어요. 잠시 후 다시 시도해 주세요';
   }
+}
+
+// CMT01 409 POST_ALREADY_EXISTS: the post this run already has (details.postId, a number from the server). Null when
+// the server could not say which one (its final DB check), so the screen only shows the message (S15P31E105-830).
+export function existingPostId(error: unknown): string | null {
+  if (!(error instanceof DataError) || error.code !== 'POST_ALREADY_EXISTS') {
+    return null;
+  }
+  const postId = error.details?.postId;
+  if (typeof postId === 'number' && Number.isSafeInteger(postId)) {
+    return String(postId);
+  }
+  return typeof postId === 'string' && postId !== '' ? postId : null;
 }
 
 // 7.3 and 7.3e: what I write, laid over the run as it will show in the 7.1 feed (S15P31E105-563, 담당자 요청: 지금
@@ -453,6 +470,14 @@ export function PostWriteScreen() {
             }
           } catch (error) {
             toast(postFailure(error, '게시'));
+            // This run is already shared (from any 기록 공유 entry, or a retry after a lost answer): open that post
+            // in place of this draft, so back never returns to a draft that cannot be posted.
+            const postId = existingPostId(error);
+            if (postId !== null) {
+              // The post may have been written elsewhere (another phone), so lists read it again (리뷰 A-7).
+              postsChanged();
+              navigation.replace('PostDetail', { postId });
+            }
           }
         }}
       />
