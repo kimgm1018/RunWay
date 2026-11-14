@@ -749,6 +749,7 @@ export type GroupPaceInfo = {
   kmPaces: number[];
   // Where the last km ends (m), to label a last part shorter than 1 km.
   kmDistanceM: number;
+  startStrategy?: { label: string; expectedDurationSec: number };
 };
 
 // S15P31E105-702 그룹런 상세 목표 변경: distance plus one of 완주 시간 or 페이스; the server works out the third.

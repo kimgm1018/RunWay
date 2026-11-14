@@ -32,6 +32,7 @@ import {
   isLoop,
   mintMapLook,
   paceColor,
+  paceLabelPositions,
   routeLook,
   splitRoute,
 } from './mapRoute';
@@ -70,6 +71,7 @@ type RunMapProps = {
   // One label per km, set on the middle of that km (코스 러닝 구간 페이스 알약). Without segmentPaces the line keeps
   // its one colour and only the labels mark the km (코스 러닝 출발 지도, S15P31E105-748).
   paceLabels?: string[];
+  pacePlanDistanceM?: number;
   // 4.2: the path run so far, with the runner at its end. The course stays under it as a guide.
   trail?: LngLat[];
   // The run so far in parts (S15P31E105-549): the source changed or the position was lost between them, so no line
@@ -571,6 +573,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     progress = 0,
     segmentPaces,
     paceLabels,
+    pacePlanDistanceM,
     trail,
     trailParts,
     routeParts,
@@ -765,6 +768,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
   // Labels alone (no km colours) still cut the course into km so each label sits on its km (S15P31E105-748).
   const kmCount = segmentPaces?.length || paceLabels?.length || 0;
+  const labelCount = paceLabels?.length ?? 0;
+  const labelPositions = useMemo(
+    () => route && pacePlanDistanceM && labelCount
+      ? paceLabelPositions(route, labelCount, pacePlanDistanceM)
+      : [],
+    [route, pacePlanDistanceM, labelCount],
+  );
   const kmPieces = useMemo(
     () =>
       route && route.length >= 2 && kmCount > 0
@@ -1007,7 +1017,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                     return (
                       <NaverMapMarkerOverlay
                         key={`pace-${index}`}
-                        {...toCoord(piece[Math.floor(piece.length / 2)])}
+                        isHideCollidedMarkers={!!pacePlanDistanceM}
+                        {...toCoord(labelPositions[index] ?? piece[Math.floor(piece.length / 2)])}
                         width={width}
                         height={26}
                         anchor={{ x: 0.5, y: 0.5 }}

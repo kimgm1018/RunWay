@@ -7,9 +7,19 @@ import { fontFamily, k1 } from '../../theme';
 // km별 추천 페이스 pills (S15P31E105-733), shared by the solo course start and the group run (S15P31E105-739):
 // one small pill a km. The last pill of a distance that does not end on a whole km is labelled by its end (5.3km).
 export function kmLabel(index: number, count: number, distanceM: number) {
-  return index === count - 1 && distanceM % 1000 !== 0
-    ? `${(distanceM / 1000).toFixed(1)}km`
-    : `${index + 1}km`;
+  if (index === count - 1 && distanceM % 1000 !== 0) {
+    const km = distanceM / 1000;
+    const rounded = km.toFixed(1);
+    return Number(rounded) === index ? `+${Math.round(distanceM - index * 1000)}m` : `${rounded}km`;
+  }
+  return `${index + 1}km`;
+}
+
+export function visibleKmPaces(paces: number[], distanceM: number) {
+  const lastDistance = distanceM - (paces.length - 1) * 1000;
+  return paces.length > 1 && lastDistance > 0 && lastDistance < 100
+    ? paces.slice(0, -1)
+    : paces;
 }
 
 export function KmPacePills({
@@ -19,12 +29,14 @@ export function KmPacePills({
   paces: number[];
   distanceM: number;
 }) {
+  const visible = visibleKmPaces(paces, distanceM);
+  const labelDistance = visible.length === paces.length ? distanceM : visible.length * 1000;
   return (
     <View style={styles.row} accessibilityLabel="km별 추천 페이스">
-      {paces.map((value, index) => (
+      {visible.map((value, index) => (
         <View key={index} style={styles.pill}>
           <AppText style={styles.label}>
-            {kmLabel(index, paces.length, distanceM)}
+            {kmLabel(index, visible.length, labelDistance)}
           </AppText>
           <AppText style={styles.pace}>{formatPace(value)}</AppText>
         </View>

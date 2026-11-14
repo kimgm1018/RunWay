@@ -18,15 +18,17 @@ const pace: GroupPaceInfo = {
   slowerThanGoalCount: 0,
   kmPaces: [370, 395, 380],
   kmDistanceM: 2500,
+  startStrategy: { label: '초반 안정', expectedDurationSec: 955 },
 };
 
-function render(info: GroupPaceInfo) {
+function render(info: GroupPaceInfo, showKmPaces = true) {
   let screen!: TestRenderer.ReactTestRenderer;
   act(() => {
     screen = TestRenderer.create(
       <ThemeProvider>
         <GroupPaceCard
           pace={info}
+          showKmPaces={showKmPaces}
           change={null}
           canChangeMode={false}
           busy={false}
@@ -64,6 +66,10 @@ it('starts folded and opens the km paces on press', () => {
   expect(text(screen)).toContain('km별 접기 ▴');
   expect(text(screen)).toContain('1km');
   expect(text(screen)).toContain('2.5km');
+});
+
+it('leaves km paces to the course map when requested', () => {
+  expect(toggle(render(pace, false))).toBeUndefined();
 });
 
 it('has no toggle while calculating or without km paces', () => {

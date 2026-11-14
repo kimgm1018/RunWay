@@ -1,6 +1,6 @@
 import { changeLabel } from '../../../screens/group/GroupPaceCard';
 import type { GroupPaceInfo, GroupRunParticipant } from '../../types';
-import { kmLabel } from '../../../screens/run/KmPacePills';
+import { kmLabel, visibleKmPaces } from '../../../screens/run/KmPacePills';
 import { paceInfoOf } from '../groupRuns';
 
 // S15P31E105-680 공동 페이스 카드: G03 fields to the card, and the 방금 바뀜 label.
@@ -119,12 +119,19 @@ it('orders the km paces and keeps where the last part ends', () => {
   });
   expect(info?.kmPaces).toEqual([365, 372.5, 390]);
   expect(info?.kmDistanceM).toBe(2400);
+  expect(info?.startStrategy).toEqual({
+    label: '초반 빠르게 → 후반 여유',
+    expectedDurationSec: 894,
+  });
   expect([0, 1, 2].map(i => kmLabel(i, 3, 2400))).toEqual([
     '1km',
     '2km',
     '2.4km',
   ]);
   expect(kmLabel(4, 5, 5000)).toBe('5km');
+  expect(kmLabel(4, 5, 4012)).toBe('+12m');
+  expect(visibleKmPaces([360, 365, 370, 375, 380], 4005)).toEqual([360, 365, 370, 375]);
+  expect(visibleKmPaces([360, 365], 1100)).toEqual([360, 365]);
   expect(
     paceInfoOf({ ...detail, groupPaceMode: 'GOAL', paceSegments: null })
       ?.kmPaces,

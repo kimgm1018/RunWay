@@ -414,20 +414,20 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
         assertThat(pace.startBackfillTargets(100)).contains(target);
     }
 
-    // AI 비율이 검증에서 빠지는 방은 비율이 계속 NULL이라 기동할 때마다 다시 대상이 된다(대체 비율은 816 범위).
     @Test
-    void backfill_roomWhoseAiRatiosAreRejectedIsSavedWithoutRatiosAndStaysATarget() {
+    void backfill_missingAiRatiosSavesFallbackAndRemovesTarget() {
         long target = scheduledGroupWithStartPaceButNoRatios("SCHEDULED", 5000);
         when(plans.plan(any(), any())).thenAnswer(i -> Optional.of(new PersonalPacePlanPort.Result(
                 null, i.getArgument(0), BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
         var result = trigger.backfillStart();
-        assertThat(result).isEqualTo(new GroupPaceTrigger.BackfillResult(1, 0, 1, 0, 0, 1));
-        assertThat(pace.startBackfillTargets(100)).containsExactly(target);
+        assertThat(result).isEqualTo(new GroupPaceTrigger.BackfillResult(1, 1, 0, 0, 0, 0));
+        assertThat(pace.startBackfillTargets(100)).isEmpty();
         assertThat(groups.getDetail(host, target).groupGuidePaceSecPerKm()).isEqualTo(410);
+        assertThat(groups.getDetail(host, target).paceSegments()).hasSize(5);
     }
 
     @Test
-    void detail_planWithoutUsableSegments_keepsTheSinglePace() {
+    void detail_planWithoutUsableSegments_returnsUniformKmPaces() {
         jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
         when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
                 new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
@@ -436,7 +436,8 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
         pace.evaluateStart(group);
         var detail = groups.getDetail(host, group);
         assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(410);
-        assertThat(detail.paceSegments()).isEmpty();
+        assertThat(detail.paceSegments()).hasSize(5).allSatisfy(segment ->
+                assertThat(segment.recommendedPaceSecPerKm()).isEqualByComparingTo("410"));
     }
 
     @Test
