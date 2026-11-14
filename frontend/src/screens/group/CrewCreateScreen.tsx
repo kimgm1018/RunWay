@@ -261,6 +261,9 @@ export function CrewCreateScreen() {
   // 대표 사진 (F01 CREW → M03 imageKey): optional, sent with 크루 만들기.
   const [photo, setPhoto] = useState<PhotoFile | null>(null);
   const [busy, setBusy] = useState(false);
+  // A name M03 found taken (409 CREW_NAME_DUPLICATED) stays marked until it is changed, as on the nickname (S15P31E105-829).
+  const [takenName, setTakenName] = useState<string | null>(null);
+  const nameTaken = takenName !== null && takenName === name.trim();
   // 모집 인원 is the last field: KeyboardLift shrinks the scroll view, but it does not scroll, so the keyboard
   // covered the number being typed (S15P31E105-774 실기기). Scroll to the end once the keyboard is up.
   const scroll = useRef<ScrollView>(null);
@@ -276,7 +279,8 @@ export function CrewCreateScreen() {
       toEnd();
     });
   };
-  const ready = name.trim().length > 0 && area !== null && capacityValid;
+  const ready =
+    name.trim().length > 0 && !nameTaken && area !== null && capacityValid;
 
   // S15P31E105-796: the tile spins while a big original is shrunk, and a refusal is always told (see ProfileEdit).
   const [picking, setPicking] = useState(false);
@@ -315,7 +319,12 @@ export function CrewCreateScreen() {
       toast('크루를 만들었어요');
       navigateTo(navigation, 'MyCrews');
     } catch (error) {
-      // What was typed stays; a photo problem says to pick another one.
+      // What was typed stays; a taken name is told under the field, a photo problem says to pick another one.
+      if (errorCode(error) === 'CREW_NAME_DUPLICATED') {
+        setTakenName(name.trim());
+        setBusy(false);
+        return;
+      }
       toast(
         photoFailure(error) ??
           (errorCode(error) === 'RESOURCE_NOT_OWNED'
@@ -401,6 +410,14 @@ export function CrewCreateScreen() {
                   style={styles.input}
                 />
               </InputBox>
+              {nameTaken ? (
+                <AppText
+                  style={styles.nameTaken}
+                  accessibilityLiveRegion="polite"
+                >
+                  이미 사용 중인 크루 이름이에요
+                </AppText>
+              ) : null}
             </Field>
             <Field title="지역" note="검색해서 선택">
               <AreaPicker area={area} onPick={setArea} />
@@ -581,6 +598,14 @@ const styles = StyleSheet.create({
     color: groupTone.sub,
   },
   subInvalid: { color: groupTone.danger },
+  nameTaken: {
+    marginTop: 6,
+    marginLeft: 4,
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupTone.danger,
+  },
   cardSub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,

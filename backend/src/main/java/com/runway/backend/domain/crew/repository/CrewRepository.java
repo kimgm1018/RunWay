@@ -22,6 +22,20 @@ public interface CrewRepository extends JpaRepository<Crew, Long> {
     @Query("select c from Crew c where c.id = :id")
     Optional<Crew> findByIdForUpdate(@Param("id") long id);
 
+    /**
+     * 활동 중인 크루 가운데 같은 이름이 있는지 확인한다(S15P31E105-829). 비교 키는 DB 부분 UNIQUE 인덱스
+     * {@code uq_crews_active_name}과 똑같은 {@code lower(btrim(name))}이며, Java에서 따로 소문자로 바꾸지 않는다.
+     */
+    @Query(
+            value =
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM crews
+                        WHERE status = 'ACTIVE' AND lower(btrim(name)) = lower(btrim(:name)))
+                    """,
+            nativeQuery = true)
+    boolean existsActiveByNormalizedName(@Param("name") String name);
+
     @Query(
             """
             select c from Crew c

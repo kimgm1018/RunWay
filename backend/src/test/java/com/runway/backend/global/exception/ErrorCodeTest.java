@@ -32,6 +32,16 @@ class ErrorCodeTest {
         assertContract(ErrorCode.FORBIDDEN, 403, "FORBIDDEN", "접근 권한이 없습니다.");
     }
 
+    // S15P31E105-829: 활동 중인 크루 이름 중복(M03)
+    @Test
+    void crewErrorsKeepTheirPublicContract() {
+        assertContract(
+                ErrorCode.CREW_NAME_DUPLICATED,
+                409,
+                "CREW_NAME_DUPLICATED",
+                "이미 사용 중인 크루 이름입니다.");
+    }
+
     @Test
     void distinctOperationsKeepTheirMessagesWithoutChangingThePublicCode() {
         assertContract(

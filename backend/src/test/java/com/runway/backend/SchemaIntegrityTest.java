@@ -387,6 +387,24 @@ class SchemaIntegrityTest {
         assertThat(number("SELECT capacity FROM crews WHERE id=" + crew)).isEqualTo(10);
     }
 
+    // S15P31E105-829: 활동 중인 크루끼리만 이름(대소문자·앞뒤 공백 무시)이 유일하다. 해산 크루 이름은 다시 쓸 수 있다.
+    @Test
+    void activeCrewNamesAreUniqueIgnoringCaseAndOuterSpaces() throws Exception {
+        String insert = "INSERT INTO crews(owner_id,name,capacity,status) VALUES (" + user + ",'%s',10,'%s')";
+        insert(insert.formatted("Same", "ACTIVE"));
+        rejects("23505", insert.formatted("Same", "ACTIVE"));
+        rejects("23505", insert.formatted("SAME", "ACTIVE"));
+        rejects("23505", insert.formatted("  same ", "ACTIVE"));
+        // 내부 공백이 다르면 다른 이름이다.
+        insert(insert.formatted("Sa me", "ACTIVE"));
+        // 해산(INACTIVE) 크루와는 겹쳐도 된다. 해산끼리도 겹칠 수 있다.
+        insert(insert.formatted("Gone", "INACTIVE"));
+        insert(insert.formatted("gone", "ACTIVE"));
+        insert(insert.formatted("GONE", "INACTIVE"));
+        assertThat(number("SELECT count(*) FROM crews WHERE lower(btrim(name))='gone'"))
+                .isEqualTo(3);
+    }
+
     @Test
     void commentsRequireParentsFromTheSamePost() throws Exception {
         long parent =

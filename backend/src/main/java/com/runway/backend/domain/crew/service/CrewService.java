@@ -39,9 +39,11 @@ import jakarta.persistence.EntityManager;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -58,6 +60,8 @@ public class CrewService {
 
     private static final int MIN_CAPACITY = 1;
     private static final int MAX_CAPACITY = 200;
+    /** 활동 중인 크루 이름 부분 UNIQUE 인덱스 이름(V43). PostgreSQL은 인덱스 위반도 이 이름을 constraint로 보고한다. */
+    static final String ACTIVE_NAME_INDEX = "uq_crews_active_name";
 
     private final CrewRepository crewRepository;
     private final CrewMembershipRepository crewMembershipRepository;
@@ -89,16 +93,31 @@ public class CrewService {
             imageKey = images.requireOwnedImageKey(userId, ImagePurpose.CREW, imageKey);
         }
 
+        // S15P31E105-829: 입력·지역·가입 방식·사진 검사를 모두 통과한 뒤 저장 직전에 이름 중복을 본다.
+        // 이 조회는 일반 경우의 깔끔한 409용이고, 동시 생성의 최종 판정은 DB 부분 UNIQUE 인덱스가 한다.
+        String name = request.name().trim();
+        if (crewRepository.existsActiveByNormalizedName(name)) {
+            throw new ApiException(ErrorCode.CREW_NAME_DUPLICATED);
+        }
+
         Crew crew =
                 Crew.create(
                         userId,
-                        request.name().trim(),
+                        name,
                         blankToNull(request.description()),
                         imageKey,
                         request.capacity(),
                         regionCode,
                         joinPolicy);
-        crewRepository.save(crew);
+        try {
+            crewRepository.save(crew);
+        } catch (DataIntegrityViolationException ex) {
+            // 이 인덱스 위반일 때만 409로 바꾼다. FK·CHECK·다른 UNIQUE 위반은 그대로 던져 500(INTERNAL_ERROR)으로 둔다.
+            if (ACTIVE_NAME_INDEX.equals(uniqueConstraint(ex))) {
+                throw new ApiException(ErrorCode.CREW_NAME_DUPLICATED);
+            }
+            throw ex;
+        }
         crewMembershipRepository.save(CrewMembership.approveOwner(crew.getId(), userId));
         crewRepository.flush();
         entityManager.refresh(crew);
@@ -626,5 +645,21 @@ public class CrewService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /** 원인 사슬의 PostgreSQL 23505 위반 constraint 이름. 없거나 UNIQUE 위반이 아니면 null (SignupService·UserProfileService와 같은 방식). */
+    static String uniqueConstraint(Throwable exception) {
+        for (Throwable current = exception; current != null; current = current.getCause()) {
+            if (current instanceof SQLException sql && "23505".equals(sql.getSQLState())) {
+                try {
+                    Object message =
+                            current.getClass().getMethod("getServerErrorMessage").invoke(current);
+                    return (String) message.getClass().getMethod("getConstraint").invoke(message);
+                } catch (ReflectiveOperationException | NullPointerException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 }
