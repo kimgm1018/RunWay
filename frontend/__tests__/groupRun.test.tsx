@@ -12,6 +12,21 @@ jest.mock(
 // The first React Native render loads lazy host components on this Windows runner.
 jest.setTimeout(60000);
 
+// App and mock timers run on Jest's clock and move only through settle() (S15P31E105-840). The mock streams
+// tracking and live members every 20ms; on the real clock a tick landed while act() was still flushing the
+// last one, so act() never ran out of work and a run screen could hold one settle() for minutes.
+// React's own scheduling (setImmediate, microtasks) stays real.
+beforeEach(() => {
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
+
 type Screen = TestRenderer.ReactTestRenderer;
 
 // A Text's whole line, nested Texts included (NumText draws the digits in their own Text, S15P31E105-594).
@@ -59,7 +74,9 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 // Flush each timer-driven render before checking the next screen (S15P31E105-372).
@@ -458,7 +475,10 @@ test('6.0 loads my crews again when the group tab is shown again, keeping the li
   expect(page).toContain('승인 대기');
   expect(page).not.toContain('혼자 달리던 길, 같이 달려 볼까요');
 
-  await act(async () => release());
+  // The mock answers on a timer, so the released M10 arrives while settle() moves the clock.
+  await act(async () => {
+    release();
+  });
   await settle(50);
   page = texts(screen!);
   expect(page).not.toContain('승인 대기');
@@ -653,7 +673,8 @@ test('6.5 → 6.6 (paused in place) → 6.7: ready, start together, see members 
     await act(async () => {
       labelled(screen, '종료', 'onLongPress').props.onLongPress();
     });
-    await settle(100);
+    // 6.7 loads its result once my record is saved; on Jest's clock that is a few polls, not a fixed wait.
+    await waitForText(screen, '4명 중 2명 완주했어요');
     page = texts(screen);
     expect(page).toContain('4명 중 2명 완주했어요');
     expect(page).toContain('함께 달린 거리');
@@ -665,9 +686,9 @@ test('6.5 → 6.6 (paused in place) → 6.7: ready, start together, see members 
   } finally {
     await act(async () => screen.unmount());
   }
-  // The whole 6.5 → 6.7 flow runs on the mock's real-time start and tracking timers. Two Jest workers on the CI
-  // agent's two CPUs (S15P31E105-667) took it past 60 s, so it alone gets 120 s.
-}, 120000);
+  // The 6.5 → 6.7 flow used to run on the real clock and needed 120 s (S15P31E105-667); on Jest's clock
+  // (S15P31E105-840) it keeps the file's limit.
+});
 
 test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   const screen = await openGroup();

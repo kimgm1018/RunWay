@@ -20,6 +20,21 @@ jest.mock(
 // The first React Native render loads lazy host components on this Windows runner.
 jest.setTimeout(60000);
 
+// App and mock timers run on Jest's clock and move only through settle() (S15P31E105-840). The mock sends a
+// tracking sample every 50ms; on the real clock, under suite load, a sample landed while act() was still
+// flushing the last one, so act() never ran out of work and one settle() could pass the test's time limit.
+// React's own scheduling (setImmediate, microtasks) stays real.
+beforeEach(() => {
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
+
 type Screen = TestRenderer.ReactTestRenderer;
 
 function texts(screen: Screen) {
@@ -51,7 +66,9 @@ function textOf(screen: Screen, label: string) {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 function shows(screen: Screen, label: string) {
@@ -412,7 +429,10 @@ test('the result uses the server record of the session, and an unconfirmed one o
 // S15P31E105-422: 코스 러닝 준비에서 이 코스의 내 기록 하나를 고르면 S01 comparisonSessionId로 보내고, 고르지 않으면 null이다.
 async function courseStartGoal(pick: boolean) {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
-  const [first] = await repositories.records.getCourseRuns('any');
+  // The mock answers on a timer, and Jest's clock moves only when told.
+  const runs = repositories.records.getCourseRuns('any');
+  await jest.advanceTimersByTimeAsync(0);
+  const [first] = await runs;
   const create = jest.spyOn(repositories.session, 'create');
   let screen: Screen;
   await act(async () => {
