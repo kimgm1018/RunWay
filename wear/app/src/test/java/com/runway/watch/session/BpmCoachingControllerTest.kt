@@ -482,28 +482,30 @@ class BpmCoachingControllerTest {
         elapsed = 100_000
         c.tick()
         assertFalse(c.state.value.serverLinkLost)
-        assertEquals(0, sender.count("STATE_QUERY"))
+        // 준비 때 시차 추정용 질의 한 번뿐이고(S15P31E105-839), 운동 밖의 tick은 묻지 않는다.
+        assertEquals(1, sender.count("STATE_QUERY"))
     }
 
     @Test
-    fun `STATE_QUERY goes out at start, every 60 s with an estimate and every 10 s without`() = runBlocking {
+    fun `STATE_QUERY goes out at prepare and start, every 60 s with an estimate and every 10 s without`() = runBlocking {
         val c = controller()
+        // 준비 때 한 번(S15P31E105-839), 시작 때 한 번.
         c.running()
         val query = sender.last("STATE_QUERY")
         assertEquals(SessionPaths.STATE_QUERY, sender.all("STATE_QUERY").last().first)
         assertEquals("SERVER", query.getJSONObject("payload").getString("scope"))
-        assertEquals(1, sender.count("STATE_QUERY"))
+        assertEquals(2, sender.count("STATE_QUERY"))
 
         elapsed = 9_999; c.tick()
-        assertEquals(1, sender.count("STATE_QUERY"))
-        elapsed = 10_000; c.tick()
         assertEquals(2, sender.count("STATE_QUERY"))
+        elapsed = 10_000; c.tick()
+        assertEquals(3, sender.count("STATE_QUERY"))
 
         c.answerClock()
         elapsed = 69_999; c.tick()
-        assertEquals(2, sender.count("STATE_QUERY"))
-        elapsed = 70_000; c.tick()
         assertEquals(3, sender.count("STATE_QUERY"))
+        elapsed = 70_000; c.tick()
+        assertEquals(4, sender.count("STATE_QUERY"))
     }
 
     @Test

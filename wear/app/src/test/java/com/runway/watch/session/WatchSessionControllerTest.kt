@@ -134,7 +134,8 @@ class WatchSessionControllerTest {
 
         assertEquals(listOf("start"), gateway.calls)
         assertEquals(2, sender.count("COMMAND_RESULT"))
-        assertEquals(sender.sent[1].second.getJSONObject("payload").toString(), sender.last("COMMAND_RESULT").getJSONObject("payload").toString())
+        val first = sender.sent.first { it.second.getString("type") == "COMMAND_RESULT" }.second
+        assertEquals(first.getJSONObject("payload").toString(), sender.last("COMMAND_RESULT").getJSONObject("payload").toString())
     }
 
     @Test
