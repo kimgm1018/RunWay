@@ -92,6 +92,29 @@ public class ReadinessJdbcRepository {
                 Date.valueOf(to));
     }
 
+    /**
+     * KST 오늘(today) 정기 평가 대상 회원(S15P31E105-836). 활성·건강정보 동의 회원 중 오늘 행이 없어도 계산할 수 있는 값이 있는 회원이다. 수면은
+     * 산식 S가 쓰는 D-2~D, 부하는 L이 쓰는 D-27~D 안의 값이다. RHR만 있는 회원은 오늘 RHR이 없으면 R을 계산할 수 없으므로 넣지 않는다(오늘 RHR이
+     * 저장되면 W06 이벤트가 평가한다). 동의·활성 여부는 평가가 회원 행 FOR SHARE로 다시 확인한다. ID 오름차순.
+     */
+    public List<Long> findDailyEvaluationUserIds(LocalDate today) {
+        return jdbc.query(
+                """
+                SELECT u.id FROM users u
+                WHERE u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE'
+                  AND EXISTS (
+                    SELECT 1 FROM daily_health_metrics m
+                    WHERE m.user_id = u.id AND m.metric_date BETWEEN ? AND ?
+                      AND (m.daily_training_load IS NOT NULL
+                           OR (m.sleep_duration_min IS NOT NULL AND m.metric_date >= ?)))
+                ORDER BY u.id
+                """,
+                (rs, n) -> rs.getLong("id"),
+                Date.valueOf(today.minusDays(27)),
+                Date.valueOf(today),
+                Date.valueOf(today.minusDays(2)));
+    }
+
     /** from~to(포함)에 건강 행이 있는 날짜. 오름차순. */
     public List<LocalDate> findMetricDates(long userId, LocalDate from, LocalDate to) {
         return jdbc.query(

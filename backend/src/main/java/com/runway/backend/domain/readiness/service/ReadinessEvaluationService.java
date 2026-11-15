@@ -3,7 +3,10 @@ package com.runway.backend.domain.readiness.service;
 import com.runway.backend.domain.readiness.formula.ReadinessFormula;
 import com.runway.backend.domain.readiness.formula.ReadinessScore;
 import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
@@ -28,11 +31,22 @@ public class ReadinessEvaluationService {
     /** 일별 부하가 바뀐 날짜 D는 D를 부하 28일 창에 넣는 D+1~D+27도 다시 평가한다(S15P31E105-599). */
     static final int LOAD_FOLLOWING_DAYS = ReadinessFormula.LOOKBACK_DAYS;
 
+    /**
+     * "오늘"의 시간대. 앱이 KST 날짜로 오늘 결과를 판정하고 서버의 MVP 기본 시간대도 Asia/Seoul이다(S15P31E105-836). 서버 시계는 UTC다.
+     */
+    public static final ZoneId TODAY_ZONE = ZoneId.of("Asia/Seoul");
+
     private final ReadinessJdbcRepository repository;
+    private final Clock clock;
+
+    /** 서버 시계의 KST 오늘 날짜. */
+    public LocalDate today() {
+        return LocalDate.ofInstant(clock.instant(), TODAY_ZONE);
+    }
 
     /**
-     * 평가할 날짜: 바뀐 날짜 전부와, 각 바뀐 날짜 D의 D+1~D+7 중 건강 행이 있는 날짜. 오름차순, 중복 없음. 건강 행이 없는 날짜는 오늘 RHR이 없어
-     * 평가해도 결과가 없으므로 넣지 않는다.
+     * 평가할 날짜: 바뀐 날짜 전부와, 각 바뀐 날짜 D의 D+1~D+7 중 건강 행이 있는 날짜. 오름차순, 중복 없음. 건강 행이 없는 지난 날짜는 다시
+     * 평가하지 않는다(과거 빈 날짜 소급은 범위 밖). 단 KST 오늘은 행이 없어도 넣는다(S15P31E105-836, 아래 메서드).
      */
     @Transactional(readOnly = true)
     public List<LocalDate> targetDates(long userId, List<LocalDate> changedDates) {
@@ -41,6 +55,9 @@ public class ReadinessEvaluationService {
 
     /**
      * 위와 같고, 일별 부하가 바뀐 날짜 D는 D+1~D+27(부하 28일 창) 중 건강 행이 있는 날짜까지 더한다(S15P31E105-599).
+     *
+     * <p>KST 오늘은 건강 행이 없어도 후보로 본다(S15P31E105-836). 오늘 행이 없어도 D-1·D-2 수면과 28일 부하로 점수가 나오므로, 과거 값이 바뀌면
+     * 오늘 결과도 다시 계산해야 한다. 판정 범위(7일·27일)는 다른 후보와 같다.
      */
     @Transactional(readOnly = true)
     public List<LocalDate> targetDates(
@@ -55,8 +72,13 @@ public class ReadinessEvaluationService {
         LocalDate last = targets.last();
         LocalDate until =
                 last.plusDays(loadChanged.isEmpty() ? FOLLOWING_DAYS : LOAD_FOLLOWING_DAYS);
-        for (LocalDate candidate :
-                repository.findMetricDates(userId, targets.first().plusDays(1), until)) {
+        LocalDate from = targets.first().plusDays(1);
+        List<LocalDate> candidates = new ArrayList<>(repository.findMetricDates(userId, from, until));
+        LocalDate today = today();
+        if (!today.isBefore(from) && !today.isAfter(until)) {
+            candidates.add(today);
+        }
+        for (LocalDate candidate : candidates) {
             if (within(changed, candidate, FOLLOWING_DAYS)
                     || within(loadChanged, candidate, LOAD_FOLLOWING_DAYS)) {
                 targets.add(candidate);

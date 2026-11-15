@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -184,7 +185,11 @@ class ReadinessTrainingLoadIntegrationTest extends ReadinessIntegrationSupport {
         List<Map<String, Object>> rows = readinessRows(userId);
         assertThat(rows)
                 .extracting(r -> r.get("readiness_date"))
-                .containsExactly(Date.valueOf(d), Date.valueOf(d.plusDays(20)));
+                .containsExactly(
+                        Date.valueOf(d),
+                        Date.valueOf(d.plusDays(20)),
+                        // S15P31E105-836: KST 오늘(d+25~26)은 건강 행이 없어도 부하 창 안이라 평가한다. d+28은 창 밖이다.
+                        Date.valueOf(LocalDate.now(ZoneId.of("Asia/Seoul"))));
         // 부하 항목만 계산됐다(수면 없음, RHR 기준값 부족).
         assertThat(rows).allSatisfy(r -> assertThat(r).containsEntry("confidence", "LOW"));
     }

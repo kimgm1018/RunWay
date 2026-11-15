@@ -77,13 +77,18 @@ abstract class ReadinessIntegrationSupport {
     }
 
     /**
-     * W06 테스트와 같은 이유로 UTC 자정 직전이면 날짜가 바뀐 뒤 시작한다. 테스트와 서버가 각자 오늘을 계산하므로 도중에 날짜가 바뀌면 범위 판정이 어긋난다.
+     * W06 테스트와 같은 이유로 UTC·KST 자정 직전이면 날짜가 바뀐 뒤 시작한다. 테스트와 서버가 각자 오늘을 계산하므로 도중에 날짜가 바뀌면 범위 판정이 어긋난다.
      */
     @BeforeEach
     void avoidUtcMidnight() throws InterruptedException {
+        avoidMidnight(ZoneOffset.UTC);
+        // S15P31E105-836: 준비도의 "오늘"은 KST 날짜다(정기 평가·행 없는 오늘 평가). KST 자정(UTC 15:00)도 피한다.
+        avoidMidnight(ReadinessEvaluationService.TODAY_ZONE);
+    }
+
+    private static void avoidMidnight(java.time.ZoneId zone) throws InterruptedException {
         var now = java.time.Instant.now();
-        var nextMidnight =
-                LocalDate.ofInstant(now, ZoneOffset.UTC).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        var nextMidnight = LocalDate.ofInstant(now, zone).plusDays(1).atStartOfDay(zone).toInstant();
         long leftMillis = Duration.between(now, nextMidnight).toMillis();
         if (leftMillis < 15_000) {
             Thread.sleep(leftMillis + 100);
