@@ -1,5 +1,13 @@
 import React from 'react';
-import { FlatList, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  Image,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
@@ -500,6 +508,48 @@ test('7.2 shows the run over its map, likes it and opens the comments from the c
   await press(screen, '댓글 닫기');
   await press(screen, '댓글 쓰기');
   expect(labelled(screen, '댓글 입력', 'onChangeText')).toBeTruthy();
+});
+
+// S15P31E105-837: a run with no distance comes back with pace 0, which is no pace, not 0′00″. 7.2 shows – – for it
+// and its share text leaves the pace out, as the share preview and profile tiles already do (S15P31E105-834).
+test('7.2 shows no average pace for a run with no distance, on the card and in the share text', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const get = repositories.community.get.bind(repositories.community);
+  jest.spyOn(repositories.community, 'get').mockImplementation(async id => {
+    const post = await get(id);
+    return {
+      ...post,
+      record: { ...post.record, distanceM: 0, averagePaceSecPerKm: 0 },
+    };
+  });
+  const shared = jest
+    .spyOn(Share, 'share')
+    .mockResolvedValue({ action: Share.sharedAction });
+  try {
+    const screen = await openCommunity(repositories);
+    await press(screen, '탐색');
+    await settle(50);
+    await press(screen, 'seoyun.run의 5.02km 러닝');
+    await settle(50);
+    const detail = screen.root.findByType(PostDetailScreen);
+    const words = detail
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string')
+      .join(' ');
+    expect(words).toContain('평균 페이스');
+    expect(words).toContain('– –');
+    expect(words).not.toContain('0′00″');
+    expect(words).not.toContain('/km');
+    await press(screen, '공유');
+    expect(shared).toHaveBeenCalledTimes(1);
+    const { message } = shared.mock.calls[0][0] as { message: string };
+    expect(message).toContain('0.0km');
+    expect(message).not.toContain('평균 페이스');
+    expect(message).not.toContain('0′00″');
+  } finally {
+    shared.mockRestore();
+  }
 });
 
 // S15P31E105-619: the sheet's foot keeps room for the whole comment bar, which grows by the phone's bottom bar

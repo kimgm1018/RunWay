@@ -8,6 +8,8 @@ import java.time.Instant
  * The session and version the phone asked the watch to prepare (SESSION_PREPARE). [deviceId] is this watch's
  * user_devices.id from the same message; batches carry it as their producer (S15P31E105-311). [groupRunId] is set when
  * the session is a group run participant's (S15P31E105-420), so a restarted watch still shows the group pages.
+ * [clockOffsetMs] is the server clock offset the START result of this session used (null before START). Every later
+ * control result of the run uses the same offset so the server's intervals equal the watch's (S15P31E105-839).
  */
 data class Prepared(
     val sessionId: String,
@@ -15,6 +17,7 @@ data class Prepared(
     val ready: Boolean,
     val deviceId: String? = null,
     val groupRunId: String? = null,
+    val clockOffsetMs: Long? = null,
 )
 
 /**
@@ -90,6 +93,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
                     it.getString("sessionId"), it.getLong("stateVersion"), it.getBoolean("ready"),
                     if (it.isNull("deviceId")) null else it.optString("deviceId").takeIf { id -> id.isNotEmpty() },
                     if (!it.has("groupRunId") || it.isNull("groupRunId")) null else it.optString("groupRunId").takeIf { id -> id.isNotEmpty() },
+                    if (!it.has("clockOffsetMs") || it.isNull("clockOffsetMs")) null else it.getLong("clockOffsetMs"),
                 )
             }
         } catch (_: Exception) {
@@ -101,6 +105,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
         val json = JSONObject().put("sessionId", prepared.sessionId).put("stateVersion", prepared.stateVersion).put("ready", prepared.ready)
             .put("deviceId", prepared.deviceId ?: JSONObject.NULL)
             .put("groupRunId", prepared.groupRunId ?: JSONObject.NULL)
+            .put("clockOffsetMs", prepared.clockOffsetMs ?: JSONObject.NULL)
         check(prefs.edit().putString(KEY_PREPARED, json.toString()).commit())
     }
 

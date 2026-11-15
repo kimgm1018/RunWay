@@ -367,7 +367,11 @@ class WatchSessionController(
         val ready = deviceId != null
         val reason = if (ready) null else "DEVICE_ID_MISSING"
         val groupRunId = message.groupRunId()
-        store.savePrepared(Prepared(message.sessionId, version, ready = ready, deviceId = deviceId, groupRunId = groupRunId))
+        // 같은 세션을 다시 준비해도 시작 때 고정한 시차는 그 운동이 끝날 때까지 유지한다(S15P31E105-839).
+        val offset = store.prepared()?.takeIf { it.sessionId == message.sessionId }?.clockOffsetMs
+        store.savePrepared(
+            Prepared(message.sessionId, version, ready = ready, deviceId = deviceId, groupRunId = groupRunId, clockOffsetMs = offset),
+        )
         val current = _state.value
         // initialBpm is only the first value; a later prepare never overwrites the BPM the runner changed (9.3).
         val initialBpm = message.bpm("initialBpm")
@@ -387,6 +391,27 @@ class WatchSessionController(
         }
         sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason))
         log("PREPARE ${message.sessionId} v$version replied ready=$ready after=${elapsedMs() - prepareMs}ms")
+        // 시작 결과도 서버 시각으로 보고하도록 시작 전에 시차를 추정해 둔다(9.7 준비/상태 왕복, S15P31E105-839).
+        // 추정이 없을 때만 묻는다. 답이 시작보다 늦으면 그 운동은 워치 시각 그대로 보고한다(아래 serverTimeFor).
+        if (ready && offset == null && clock.current(now()) == null) sendStateQuery(message.sessionId)
+    }
+
+    /**
+     * appliedAt of an APPLIED control result in server time (9.4). The server counts moving time from the gaps between
+     * START, PAUSE, RESUME and END, so one run uses one offset: START fixes the current estimate (or none, the watch
+     * clock) for its session and every later result reuses it. Mixing a raw START with a corrected PAUSE made the
+     * phone's moving time differ from the watch's Health Services time by the clock offset (S15P31E105-839).
+     */
+    private fun serverTimeFor(sessionId: String, action: String, at: Instant): Instant {
+        val prepared = store.prepared()?.takeIf { it.sessionId == sessionId }
+        if (action == "START") {
+            val offset = clock.current(at)?.offset?.toMillis() ?: 0L
+            prepared?.let { store.savePrepared(it.copy(clockOffsetMs = offset)) }
+            log("START clock offset=${offset}ms estimated=${clock.current(at) != null}")
+            return at.plusMillis(offset)
+        }
+        // 고정값이 없는 운동(이전 버전에서 시작)은 지금까지처럼 현재 추정으로 보정한다.
+        return prepared?.clockOffsetMs?.let { at.plusMillis(it) } ?: clock.toServerTime(at)
     }
 
     private suspend fun onCommand(message: SessionEnvelope, action: String) {
@@ -443,8 +468,8 @@ class WatchSessionController(
                     else -> if (!lost) gateway.end()
                 }
             }
-            // 실제 적용 시각은 서버 기준으로 보정한다(9.4). 추정이 없으면 워치 시각 그대로.
-            outcome(OutcomeResult.APPLIED, clock.toServerTime(now()), null)
+            // 실제 적용 시각은 서버 기준으로 보정한다(9.4). 한 운동은 시작 때 정한 시차 하나로 보정한다.
+            outcome(OutcomeResult.APPLIED, serverTimeFor(message.sessionId, action, now()), null)
         } catch (e: TimeoutCancellationException) {
             outcome(OutcomeResult.UNKNOWN, null, "EXERCISE_CALL_TIMEOUT")
         } catch (e: ExerciseRejected) {

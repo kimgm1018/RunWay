@@ -30,7 +30,7 @@ import {
   formatClockTime,
   formatDuration,
   formatKm,
-  formatPace,
+  formatRecordPace,
 } from '../../format';
 import { postChanged, postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -269,18 +269,23 @@ export function PostDetailScreen() {
       : navigation.navigate('RunnerProfile', {
           userId: current.author.userId,
         });
-  const share = (current: PostDetail) =>
-    Share.share({
+  const share = (current: PostDetail) => {
+    // A run with no distance has no pace, so the text leaves it out rather than say 0′00″ (S15P31E105-837).
+    const sharedPace = formatRecordPace(current.record.averagePaceSecPerKm);
+    return Share.share({
       message: `${current.author.handle}님의 러닝 · ${recordLabel(
         current.record,
         current.courseShared,
-      )} · 평균 페이스 ${formatPace(current.record.averagePaceSecPerKm)}/km`,
+      )}${sharedPace === null ? '' : ` · 평균 페이스 ${sharedPace}/km`}`,
     }).catch(() => undefined);
+  };
 
   const mapHeight = Math.round(stableHeight.current * mapShare);
   const commentCount = post
     ? post.commentCount ?? countComments(post.comments)
     : 0;
+  // 거리 없는 기록은 페이스가 없어 0′00″ 대신 – –로 둔다(S15P31E105-837).
+  const pace = post ? formatRecordPace(post.record.averagePaceSecPerKm) : null;
   // The newest comment still there; a deleted root kept for its replies is not one.
   const latest =
     post?.comments.reduce<PostComment | null>(
@@ -398,8 +403,8 @@ export function PostDetailScreen() {
                     label="거리"
                   />
                   <Stat
-                    value={formatPace(post.record.averagePaceSecPerKm)}
-                    unit="/km"
+                    value={pace ?? '– –'}
+                    unit={pace === null ? undefined : '/km'}
                     label="평균 페이스"
                   />
                 </View>
