@@ -170,6 +170,15 @@ const record = (change: Partial<RunRecordDetail> = {}): RunRecordDetail => ({
   ...change,
 });
 
+// Every card made here is unmounted after its test, so a toast it showed stops its timer instead of firing
+// after Jest tore the environment down (S15P31E105-840).
+const mountedCards: TestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const mounted of mountedCards.splice(0)) {
+    await act(async () => mounted.unmount());
+  }
+});
+
 async function card(change: Partial<RunRecordDetail> = {}) {
   const onOpen = jest.fn();
   // The home card's scroll, asked to show the card's top after a turn (S15P31E105-689).
@@ -192,6 +201,7 @@ async function card(change: Partial<RunRecordDetail> = {}) {
       </DataProvider>,
     );
   });
+  mountedCards.push(screen);
   const faceOf = (testID: string) =>
     screen.root.findAll(
       node => typeof node.type !== 'string' && node.props.testID === testID,
