@@ -82,7 +82,7 @@ class SessionRunControlTest {
         controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}"""))
         control.send(RunIntent.CANCEL)
 
-        assertEquals(listOf("SESSION_PREPARED", "COMMAND_REQUEST:CANCEL"), sender.types)
+        assertEquals(listOf("SESSION_PREPARED", "STATE_QUERY", "COMMAND_REQUEST:CANCEL"), sender.types)
     }
 
     @Test
@@ -194,7 +194,7 @@ class SessionRunControlTest {
         controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":170}"""))
         control.send(RunIntent.BPM_UP)
 
-        assertEquals(listOf("SESSION_PREPARED", "COMMAND_REQUEST:SET_BPM"), sender.types)
+        assertEquals(listOf("SESSION_PREPARED", "STATE_QUERY", "COMMAND_REQUEST:SET_BPM"), sender.types)
         assertEquals(BpmChange(RhythmBpm(171), BpmChangeStatus.REQUESTING), control.snapshot.value.bpmChange)
         assertEquals("BPM 변경 확인 중", control.snapshot.value.notice)
         assertEquals(RhythmBpm(170), control.snapshot.value.metrics.rhythm)
