@@ -43,7 +43,7 @@ import {
   type RunnerProfile,
 } from '../../data';
 import { runRouteOf, type RunRoute } from '../../components/mapRoute';
-import { formatDuration, formatKm, formatPace } from '../../format';
+import { formatDuration, formatKm, formatRecordPace } from '../../format';
 import { postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
@@ -225,6 +225,8 @@ function Composer({
       setBusy(false);
     }
   };
+  // A run with no distance has no pace: – – as on its result, not 0′00″ (S15P31E105-834).
+  const pace = formatRecordPace(record.averagePaceSecPerKm);
   const extra = [
     stamp(record.startedAt),
     record.averageHeartRate ? `평균 심박 ${record.averageHeartRate} bpm` : null,
@@ -311,8 +313,8 @@ function Composer({
               <Stat value={formatKm(record.distanceM)} unit="km" label="거리" />
               <Stat value={formatDuration(record.durationSec)} label="시간" />
               <Stat
-                value={formatPace(record.averagePaceSecPerKm)}
-                unit="/km"
+                value={pace ?? '– –'}
+                unit={pace === null ? undefined : '/km'}
                 label="평균 페이스"
               />
             </View>
