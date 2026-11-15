@@ -613,9 +613,12 @@ export function HomeScreen() {
               disabled={calendar || day >= today}
               onPress={() => choose(addDays(day, 1))}
             />
-            <View style={styles.flex} />
-            {/* The legend sits by the date (담당자 피드백, S15P31E105-690), so the card below gains its row. */}
-            {calendar ? null : <DayLegend stacked />}
+            {/* The legend sits by the date (담당자 피드백, S15P31E105-690), so the card below gains its row. Where
+                large text leaves no room beside the date (320dp at 1.3×, S15P31E105-835), it drops to its own
+                line at the right instead of running off the screen. */}
+            {calendar ? null : (
+              <DayLegend stacked style={styles.dateLegend} />
+            )}
           </View>
           {calendar ? null : (
             <WeekStrip
@@ -761,9 +764,12 @@ const styles = StyleSheet.create({
   dateRow: {
     minHeight: 32,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 4,
+    columnGap: 4,
+    rowGap: 6,
   },
+  dateLegend: { marginLeft: 'auto' },
   arrow: {
     width: 28,
     height: 28,
