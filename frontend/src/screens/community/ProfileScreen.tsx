@@ -63,6 +63,7 @@ import {
   formatDuration,
   formatKm,
   formatPace,
+  formatRecordPace,
 } from '../../format';
 import { FollowRequestSheet } from './FollowRequestSheet';
 import { navigateTo, openRecord } from '../../navigation/navigateTo';
@@ -467,7 +468,7 @@ function RunTile({
             record.goalAchieved === false && styles.tilePaceMissed,
           ]}
         >
-          {formatPace(record.averagePaceSecPerKm)}
+          {formatRecordPace(record.averagePaceSecPerKm) ?? '– –'}
         </AppText>
       </View>
     </Pressable>

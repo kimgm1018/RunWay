@@ -59,6 +59,16 @@ export function formatPace(secondsPerKm: number) {
   return `${Math.floor(rounded / 60)}′${pad(rounded % 60)}″`;
 }
 
+// A saved run's average pace (5′55″), or null when it has none: a run with no distance comes back as 0,
+// which is not a measured 0′00″ but no pace at all (S15P31E105-834), shown as – – like the run result.
+export function formatRecordPace(secondsPerKm: number | null | undefined) {
+  return typeof secondsPerKm === 'number' &&
+    Number.isFinite(secondsPerKm) &&
+    secondsPerKm > 0
+    ? formatPace(secondsPerKm)
+    : null;
+}
+
 // 5.02 (km)
 export function formatKm(meters: number, digits = 2) {
   return (meters / 1000).toFixed(digits);
