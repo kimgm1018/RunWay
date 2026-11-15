@@ -43,6 +43,15 @@ jest.setTimeout(30000);
 
 type Screen = TestRenderer.ReactTestRenderer;
 
+// Every screen made here is unmounted after its test, so its toast and poll timers stop with it instead of firing
+// after Jest tore the environment down (S15P31E105-840).
+const mountedScreens: Screen[] = [];
+afterEach(async () => {
+  for (const mounted of mountedScreens.splice(0)) {
+    await act(async () => mounted.unmount());
+  }
+});
+
 function textOf(screen: Screen) {
   return screen.root
     .findAll(node => typeof node.props.children === 'string')
@@ -83,6 +92,7 @@ async function render(plan: Partial<CoursePlan>) {
       </SafeAreaProvider>,
     );
   });
+  mountedScreens.push(screen!);
   for (let i = 0; i < 40 && !textOf(screen!).includes('오늘의 전략'); i++) {
     await act(() => new Promise<void>(resolve => setTimeout(resolve, 25)));
   }

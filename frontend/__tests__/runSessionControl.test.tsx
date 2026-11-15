@@ -34,16 +34,17 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
   return matches[matches.length - 1];
 }
 
-let controlledTime = false;
 let mounted: Screen | null = null;
 
-// Pending watch states must remain observable until the test advances app time.
-function controlTime() {
+// Every test runs app and mock timers on Jest's clock, moved only through settle(), so pending watch states stay
+// observable until a test advances app time. On the real clock the mock's 50ms tracking samples kept act() busy
+// under suite load and the wall-clock waits below expired (S15P31E105-840).
+// React's own scheduling (setImmediate, microtasks) stays real.
+beforeEach(() => {
   jest.useFakeTimers({
     doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
   });
-  controlledTime = true;
-}
+});
 
 afterEach(async () => {
   const screen = mounted;
@@ -53,25 +54,19 @@ afterEach(async () => {
       await act(async () => screen.unmount());
     }
   } finally {
-    if (controlledTime) {
-      jest.clearAllTimers();
-      jest.useRealTimers();
-      controlledTime = false;
-    }
+    jest.clearAllTimers();
+    jest.useRealTimers();
   }
 });
 
 async function settle(ms = 20) {
-  if (controlledTime) {
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(ms);
-    });
-  } else {
-    await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
-  }
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 // Flush each timer-driven render before checking the next screen (S15P31E105-372).
+// Date.now is Jest's clock here, so the limit counts app time that settle() moved, not suite load.
 async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (!texts(screen).includes(text)) {
@@ -200,7 +195,6 @@ test('leaving while the ahead-of-time S01 is still pending cancels that session 
 });
 
 test('러닝 시작 waits for the watch: 시작 확인 중 then the progress screen', async () => {
-  controlTime();
   const screen = await countDown({ watchLatencyMs: 1500 }, '시작 확인 중');
   expect(texts(screen)).toContain('시작 확인 중');
   expect(texts(screen)).not.toContain('운동 시간');
@@ -241,7 +235,6 @@ test('no watch without GPS shows location guidance', async () => {
 });
 
 test('pause shows 일시정지 확인 중 until the watch confirms', async () => {
-  controlTime();
   const screen = await countDown({ watchLatencyMs: 300 });
   expect(texts(screen)).toContain('운동 시간');
 
@@ -254,7 +247,6 @@ test('pause shows 일시정지 확인 중 until the watch confirms', async () =>
 });
 
 test('종료 shows 종료 처리 중 then the result', async () => {
-  controlTime();
   const screen = await countDown({ watchLatencyMs: 300 });
   await press(screen, '일시정지');
   await waitForText(screen, '종료는 1초 길게 눌러야 동작해요');
@@ -316,18 +308,24 @@ test('종료 pressed on the watch moves the progress screen to the result', asyn
   expect(texts(screen)).toContain('PACE');
 });
 
+// The mock answers on timers, so a call made outside a screen gets its answer once Jest's clock moves.
+async function answer<T>(call: Promise<T>): Promise<T> {
+  await jest.advanceTimersByTimeAsync(0);
+  return call;
+}
+
 // --- 앱 재실행 복구 ---
 
 test('on launch the app reattaches to the remembered session and reports the stored watch result', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
   // 지난 실행에서 시작을 승인받았고 워치가 실행했지만, 결과를 보고하기 전에 앱이 꺼졌다.
-  const created = await repositories.session.create({
+  const created = await answer(repositories.session.create({
     controlDeviceId: '101',
     relayDeviceId: '102',
     goal: { courseId: null, comparisonSessionId: null, targetDistanceM: null, targetDurationSec: null, targetPaceSecPerKm: null },
-  });
-  const approval = await repositories.session.requestControl(created.sessionId, 'START', { deviceId: '101', expectedVersion: 1 });
-  await repositories.watchSession.setRunActive(true, created.sessionId);
+  }));
+  const approval = await answer(repositories.session.requestControl(created.sessionId, 'START', { deviceId: '101', expectedVersion: 1 }));
+  await answer(repositories.watchSession.setRunActive(true, created.sessionId));
   (repositories.watchSession as unknown as { emit: (event: unknown) => void }).emit({
     type: 'COMMAND_RESULT',
     sessionId: created.sessionId,
@@ -345,26 +343,26 @@ test('on launch the app reattaches to the remembered session and reports the sto
   });
   await settle(500);
 
-  expect((await repositories.session.get(created.sessionId)).state).toBe('RUNNING');
+  expect((await answer(repositories.session.get(created.sessionId))).state).toBe('RUNNING');
   await act(async () => screen!.unmount());
 });
 
 
 async function runningSession(repositories: ReturnType<typeof createMockRepositories>) {
-  const created = await repositories.session.create({
+  const created = await answer(repositories.session.create({
     controlDeviceId: '101',
     relayDeviceId: '102',
     goal: { courseId: null, comparisonSessionId: null, targetDistanceM: null, targetDurationSec: null, targetPaceSecPerKm: null },
-  });
-  const approval = await repositories.session.requestControl(created.sessionId, 'START', { deviceId: '101', expectedVersion: 1 });
-  await repositories.session.reportResult(created.sessionId, 'START', {
+  }));
+  const approval = await answer(repositories.session.requestControl(created.sessionId, 'START', { deviceId: '101', expectedVersion: 1 }));
+  await answer(repositories.session.reportResult(created.sessionId, 'START', {
     commandId: approval.commandId,
     deviceId: '101',
     result: 'APPLIED',
     appliedAt: new Date().toISOString(),
     reasonCode: null,
-  });
-  await repositories.watchSession.setRunActive(true, created.sessionId);
+  }));
+  await answer(repositories.watchSession.setRunActive(true, created.sessionId));
   return created.sessionId;
 }
 
@@ -394,7 +392,7 @@ test('after reattaching, pause on the progress screen goes to the server', async
   await press(screen!, '일시정지');
   await settle(500);
 
-  expect((await repositories.session.get(sessionId)).state).toBe('PAUSED');
+  expect((await answer(repositories.session.get(sessionId))).state).toBe('PAUSED');
   await act(async () => screen!.unmount());
 });
 
@@ -403,32 +401,32 @@ test('after reattaching, pause on the progress screen goes to the server', async
 test('러닝 시작 with a paused session left on the server opens it paused on 4.2 instead of waiting', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
   const sessionId = await runningSession(repositories);
-  const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
-  await repositories.session.reportResult(sessionId, 'PAUSE', {
+  const pause = await answer(repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 }));
+  await answer(repositories.session.reportResult(sessionId, 'PAUSE', {
     commandId: pause.commandId,
     deviceId: '101',
     result: 'APPLIED',
     appliedAt: new Date().toISOString(),
     reasonCode: null,
-  });
-  await repositories.watchSession.setRunActive(false);
+  }));
+  await answer(repositories.watchSession.setRunActive(false));
 
   const screen = await countDown({}, '종료는 1초 길게 눌러야 동작해요', repositories);
   expect(texts(screen)).not.toContain('시작 확인 중');
-  expect((await repositories.session.get(sessionId)).state).toBe('PAUSED');
+  expect((await answer(repositories.session.get(sessionId))).state).toBe('PAUSED');
 });
 
 test('재개 on a paused run restored at launch carries on in 4.2', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
   const sessionId = await runningSession(repositories);
-  const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
-  await repositories.session.reportResult(sessionId, 'PAUSE', {
+  const pause = await answer(repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 }));
+  await answer(repositories.session.reportResult(sessionId, 'PAUSE', {
     commandId: pause.commandId,
     deviceId: '101',
     result: 'APPLIED',
     appliedAt: new Date().toISOString(),
     reasonCode: null,
-  });
+  }));
 
   let screen: Screen;
   await act(async () => {
@@ -440,5 +438,5 @@ test('재개 on a paused run restored at launch carries on in 4.2', async () => 
   await press(screen!, '재개');
   await waitForText(screen!, '운동 시간');
   expect(texts(screen!)).not.toContain('종료는 1초 길게 눌러야 동작해요');
-  expect((await repositories.session.get(sessionId)).state).toBe('RUNNING');
+  expect((await answer(repositories.session.get(sessionId))).state).toBe('RUNNING');
 });
