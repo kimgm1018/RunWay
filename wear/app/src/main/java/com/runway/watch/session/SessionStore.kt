@@ -39,6 +39,8 @@ data class CommandOutcome(
     val coachingId: String? = null,
     /** SET_BPM / COACHING: the rhythm BPM the command sets. */
     val targetBpm: Int? = null,
+    /** Applied START only: whether the watch exercise turned GPS on (S15P31E105-864); null when unknown. */
+    val gps: Boolean? = null,
 )
 
 /** Watch-side record of prepared sessions and per-command results. Survives app restarts. */
@@ -168,6 +170,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
                     stateVersion = if (o.isNull("stateVersion")) null else o.getLong("stateVersion"),
                     coachingId = if (!o.has("coachingId") || o.isNull("coachingId")) null else o.getString("coachingId"),
                     targetBpm = if (!o.has("targetBpm") || o.isNull("targetBpm")) null else o.getInt("targetBpm"),
+                    gps = if (!o.has("gps") || o.isNull("gps")) null else o.getBoolean("gps"),
                 )
             } catch (_: Exception) {
                 // A damaged entry is dropped; the phone can still ask again and gets UNKNOWN only for EXECUTING.
@@ -188,7 +191,8 @@ class PrefsSessionStore(context: Context) : SessionStore {
                 .put("persisted", o.persisted)
                 .put("stateVersion", o.stateVersion ?: JSONObject.NULL)
                 .put("coachingId", o.coachingId ?: JSONObject.NULL)
-                .put("targetBpm", o.targetBpm ?: JSONObject.NULL))
+                .put("targetBpm", o.targetBpm ?: JSONObject.NULL)
+                .put("gps", o.gps ?: JSONObject.NULL))
         }
         check(prefs.edit().putString(KEY_OUTCOMES, json.toString()).commit())
     }

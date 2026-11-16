@@ -18,6 +18,8 @@ class WatchSessionControllerTest {
         val calls = mutableListOf<String>()
         var failure: Exception? = null
         var hangMs = 0L
+        var gps: Boolean? = null
+        override val startedWithGps: Boolean? get() = gps
         override suspend fun start() = call("start")
         override suspend fun pause() = call("pause")
         override suspend fun resume() = call("resume")
@@ -277,6 +279,94 @@ class WatchSessionControllerTest {
         assertTrue(gateway.calls.isEmpty())
     }
 
+    // S15P31E105-864: 심박·활동 인식 권한 없이 시작하면 health 유형 서비스 거절로 앱이 종료돼 폰은 미확인만 보였다.
+    private class FakeCapability(var sensors: Boolean = true, var remoteGps: Boolean = true) : RunCapability {
+        override fun sensorsGranted() = sensors
+        override fun remoteGps() = remoteGps
+    }
+
+    private fun capable(capability: RunCapability, keepAlive: RunKeepAlive = NoKeepAlive) = WatchSessionController(
+        store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000,
+        keepAlive = keepAlive, capability = capability,
+    )
+
+    @Test
+    fun `prepare without the run permissions is not ready with the permission reason`() = runBlocking {
+        val c = capable(FakeCapability(sensors = false))
+        c.onMessage(prepare())
+
+        val reply = sender.last("SESSION_PREPARED").getJSONObject("payload")
+        assertFalse(reply.getBoolean("ready"))
+        assertEquals("WATCH_PERMISSION_REQUIRED", reply.getString("reasonCode"))
+        assertFalse(store.prepared()!!.ready)
+    }
+
+    @Test
+    fun `start after the permissions were revoked is rejected with the reason and never starts the run service`() = runBlocking {
+        val capability = FakeCapability()
+        val keepAlive = mutableListOf<String>()
+        val c = capable(capability, object : RunKeepAlive {
+            override fun start() { keepAlive += "start" }
+            override fun stop() { keepAlive += "stop" }
+        })
+        c.onMessage(prepare())
+        assertTrue(sender.last("SESSION_PREPARED").getJSONObject("payload").getBoolean("ready"))
+        capability.sensors = false
+        c.onMessage(authorize(501, 1))
+
+        val result = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals("REJECTED", result.getString("result"))
+        assertEquals("WATCH_PERMISSION_REQUIRED", result.getString("reasonCode"))
+        assertFalse(result.has("gps"))
+        assertTrue(gateway.calls.isEmpty())
+        assertTrue(keepAlive.isEmpty())
+        // 거절은 확정 결과라 미확인으로 남지 않는다. 권한을 허용한 뒤 새 시작 명령은 정상 실행된다.
+        assertEquals(OutcomeResult.REJECTED, store.outcome("501")?.result)
+        capability.sensors = true
+        c.onMessage(prepare(2))
+        c.onMessage(authorize(502, 2))
+        assertEquals("APPLIED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("result"))
+        assertEquals(listOf("start"), gateway.calls)
+    }
+
+    @Test
+    fun `prepare tells whether a remote start can use watch GPS`() = runBlocking {
+        val capability = FakeCapability(remoteGps = false)
+        val c = capable(capability)
+        c.onMessage(prepare())
+        val reply = sender.last("SESSION_PREPARED").getJSONObject("payload")
+        // 백그라운드 위치가 없어도 시작은 막지 않는다. 폰이 GPS 제한을 안내한다.
+        assertTrue(reply.getBoolean("ready"))
+        assertFalse(reply.getBoolean("remoteGps"))
+
+        capability.remoteGps = true
+        c.onMessage(prepare(2))
+        assertTrue(sender.last("SESSION_PREPARED").getJSONObject("payload").getBoolean("remoteGps"))
+    }
+
+    @Test
+    fun `an applied start reports whether the exercise turned GPS on, and a replay keeps it`() = runBlocking {
+        gateway.gps = false
+        val c = controller()
+        c.onMessage(prepare())
+        c.onMessage(authorize(501, 1))
+        assertFalse(sender.last("COMMAND_RESULT").getJSONObject("payload").getBoolean("gps"))
+
+        c.onMessage(authorize(501, 1))
+        assertFalse(sender.last("COMMAND_RESULT").getJSONObject("payload").getBoolean("gps"))
+        assertEquals(listOf("start"), gateway.calls)
+    }
+
+    @Test
+    fun `results other than an applied start carry no gps field`() = runBlocking {
+        gateway.gps = true
+        val c = controller()
+        c.running()
+        assertTrue(sender.last("COMMAND_RESULT").getJSONObject("payload").getBoolean("gps"))
+        c.onMessage(apply("PAUSE", 502, 2))
+        assertFalse(sender.last("COMMAND_RESULT").getJSONObject("payload").has("gps"))
+    }
+
     @Test
     fun `start begins the batches and end waits for them before reporting what is still unsaved`() = runBlocking {
         val uploads = FakeUploads()
@@ -447,6 +537,23 @@ class WatchSessionControllerTest {
         val calls = mutableListOf<String>()
         override fun start() { calls += "start" }
         override fun stop() { calls += "stop" }
+    }
+
+    // S15P31E105-864 실기기: 폰으로 시작한 운동의 서버 상태가 올 때마다 워치가 운동 서비스를 띄우려 했다(권한 없으면 앱 종료).
+    @Test
+    fun `a phone-only run never starts the run service, the exercise or the beat on the watch`() = runBlocking {
+        val keepAlive = KeepAliveCalls()
+        val player = FakePlayer()
+        val c = WatchSessionController(
+            store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000,
+            keepAlive = keepAlive, player = player,
+        )
+        c.onMessage(serverState("RUNNING", 2, mode = "PHONE_ONLY"))
+        c.onMessage(serverState("RUNNING", 3, mode = "PHONE_ONLY"))
+
+        assertTrue(keepAlive.calls.none { it == "start" })
+        assertTrue(gateway.calls.isEmpty())
+        assertTrue(player.calls.none { it.startsWith("play") })
     }
 
     /** A controller in a new process: the store survived, nothing else did. */

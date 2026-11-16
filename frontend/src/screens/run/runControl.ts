@@ -76,7 +76,29 @@ export type RunControlState = {
   approxPosition: [number, number] | null;
   // 서버 기준 운동 시간의 기준점(S15P31E105-528). 서버가 운동시간을 주지 않으면 null이고 화면은 폰 시계로 센다.
   clock: RunClock | null;
+  // 마지막으로 준비가 끝난(ready) 워치 준비의 remoteGps(S15P31E105-864): 워치 앱이 화면에 없을 때 폰에서 시작해도 워치가
+  // GPS를 쓸 수 있는지. false면 시작 화면이 막지 않는 안내를 보인다. 모르면(이전 워치·준비 전) null. 서버에 보내지 않는다.
+  watchRemoteGps: boolean | null;
+  // 워치가 실제로 시작한 START 결과의 gps(S15P31E105-864). false면 워치가 GPS 없이 기록 중이다. 모르면 null.
+  watchGps: boolean | null;
 };
+
+// 워치가 RunWay에 심박·활동 권한을 받지 못해 준비·시작하지 못했다(S15P31E105-864 워치↔폰 계약).
+export const WATCH_PERMISSION_REQUIRED = 'WATCH_PERMISSION_REQUIRED';
+
+// 시작 화면에서 '폰으로 시작'을 고를 수 있는지(S15P31E105-864). 워치가 등록돼 있지만 시작할 때 쓸 수 없었던 경우다:
+// 준비 실패(시간 초과·연결 없음·권한 등 모든 사유)와 권한 부족으로 거절된 START. 미확인 시작은 결과를 모르므로 제외한다.
+export function canStartWithPhone(problem: ControlProblem | null): boolean {
+  if (!problem) {
+    return false;
+  }
+  return (
+    problem.kind === 'watchNotReady' ||
+    (problem.kind === 'rejected' &&
+      problem.action === 'START' &&
+      problem.reasonCode === WATCH_PERMISSION_REQUIRED)
+  );
+}
 
 // 폰 인계를 안내할지: 워치로 실제 시작한 RUNNING/PAUSED 세션에서 워치 단절·측정 끊김이 보이거나, 워치가 제어 결과를
 // 돌려주지 않을 때(종료 저장 미확인 포함) 고를 수 있게 한다(sessions.md 폰으로 기록 제어 인계 호출 조건).
@@ -131,6 +153,9 @@ export type RunControl = {
   abortUnconfirmedStart: () => Promise<void>;
   // S08 TAKE_OVER_PHONE: 워치 batch 수신을 멈추고 받은 batch 저장을 확인한 뒤 기록·제어를 폰으로 넘긴다.
   takeOver: () => Promise<void>;
+  // 워치 없이 폰으로 시작한다(S15P31E105-864, 개인 러닝만). 준비만 된 워치 세션(READY, 시작 명령 없음)은 취소하고
+  // 폰 전용(PHONE_ONLY) 세션을 새로 만들어 시작한다. 폰 위치 권한·현재 위치가 있어야 한다. 이 선택은 제어기가 끝날 때까지 남는다.
+  startWithPhone: (goal: SessionGoalDraft) => Promise<void>;
   dispose: () => void;
 };
 
@@ -223,6 +248,8 @@ const initialState: RunControlState = {
   phoneGps: null,
   approxPosition: null,
   clock: null,
+  watchRemoteGps: null,
+  watchGps: null,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -852,6 +879,10 @@ export function createRunControl({
           saved.result === 'REJECTED'
             ? { kind: 'rejected', action, reasonCode: event.reasonCode }
             : null,
+        // 워치가 실제로 시작한 START의 GPS 사용 여부(S15P31E105-864). 폰↔워치 전용이며 서버에는 보내지 않는다.
+        ...(action === 'START' && event.result === 'APPLIED' && !phoneMode()
+          ? { watchGps: event.gps ?? null }
+          : {}),
       });
       mark(`${action} screen ${saved.session.state}`);
       await receipt;
@@ -1436,9 +1467,13 @@ export function createRunControl({
     );
     mark('prepared reported');
     if (!ready) {
-      setState({ problem: { kind: 'watchNotReady', reasonCode: prepared.reasonCode } });
+      setState({
+        problem: { kind: 'watchNotReady', reasonCode: prepared.reasonCode },
+        watchRemoteGps: null,
+      });
     } else if (state.sessionId === sessionId && state.stateVersion === stateVersion) {
       preparedFor = { sessionId, stateVersion };
+      setState({ watchRemoteGps: prepared.remoteGps ?? null });
     }
     return ready;
   }
@@ -1446,12 +1481,19 @@ export function createRunControl({
   // 새 세션을 만든다. 응답 유실·앱 재시작으로 이미 활성 세션이 있으면 그 세션에 다시 붙는다(S01 409 details.sessionId).
   // Whether the watchUnregistered notice was shown in this screen's life: the next start goes on with the phone.
   let unregisteredNoticed = false;
+  // 사용자가 '폰으로 시작'을 골랐다(S15P31E105-864). 이 제어기의 이후 세션은 등록된 워치가 있어도 폰 전용으로 만든다.
+  let phoneChosen = false;
   async function createSession(goal: SessionGoalDraft, asked = false): Promise<boolean> {
-    devices = await watch.getLinkedDevices();
+    devices = phoneChosen ? null : await watch.getLinkedDevices();
     mark('devices');
     let phoneId: string;
     // The early preparation does not make a phone session for a paired watch: the user's own start says why first.
-    if (!devices && !unregisteredNoticed && (await watch.isWatchConnected?.().catch(() => false))) {
+    if (
+      !devices &&
+      !phoneChosen &&
+      !unregisteredNoticed &&
+      (await watch.isWatchConnected?.().catch(() => false))
+    ) {
       if (asked) {
         unregisteredNoticed = true;
         setState({ problem: { kind: 'watchUnregistered' } });
@@ -1814,6 +1856,36 @@ export function createRunControl({
     }
   };
 
+  // '폰으로 시작'(S15P31E105-864). 워치가 등록돼 있지만 시작할 때 쓸 수 없었다(준비 실패·권한 부족 거절). 준비만 된 워치 세션은
+  // 취소하고(시작 명령이 없을 때만) 폰 전용 세션을 새로 만들어 시작한다. 시작 결과가 미확인이면 워치가 시작했을 수 있어 건드리지 않는다.
+  const phoneStartFlow = async (goal: SessionGoalDraft) => {
+    if (groupRunId !== null) {
+      return;
+    }
+    if (inflight) {
+      if (!state.problem) {
+        setState({ problem: { kind: 'unconfirmed', action: inflight.action } });
+      }
+      return;
+    }
+    phoneChosen = true;
+    if (state.sessionId && state.status === 'READY' && !phoneMode()) {
+      diag('watch session dropped for phone start');
+      // 워치가 취소된 세션을 준비 상태로 기억하지 않게 서버 상태를 알린다(연결이 없으면 보내지 못해도 된다).
+      await doCancel(true, false);
+      if (currentStatus() !== 'CANCELLED') {
+        // 취소하지 못했다(그 사이 워치에서 시작됐을 수 있다). 서버 상태를 다시 읽어 맞춘다.
+        await refresh().catch(noop);
+        return;
+      }
+      setState({ ...initialState });
+      preparedFor = null;
+      createdAt = null;
+      lastGoal = null;
+    }
+    await startFlow(goal);
+  };
+
   // 시작 화면의 미리 준비(S15P31E105-533). 실패는 화면에 표시하지 않는다. 시작할 때 같은 단계를 다시 거쳐 알린다.
   const prepareFlow = async (goal: SessionGoalDraft) => {
     // 앞 화면의 준비 취소가 먼저 끝났으면 새로 준비한다.
@@ -2092,6 +2164,20 @@ export function createRunControl({
         await deliver(inflight);
       }),
     takeOver: () => run(takeOverFlow),
+    startWithPhone: goal => {
+      requestedGoal = goal;
+      if (starting) {
+        return starting;
+      }
+      const work = runAfter(() => phoneStartFlow(goal));
+      starting = work;
+      work.finally(() => {
+        if (starting === work) {
+          starting = null;
+        }
+      });
+      return work;
+    },
     abortUnconfirmedStart: () =>
       run(async () => {
         if (!state.sessionId) {

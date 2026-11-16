@@ -1265,6 +1265,9 @@ export type WatchSessionEvent =
       reasonCode: string | null;
       pendingBatchCount: number | null;
       uploadComplete: boolean | null;
+      // APPLIED START만(S15P31E105-864): 워치 운동이 실제로 GPS를 쓰며 시작했는지. 키가 없으면(이전 워치) 모른다(null).
+      // 폰↔워치 전용 값이며 서버에 보내지 않는다.
+      gps?: boolean | null;
     }
   | { type: 'START_REQUEST'; sessionId: string; expectedVersion: number }
   | {
@@ -1796,7 +1799,11 @@ export type Repositories = {
     ) => Promise<{
       stateVersion: number;
       ready: boolean;
+      // 워치에 심박·활동 권한이 없으면 WATCH_PERMISSION_REQUIRED(S15P31E105-864).
       reasonCode: string | null;
+      // 워치 앱이 화면에 없을 때 폰에서 시작해도 워치가 GPS를 쓸 수 있는지(백그라운드 위치 '항상 허용'·위치 켜짐).
+      // 키가 없으면(이전 워치) 모른다(null). 폰↔워치 전용 값이며 서버에 보내지 않는다.
+      remoteGps?: boolean | null;
     }>;
     // 서버가 승인한 명령을 전달만 한다. START는 START_AUTHORIZED, 그 외는 COMMAND_REQUEST(APPLY).
     sendCommand: (

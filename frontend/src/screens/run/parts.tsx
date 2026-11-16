@@ -20,7 +20,12 @@ import {
   useRunControlState,
   type RunConfig,
 } from './RunSession';
-import type { ControlProblem } from './runControl';
+import {
+  canStartWithPhone,
+  WATCH_PERMISSION_REQUIRED,
+  type ControlProblem,
+  type RunControlState,
+} from './runControl';
 import type { SessionStatus } from '../../data/types';
 import {
   fontFamily,
@@ -150,6 +155,7 @@ export function RunStartBar({
     cancel,
     prepare,
     releasePrepared,
+    startWithPhone,
   } = useRunActions();
   const { ensureRunLogin, signedIn } = useSession();
   const control = useRunControlState();
@@ -162,10 +168,20 @@ export function RunStartBar({
     config,
     navigation,
     start: startRun,
+    startWithPhone,
     prepare,
     foreground,
   });
-  latest.current = { config, navigation, start: startRun, prepare, foreground };
+  latest.current = {
+    config,
+    navigation,
+    start: startRun,
+    startWithPhone,
+    prepare,
+    foreground,
+  };
+  // 카운트다운이 끝나면 워치 없이 폰으로 시작한다('폰으로 시작', S15P31E105-864). 다른 시작 버튼은 끈다.
+  const viaPhone = useRef(false);
   // 미리 준비(S15P31E105-533): 목표가 정해진 채 이 화면에 있으면 세션 생성·AI 계획·워치 준비를 미리 끝내 둔다.
   // 3초 카운트다운은 그대로이고, 카운트다운 뒤에는 시작 승인·워치 실행·저장 확인만 남는다. 목표를 바꾸는 동안에는
   // 잠시 기다렸다가 마지막 목표로 준비한다. 이 화면이 준비한 세션은 시작하지 않고 떠나면 취소한다.
@@ -263,8 +279,9 @@ export function RunStartBar({
     requested || (control?.pending?.action === 'START' && !control.problem);
   const notice =
     control?.status !== 'RUNNING'
-      ? startNotice(control?.problem ?? null)
+      ? startNotice(control?.problem ?? null, config?.mode !== 'GROUP')
       : null;
+  const gpsHint = notice ? null : remoteGpsHint(control);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const signalled = useRef(startSignal);
   useEffect(() => {
@@ -285,7 +302,14 @@ export function RunStartBar({
       if (!ensureRunLogin()) {
         return;
       }
-      const { config: chosen, navigation: nav, start } = latest.current;
+      const {
+        config: chosen,
+        navigation: nav,
+        start,
+        startWithPhone: startPhone,
+      } = latest.current;
+      const phone = viaPhone.current;
+      viaPhone.current = false;
       if (chosen?.mode === 'GROUP') {
         start(chosen);
         if (latest.current.foreground) {
@@ -295,7 +319,11 @@ export function RunStartBar({
         }
       } else if (chosen) {
         setRequested(true);
-        start(chosen);
+        if (phone) {
+          startPhone(chosen);
+        } else {
+          start(chosen);
+        }
       }
       return;
     }
@@ -384,6 +412,7 @@ export function RunStartBar({
           disabled={!config || confirming}
           onPress={() => {
             if (ensureRunLogin()) {
+              viaPhone.current = false;
               setCount(countdownSeconds);
             }
           }}
@@ -489,30 +518,91 @@ export function RunStartBar({
                 accessibilityRole="button"
                 accessibilityLabel="다시 시작"
                 disabled={!config}
-                onPress={() => setCount(countdownSeconds)}
+                onPress={() => {
+                  viaPhone.current = false;
+                  setCount(countdownSeconds);
+                }}
               >
                 <AppText variant="captionStrong" tone="accentText">
                   다시 시작
                 </AppText>
               </Pressable>
             ) : null}
+            {notice.phone ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="폰으로 시작"
+                accessibilityHint="워치 없이 휴대폰 GPS로 거리와 페이스를 기록해요"
+                disabled={!config}
+                onPress={() => {
+                  if (ensureRunLogin()) {
+                    viaPhone.current = true;
+                    setCount(countdownSeconds);
+                  }
+                }}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  폰으로 시작
+                </AppText>
+              </Pressable>
+            ) : null}
           </View>
+          {notice.phone ? (
+            <AppText variant="caption" tone="textSecondary">
+              폰으로 시작하면 거리·페이스·경로만 기록하고 심박 코칭은 받을 수 없어요.
+            </AppText>
+          ) : null}
+        </View>
+      ) : null}
+      {gpsHint ? (
+        <View style={styles.notice}>
+          <AppText
+            variant="caption"
+            tone="textSecondary"
+            accessibilityLabel="워치 GPS 안내"
+          >
+            {gpsHint}
+          </AppText>
         </View>
       ) : null}
     </View>
   );
 }
 
+const WATCH_PERMISSION_TEXT =
+  '워치에서 RunWay의 심박·활동 권한을 허용한 뒤 다시 시작해 주세요.';
+
+// 시작 화면의 워치 GPS 안내(S15P31E105-864). 워치가 준비됐지만 앱이 화면에 없을 때 폰에서 시작하면 GPS를 쓸 수 없다고
+// 답했다(remoteGps=false). 시작은 막지 않는다. 모름(null, 이전 워치)은 안내하지 않는다.
+export function remoteGpsHint(control: RunControlState | null): string | null {
+  if (
+    !control ||
+    control.status !== 'READY' ||
+    control.recordingMode !== 'WATCH' ||
+    control.watchRemoteGps !== false ||
+    control.problem
+  ) {
+    return null;
+  }
+  return '워치에서 RunWay 앱을 열어 두거나 위치 권한을 항상 허용으로 바꾸면 GPS로 속도를 잴 수 있어요.';
+}
+
 // 시작 확정 전 문제 안내. 실행 미확인은 성공·실패로 단정하지 않고 재확인·중단을 고르게 한다(sessions.md S03 시작 결과 미확인).
-function startNotice(problem: ControlProblem | null): {
+// phone: 워치가 등록됐지만 시작에 쓸 수 없었다. 개인 러닝이면 '폰으로 시작'을 함께 보인다(S15P31E105-864).
+export function startNotice(
+  problem: ControlProblem | null,
+  personal = true,
+): {
   text: string;
   recheck?: boolean;
   abort?: boolean;
   restart?: boolean;
+  phone?: boolean;
 } | null {
   if (!problem) {
     return null;
   }
+  const phone = personal && canStartWithPhone(problem);
   switch (problem.kind) {
     case 'locationRequired':
       return {
@@ -527,9 +617,23 @@ function startNotice(problem: ControlProblem | null): {
         restart: true,
       };
     case 'watchNotReady':
-      return { text: '워치가 준비되지 않았어요', restart: true };
+      return {
+        text:
+          problem.reasonCode === WATCH_PERMISSION_REQUIRED
+            ? WATCH_PERMISSION_TEXT
+            : '워치가 준비되지 않았어요',
+        restart: true,
+        phone,
+      };
     case 'rejected':
-      return { text: '워치가 시작하지 못했어요', restart: true };
+      return {
+        text:
+          problem.reasonCode === WATCH_PERMISSION_REQUIRED
+            ? WATCH_PERMISSION_TEXT
+            : '워치가 시작하지 못했어요',
+        restart: true,
+        phone,
+      };
     case 'unconfirmed':
       return {
         text: '시작 여부를 확인할 수 없습니다',

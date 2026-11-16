@@ -78,6 +78,7 @@ test('subscribe drains the inbox first, delivers events and acks them', async ()
       reasonCode: null,
       pendingBatchCount: null,
       uploadComplete: null,
+      gps: null,
     },
     { type: 'COMMAND_REQUEST', sessionId: '201', action: 'CANCEL', expectedVersion: 1 },
   ]);
@@ -113,7 +114,7 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
   events.fire({ type: 'SESSION_PREPARED', messageId: 'w:3', sessionId: '999', payload: { stateVersion: 3, ready: true, reasonCode: null } });
   events.fire({ type: 'SESSION_PREPARED', messageId: 'w:4', sessionId: '201', payload: { stateVersion: 3, ready: true, reasonCode: null } });
 
-  expect(await preparing).toEqual({ stateVersion: 3, ready: true, reasonCode: null });
+  expect(await preparing).toEqual({ stateVersion: 3, ready: true, reasonCode: null, remoteGps: null });
   const [path, type, sessionId, payload] = native.send.mock.calls[0];
   expect([path, type, sessionId]).toEqual(['/runway/v1/session/prepare', 'SESSION_PREPARE', '201']);
   expect(JSON.parse(payload)).toEqual({
@@ -129,6 +130,62 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
     ready: false,
     reasonCode: 'PREPARE_TIMEOUT',
   });
+});
+
+// S15P31E105-864: 워치 권한 사유와 폰↔워치 전용 GPS 값(remoteGps·gps). 키가 없으면(이전 워치) 모름(null)이다.
+test('prepare reads the permission reason and remoteGps, missing remoteGps is unknown', async () => {
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events, prepareTimeoutMs: 50 });
+  const goal = { courseId: null, comparisonSessionId: null, targetDistanceM: null, targetDurationSec: null, targetPaceSecPerKm: null };
+
+  const denied = watch.prepare('201', { stateVersion: 1, deviceId: '101', goal });
+  await flush();
+  events.fire({
+    type: 'SESSION_PREPARED',
+    messageId: 'w:5',
+    sessionId: '201',
+    payload: { stateVersion: 1, ready: false, reasonCode: 'WATCH_PERMISSION_REQUIRED', remoteGps: true },
+  });
+  expect(await denied).toEqual({ stateVersion: 1, ready: false, reasonCode: 'WATCH_PERMISSION_REQUIRED', remoteGps: true });
+
+  const noGps = watch.prepare('201', { stateVersion: 2, deviceId: '101', goal });
+  await flush();
+  events.fire({
+    type: 'SESSION_PREPARED',
+    messageId: 'w:6',
+    sessionId: '201',
+    payload: { stateVersion: 2, ready: true, reasonCode: null, remoteGps: false },
+  });
+  expect(await noGps).toEqual({ stateVersion: 2, ready: true, reasonCode: null, remoteGps: false });
+
+  const older = watch.prepare('201', { stateVersion: 3, deviceId: '101', goal });
+  await flush();
+  events.fire({ type: 'SESSION_PREPARED', messageId: 'w:7', sessionId: '201', payload: { stateVersion: 3, ready: true, reasonCode: null } });
+  expect((await older).remoteGps).toBeNull();
+});
+
+test('a START result carries gps when the watch sends it and null when it does not', async () => {
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events });
+  const received: WatchSessionEvent[] = [];
+  watch.subscribe(event => received.push(event));
+  await flush();
+
+  events.fire({ ...result, messageId: 'w:10', payload: { ...result.payload, gps: false } });
+  events.fire({ ...result, messageId: 'w:11', payload: { ...result.payload, commandId: '12', gps: true } });
+  events.fire({ ...result, messageId: 'w:12', payload: { ...result.payload, commandId: '13' } });
+  events.fire({
+    ...result,
+    messageId: 'w:13',
+    payload: { commandId: '14', result: 'REJECTED', appliedAt: null, reasonCode: 'WATCH_PERMISSION_REQUIRED' },
+  });
+  await flush();
+
+  const results = received.filter(
+    (event): event is Extract<WatchSessionEvent, { type: 'COMMAND_RESULT' }> => event.type === 'COMMAND_RESULT',
+  );
+  expect(results.map(event => event.gps)).toEqual([false, true, null, null]);
+  expect(results[3]).toMatchObject({ result: 'REJECTED', reasonCode: 'WATCH_PERMISSION_REQUIRED' });
 });
 
 // S15P31E105-420: 그룹런 참가 세션 준비, 그룹 종료 SERVER_END, G10 GROUP_STATUS.

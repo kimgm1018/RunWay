@@ -78,6 +78,19 @@ export function recordingDevice(control: RunControlState | null) {
   return null;
 }
 
+// 워치가 GPS 없이 운동을 시작했다(START 결과 gps=false, S15P31E105-864). 워치 앱이 화면에 없을 때 폰에서 시작했고 워치에
+// 백그라운드 위치 권한이 없거나 위치가 꺼져 있던 경우다. 속도가 없으면 서버가 페이스 코칭을 하지 못한다. 모르면(null) 알리지 않는다.
+export function watchGpsNotice(control: RunControlState | null) {
+  if (
+    control?.recordingMode !== 'WATCH' ||
+    control.watchGps !== false ||
+    (control.status !== 'RUNNING' && control.status !== 'PAUSED')
+  ) {
+    return null;
+  }
+  return 'GPS 없이 기록 중 · 속도가 없어 AI 코칭이 제한돼요';
+}
+
 // 워치 기록 중 위치를 이만큼 받지 못하면 지도에 "위치 확인 중"을 띄운다(S15P31E105-549).
 export const LOCATING_AFTER_MS = 30_000;
 
@@ -201,6 +214,7 @@ export function RunProgressScreen() {
     takeover && (takeover.offer || control?.pending?.action === 'TAKE_OVER')
       ? takeover
       : null;
+  const watchGps = watchGpsNotice(control);
   // 마지막으로 받은 실측값이 오래되면 알린다(S15P31E105-528). 화면은 시계 틱마다 다시 그려져 초가 갱신된다.
   const delay = liveDelayNotice(
     control?.live ?? null,
@@ -286,6 +300,7 @@ export function RunProgressScreen() {
             />
           ) : null}
           {delay ? <LiveNotice label="측정 지연" text={delay} /> : null}
+          {watchGps ? <LiveNotice label="워치 GPS 안내" text={watchGps} /> : null}
           {takeoverShown ? (
             <LiveNotice
               label="폰 기록 안내"

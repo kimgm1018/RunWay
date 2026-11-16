@@ -46,6 +46,8 @@ class HealthServicesExerciseGateway(
     private val context = context.applicationContext
     private var listener: ExerciseUpdateCallback? = null
     @Volatile private var lastDistanceEnd: Instant? = null
+    @Volatile private var gpsStarted: Boolean? = null
+    override val startedWithGps: Boolean? get() = gpsStarted
 
     private fun keepListening() {
         if (listener != null) return
@@ -81,6 +83,7 @@ class HealthServicesExerciseGateway(
     // for getCurrentExerciseInfoAsync; same exception as the demo app.
     @SuppressLint("RestrictedApi")
     override suspend fun start() {
+        gpsStarted = null
         if (context.checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED) {
             throw ExerciseRejected("PERMISSION_DENIED")
         }
@@ -114,6 +117,7 @@ class HealthServicesExerciseGateway(
                 batchingModeOverrides = batching,
             ),
         ).await()
+        gpsStarted = gps
     }
 
     override suspend fun pause() {

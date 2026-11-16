@@ -57,6 +57,8 @@ type NativeBatch = {
 // 표시 전용 LIVE_METRICS(S15P31E105-549). 네이티브 수신함을 거치지 않으므로 ACK하지 않는다.
 type NativeLive = { type: 'LIVE_METRICS'; sessionId: string; payload: Record<string, unknown> };
 
+const booleanOrNull = (value: unknown) => (typeof value === 'boolean' ? value : null);
+
 const numberOrNull = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
@@ -236,6 +238,8 @@ function toEvent(raw: NativeEvent): WatchSessionEvent | null {
         reasonCode: (payload.reasonCode as string | null | undefined) ?? null,
         pendingBatchCount: (payload.pendingBatchCount as number | undefined) ?? null,
         uploadComplete: (payload.uploadComplete as boolean | undefined) ?? null,
+        // APPLIED START의 GPS 사용 여부(S15P31E105-864). 키가 없거나 값이 이상하면 모른다(null).
+        gps: booleanOrNull(payload.gps),
       };
     case 'START_REQUEST':
       return {
@@ -389,6 +393,8 @@ export function createNativeWatchSession(
             stateVersion: prepared.payload.stateVersion as number,
             ready: prepared.payload.ready === true,
             reasonCode: (prepared.payload.reasonCode as string | null | undefined) ?? null,
+            // 이전 워치는 이 키를 보내지 않는다. 모름(null)은 안내하지 않는다(S15P31E105-864).
+            remoteGps: booleanOrNull(prepared.payload.remoteGps),
           });
         });
         send(
