@@ -11,6 +11,7 @@ export const notificationKinds: readonly NotificationKind[] = [
   'NEW_FOLLOWER',
   'FOLLOW_REQUEST',
   'FOLLOW_APPROVED',
+  'READINESS_TODAY',
 ];
 
 /** A kind a newer server may send is not one of these; the inbox leaves it out and a push opens 2.9 알림. */

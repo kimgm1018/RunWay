@@ -24,6 +24,17 @@ describe('openNotificationTarget', () => {
     expect(nav.navigate).toHaveBeenCalledWith(route, params);
   });
 
+  // S15P31E105-847: 오늘 준비도 opens today's 준비도 on 2.1 whatever its targetId (daily_readiness.id).
+  it('READINESS_TODAY opens 2.1 준비도', () => {
+    const nav = navigation();
+    expect(openNotificationTarget(nav, 'READINESS_TODAY', '7')).toBe('opened');
+    expect(nav.navigate).toHaveBeenCalledWith(
+      'MainTabs',
+      { screen: 'HomeTab', params: { screen: 'Home', params: { menu: 'readiness' } } },
+      { pop: true },
+    );
+  });
+
   it('leaves FOLLOW_REQUEST to the caller (7.4b 승인·거절)', () => {
     const nav = navigation();
     expect(openNotificationTarget(nav, 'FOLLOW_REQUEST', '7')).toBe(
@@ -42,6 +53,21 @@ describe('openPushTarget', () => {
       targetId: '12',
     });
     expect(nav.navigate).toHaveBeenCalledWith('PostDetail', { postId: '12' });
+  });
+
+  it('opens 2.1 준비도 from a 오늘 준비도 push', () => {
+    const nav = navigation();
+    openPushTarget(nav, {
+      notificationId: '91',
+      kind: 'READINESS_TODAY',
+      targetId: '55',
+    });
+    expect(nav.navigate).toHaveBeenCalledTimes(1);
+    expect(nav.navigate).toHaveBeenCalledWith(
+      'MainTabs',
+      { screen: 'HomeTab', params: { screen: 'Home', params: { menu: 'readiness' } } },
+      { pop: true },
+    );
   });
 
   it.each([
@@ -63,6 +89,7 @@ describe('openPushTarget', () => {
 describe('isNotificationKind', () => {
   it('knows the server kinds and nothing else', () => {
     expect(isNotificationKind('NEW_FOLLOWER')).toBe(true);
+    expect(isNotificationKind('READINESS_TODAY')).toBe(true);
     expect(isNotificationKind('new_follower')).toBe(false);
     expect(isNotificationKind(undefined)).toBe(false);
   });

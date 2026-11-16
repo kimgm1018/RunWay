@@ -484,7 +484,10 @@ export function HomeScreen() {
     showRun(kstDay(run.startedAt), run.id);
   };
   // 4.5 기록 보기, 7.4 and 5.x open one of my runs here, on 러닝 분석 on its day.
-  const opened = route.params?.recordId;
+  const params = route.params;
+  const opened = params && 'recordId' in params ? params.recordId : undefined;
+  // The 오늘 준비도 push and its 2.9 row open today's 준비도 (S15P31E105-847).
+  const openReadiness = params && 'menu' in params ? params.menu : undefined;
   const mounted = useRef(true);
   useEffect(
     () => () => {
@@ -511,6 +514,18 @@ export function HomeScreen() {
     // Read once: the same run can be opened again later.
     navigation.setParams({ recordId: undefined } as never);
   }, [opened, records, navigation, toast]);
+  useEffect(() => {
+    if (openReadiness !== 'readiness') {
+      return;
+    }
+    setCalendar(false);
+    setDay(today);
+    setRunId(null);
+    setMenu('readiness');
+    card.current?.scrollTo({ y: 0, animated: false });
+    // Read once: the next push opens it again.
+    navigation.setParams({ menu: undefined } as never);
+  }, [openReadiness, today, navigation]);
 
   // Pull to refresh: the spinner stays until every part that reloads has settled.
   const [pending, setPending] = useState(0);

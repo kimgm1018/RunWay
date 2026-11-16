@@ -1,12 +1,13 @@
 import type { NavigationProp } from '@react-navigation/native';
 import { isNotificationKind } from '../data/notificationKinds';
+import { openReadiness } from './navigateTo';
 import type { NotificationKind } from '../data/types';
 import type { RootStackParamList } from './types';
 
 type Navigation = Pick<NavigationProp<RootStackParamList>, 'navigate'>;
 
 /**
- * Opens the screen a notification points at (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너) — the same from a 2.9 row and from a
+ * Opens the screen a notification points at (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너, 2.1 준비도) — the same from a 2.9 row and from a
  * device push (S15P31E105-815). FOLLOW_REQUEST has no screen of its own: its targetId is the requester's users.id, not
  * the follow-request id, so it returns `'followRequests'` and the caller shows 7.4b 승인·거절.
  */
@@ -34,6 +35,10 @@ export function openNotificationTarget(
       return 'opened';
     case 'FOLLOW_REQUEST':
       return 'followRequests';
+    case 'READINESS_TODAY':
+      // targetId is daily_readiness.id; 2.1 shows today's score on its own (S15P31E105-847).
+      openReadiness(navigation);
+      return 'opened';
   }
 }
 

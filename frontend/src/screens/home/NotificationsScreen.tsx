@@ -52,6 +52,7 @@ const kinds: Record<NotificationKind, { title: string; icon: IconName }> = {
   NEW_FOLLOWER: { title: '새 팔로워', icon: 'userPlus' },
   FOLLOW_REQUEST: { title: '팔로우 요청', icon: 'userPlus' },
   FOLLOW_APPROVED: { title: '팔로우 승인', icon: 'userCheck' },
+  READINESS_TODAY: { title: '오늘 준비도', icon: 'heartPulse' },
 };
 
 // The part of a message the 2.9 핸드오프 sets in bold: the ‘quoted’ name, or the runner's 님 at the start.
