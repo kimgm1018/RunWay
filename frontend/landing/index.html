@@ -1012,13 +1012,17 @@
       const update = () => {
         queued = false;
         if (reduce.matches) { render(1); return; }
+        // S15P31E105-870: 숨겨진 동안(display: none, 높이 0)은 진행 끝이 아니라 첫 장면으로 대기한다.
+        // 그래야 About을 연 첫 프레임에 마지막 장면이 잠깐 보이지 않는다
+        if (!about.offsetHeight) { render(0); return; }
         const room = about.offsetHeight - innerHeight;
         render(room > 0 ? clamp01(-about.getBoundingClientRect().top / room) : 1);
       };
       const ask = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };
       addEventListener('scroll', ask, { passive: true });
       addEventListener('resize', ask);
-      addEventListener('hashchange', ask);
+      // 메뉴로 About을 열고 닫을 때는 다음 프레임을 기다리지 않고 바로 맞춘다
+      addEventListener('hashchange', update);
       update();
     })();
   </script>
