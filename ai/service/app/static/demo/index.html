@@ -11,14 +11,14 @@
   <!-- 실시간 경로 지도(722): Leaflet 1.9.4(cdnjs, 버전·SRI 고정) + OpenStreetMap 타일. 못 읽으면 SVG 코스 그림만 보인다 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==" crossorigin="anonymous" referrerpolicy="no-referrer">
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <link rel="stylesheet" href="style.css?v=844i">
-  <script defer src="js/logic.js?v=844i"></script>
-  <script defer src="js/render.js?v=844i"></script>
-  <script defer src="js/stream.js?v=844i"></script>
-  <script defer src="js/standings.js?v=844i"></script>
-  <script defer src="js/livemap.js?v=844i"></script>
-  <script defer src="js/zoom.js?v=844i"></script>
-  <script defer src="js/main.js?v=844i"></script>
+  <link rel="stylesheet" href="style.css?v=844m">
+  <script defer src="js/logic.js?v=844m"></script>
+  <script defer src="js/render.js?v=844m"></script>
+  <script defer src="js/stream.js?v=844m"></script>
+  <script defer src="js/standings.js?v=844m"></script>
+  <script defer src="js/livemap.js?v=844m"></script>
+  <script defer src="js/zoom.js?v=844m"></script>
+  <script defer src="js/main.js?v=844m"></script>
 </head>
 <body class="is-waiting">
   <main class="console">
@@ -60,6 +60,8 @@
       </div>
     </header>
 
+    <!-- 프로토타입: 지도·라이브 화면이 목표 페이스 줄까지 올라와 오른쪽 전체 높이를 쓰도록 hero+stage+context를 한 그리드로 묶는다 -->
+    <div class="stage-wrap">
     <section class="hero">
       <div class="guide-card tone-dark is-empty">
         <div class="kicker"><span id="kicker-text">목표 페이스</span> <span id="guide-delivery" class="delivery">대기</span></div>
@@ -79,11 +81,6 @@
           <div class="guide-side-allow">허용 <b id="guide-allow">—</b></div>
         </div>
       </div>
-      <!-- 747: 위쪽은 큰 안내와 최근 판단 흐름. 숫자 카드(stat)는 숨기고 DOM만 남긴다(render가 계속 채움) -->
-      <section class="panel records-panel is-empty">
-          <div class="panel-head"><h2>판단 기록 <small class="panel-tag">최근 판단</small></h2><span id="record-age" class="meta record-age hidden" aria-live="off"></span><span class="meta"><b id="record-count">0</b>건</span></div>
-          <ol id="record-list" class="record-list"></ol>
-        </section>
       <div class="stat stat-hr">
         <span class="stat-label"><i class="heart" aria-hidden="true"></i><span id="label-hr">현재 심박</span></span>
         <strong id="metric-hr" class="stat-value">—</strong>
@@ -137,14 +134,22 @@
         </section>
       </div>
 
+    </section>
+
       <aside class="context">
         <section class="panel map-panel tone-dark">
           <div class="panel-head"><h2>지도 <small class="panel-tag">달린 길</small></h2><span id="course-meta" class="meta">—</span></div>
           <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg><div id="live-map" class="live-map hidden" aria-label="실시간 러닝 경로 지도"></div><button id="map-follow" class="map-follow hidden" type="button" aria-pressed="true">따라가기 켬</button><div id="map-standings" class="map-standings hidden" aria-live="polite"></div></div>
-          <div class="elev-wrap"><svg id="elevation" role="img" aria-label="코스 고도 단면"></svg></div>
+        </section>
+
+        <!-- 프로토타입: 라이브 화면을 띄울 빈 공간(내용 없음) -->
+        <section class="panel live-screen-panel tone-dark">
+          <div class="panel-head"><h2>라이브 화면</h2></div>
+          <div class="live-screen-box" aria-hidden="true"></div>
         </section>
       </aside>
 
+      <!-- 프로토타입: 대기 중엔 지도·라이브 화면도 같이 가린다(러너가 없을 때 빈 지도·빈 박스가 먼저 보이면 안 됨) -->
       <div id="waiting" class="waiting tone-dark" aria-live="polite">
         <div class="waiting-card">
           <div class="radar" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
@@ -163,8 +168,7 @@
           </section>
         </div>
       </div>
-
-    </section>
+    </div>
 
     <footer class="footer-row">
       <span class="conn"><i id="conn-dot" class="conn-dot" aria-hidden="true"></i><span id="connection-state">정적 재생 또는 라이브 연결 대기</span></span>
