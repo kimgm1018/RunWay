@@ -90,6 +90,10 @@ class ScreenGalleryTest {
         "9.4g_ResultAnalysisFailed" to { ResultScreen(result(RunResult(SaveStatus.SAVED, AnalysisStatus.FAILED))) },
         "9.4_ResultUnconfirmed" to { ResultScreen(result(RunResult(SaveStatus.UNCONFIRMED))) },
         "9.5_PaceCoaching" to { PaceCoachingPage(run, 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingAdjust" to { PaceCoachingPage(run.copy(coaching = CoachingGuide(350, RhythmBpm(176), Coaching.cue(176, 172))), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingManualApplied" to { PaceCoachingPage(bpm(BpmChangeStatus.APPLIED).copy(metrics = metrics.copy(rhythm = RhythmBpm(174))), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingRequesting" to { PaceCoachingPage(bpm(BpmChangeStatus.REQUESTING), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingServerLost" to { PaceCoachingPage(run.copy(serverLinkLost = true), 3, 1, true, {}, {}) },
         "9.5b_CoachingManual" to { RhythmManualScreen(run, {}, {}) },
         "9.5d_CoachingRequest" to { RhythmManualScreen(bpm(BpmChangeStatus.REQUESTING).copy(pendingCommand = true), {}, {}) },
         "9.5e_CoachingRejected" to { RhythmManualScreen(bpm(BpmChangeStatus.REJECTED), {}, {}) },
@@ -111,9 +115,11 @@ class ScreenGalleryTest {
         assumeTrue(args.getString("gallery") == "true")
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(target.getExternalFilesDir(null), "gallery/${args.getString("galleryTag") ?: "default"}").apply { mkdirs() }
-        var current by mutableStateOf(cases.first())
+        // galleryOnly=<prefix> renders just the states whose name starts with it (e.g. 9.5_).
+        val selected = args.getString("galleryOnly")?.let { prefix -> cases.filter { it.first.startsWith(prefix) } } ?: cases
+        var current by mutableStateOf(selected.first())
         compose.setContent { RunwayWatchTheme { Box(Modifier.fillMaxSize()) { current.second() } } }
-        for (case in cases) {
+        for (case in selected) {
             current = case
             compose.waitForIdle()
             val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()

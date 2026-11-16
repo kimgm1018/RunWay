@@ -34,6 +34,11 @@ data class PaceCoachingView(
     /** Where the runner's last BPM change stands; null when there is nothing to report. */
     val status: String?,
     val serverLost: Boolean,
+    /**
+     * The rhythm BPM really playing when it differs from the guide's target (e.g. after 직접 조절), so the target is
+     * never read as the beat in the ears (S15P31E105-846). Null when they match or nothing plays.
+     */
+    val playingRhythm: MetricText? = null,
 )
 
 /** Derives 9.5 (pace coaching) from the snapshot only (S15P31E105-257). */
@@ -61,6 +66,8 @@ object PaceCoachingDisplay {
             canIncrease = free && base!! + Coaching.BPM_STEP <= Coaching.MAX_BPM,
             status = status(snapshot),
             serverLost = snapshot.serverLinkLost,
+            playingRhythm = current?.takeIf { guide != null && it != guide.target }
+                ?.let { MetricFormat.rhythm(it).let { t -> t.copy(description = "지금 ${t.description}") } },
         )
     }
 
@@ -91,10 +98,13 @@ object BpmScale {
 }
 
 /**
- * 9.5 페이스 코칭: the last applied coaching guide (guide pace, target rhythm BPM, cue). '적용됨' only when the watch
- * really plays that BPM. The previous guide value and an auto-coaching on/off state are not delivered, so they are not
- * shown (TODO(S15P31E105-613): add when the contract carries them). 직접 조절 opens 9.5b.
+ * 9.5 페이스 코칭: the last applied coaching guide, guide pace as the key number and the target rhythm BPM under it
+ * (plus the BPM really playing when it differs). The cue and the BPM change result are not repeated here
+ * (S15P31E105-846): the cue restates the target BPM and the change result is shown on 9.5b, where the change is made.
+ * The previous guide value and an auto-coaching on/off state are not delivered, so they are not shown (TODO(S15P31E105-613): add when the contract carries them). 직접 조절 opens 9.5b.
  */
+private const val GUIDE_LABEL = "안내 페이스 /km"
+
 @Composable
 internal fun PaceCoachingPage(
     snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit, onManual: () -> Unit,
@@ -112,31 +122,35 @@ internal fun PaceCoachingPage(
         bottomButton = { BottomButton("직접 조절", onManual, enabled = canOpen && !snapshot.phoneRecording, kind = ButtonKind.SECONDARY) },
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(px(8)), verticalAlignment = Alignment.CenterVertically) {
-            Caption("페이스 코칭")
+            // S15P31E105-846: a lost server link takes the title's line, so the numbers keep their place.
+            if (view.serverLost) {
+                StatusIcon(StatusKind.SERVER, StatusLevel.CHECKING, sizePx = 24)
+                BodyText(PaceCoachingDisplay.SERVER_LOST, announce = true)
+            } else {
+                // The label names the number before it is read; the page name only shows while there is no guide.
+                Caption(if (guide == null) "페이스 코칭" else GUIDE_LABEL)
+            }
             if (view.dummy) StatusChip(PaceCoachingDisplay.DUMMY_BADGE, announce = false)
-        }
-        if (view.serverLost) {
-            StatusIcons(listOf(StatusItem(StatusKind.SERVER, StatusLevel.CHECKING, PaceCoachingDisplay.SERVER_LOST)))
-            BodyText(PaceCoachingDisplay.SERVER_LOST)
         }
         if (guide == null) {
             Title("코칭 안내를 기다려요")
             InlineMetric(view.currentRhythm, sizePx = 44)
             return@WatchFace
         }
-        LabeledValue("안내", view.guidePace)
-        LabeledValue(MetricFormat.RHYTHM_LABEL, view.targetRhythm.copy(symbol = null, unit = null))
-        view.cue?.let { BodyText(it, RunwayColors.Content, announce = true) }
-        val line = view.status ?: if (snapshot.metrics.rhythm == guide.target) "✓ ${guide.target.beatsPerMinute} BPM 적용됨" else null
-        line?.let { BodyText(it, RunwayColors.Content, announce = true) }
-    }
-}
-
-@Composable
-private fun LabeledValue(label: String, value: MetricText) {
-    Row(horizontalArrangement = Arrangement.spacedBy(px(10)), verticalAlignment = Alignment.Bottom) {
-        Caption(label)
-        InlineMetric(value, sizePx = 48)
+        if (view.serverLost) Caption(GUIDE_LABEL)
+        // S15P31E105-846: the guide pace is the key number, labelled above so it is not read as the runner's own pace.
+        // The target rhythm is a smaller line under it.
+        // The unit lives in the label, so the number itself sits in the middle of the round face.
+        HeroMetric(view.guidePace, 80, unit = null)
+        Row(horizontalArrangement = Arrangement.spacedBy(px(10)), verticalAlignment = Alignment.Bottom) {
+            Caption(MetricFormat.RHYTHM_LABEL)
+            InlineMetric(view.targetRhythm.copy(symbol = null, unit = null), sizePx = 40)
+            // What really plays, when 직접 조절 moved it off the guide: mint, as a measured value.
+            view.playingRhythm?.let {
+                Text("→", style = RunwayType.number(28), color = RunwayColors.ContentSecondary)
+                InlineMetric(it.copy(symbol = null, unit = null), sizePx = 40, color = RunwayColors.Primary)
+            }
+        }
     }
 }
 

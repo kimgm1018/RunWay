@@ -40,10 +40,21 @@ class PaceCoachingPageUiTest {
         launch()
         // Real AI04 coaching carries no "더미 안내" badge (S15P31E105-768).
         compose.onNodeWithText("더미 안내").assertDoesNotExist()
-        compose.onNodeWithText("리듬 BPM 165로 조정").assertIsDisplayed()
         compose.onNodeWithContentDescription("안내 페이스 킬로미터당 5분 58초").assertIsDisplayed()
-        // The guide's BPM is not the one playing, so it is not shown as applied.
-        compose.onNodeWithText("✓ 165 BPM 적용됨").assertDoesNotExist()
+        compose.onNodeWithContentDescription("목표 리듬 165 BPM").assertIsDisplayed()
+        // 170 plays, not the guide's 165, so the playing beat is shown next to the target.
+        compose.onNodeWithContentDescription("지금 리듬 170 BPM").assertIsDisplayed()
+        // S15P31E105-846: the cue and a result line are not repeated under the numbers.
+        compose.onNodeWithText("리듬 BPM 165로 조정").assertDoesNotExist()
+        compose.onNodeWithText("적용됨", substring = true).assertDoesNotExist()
+    }
+
+    /** S15P31E105-846: a change result is shown on 9.5b, not as an extra line on 9.5. */
+    @Test fun changeResultIsNotRepeatedOnTheCoachingPage() {
+        launch(change = BpmChange(RhythmBpm(171), BpmChangeStatus.REQUESTING))
+        compose.onNodeWithText("요청 중", substring = true).assertDoesNotExist()
+        openManual()
+        compose.onNodeWithText("171 BPM 요청 중").assertIsDisplayed()
     }
 
     @Test fun manualScreenSendsBpmRequestsAndBackReturns() {
@@ -55,7 +66,7 @@ class PaceCoachingPageUiTest {
         compose.onNodeWithContentDescription("리듬 BPM 낮추기").performClick()
         assertEquals(listOf(RunIntent.BPM_UP, RunIntent.BPM_DOWN), control.sent)
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithText("페이스 코칭").assertIsDisplayed()
+        compose.onNodeWithText("안내 페이스 /km").assertIsDisplayed()
     }
 
     /** 9.5d: −/+ wait while a request is pending and the sound still playing is named. */
