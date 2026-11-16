@@ -7,7 +7,8 @@ h2, h3, b, strong, th { font-weight: 600; }
 
 /* 앱(frontend/src/theme, DESIGN.md)과 같은 톤: 미스트 배경 위 흰 카드, 큰 숫자·차트는 어두운 비네트 카드.
    강조는 색이 아니라 밝기 반전(밝은 카드에는 검정, 어두운 카드에는 흰색). 빨강은 앱의 한 가지 #D44A4A.
-   글자: 한글 Noto Sans KR, 숫자·영문 Archivo 폭 125(앱 fonts/ArchivoExpanded-*.ttf, OFL). */
+   글자: 한글 Noto Sans KR, 숫자·영문 Archivo 폭 125(앱 fonts/ArchivoExpanded-*.ttf, OFL).
+   844: 색·카드·글자는 파일 맨 아래 '844' 구역에서 랜딩페이지 톤(네이비·민트·어두운 유리, Pretendard)으로 덮어쓴다. */
 :root {
   color-scheme: light;
   --ink: #02050E;               /* k1.night */
@@ -834,3 +835,382 @@ body.has-live-map .context.no-course .map-panel { display: flex; }
 .hero > .guide-card { padding: .65rem 1rem .7rem; }
 .hero > .records-panel { padding: .6rem .85rem .6rem; }
 .stage .group-board { grid-template-columns: 11.5rem repeat(var(--cols, 9), minmax(0, 1fr)); }
+
+/* ── 844: 랜딩페이지(frontend/landing)와 같은 디자인 ─────────────────────
+   랜딩의 Live 메뉴로 들어오는 화면이라 랜딩과 같은 톤으로 맞춘다.
+   배경 = 진한 네이비(#010207 → #02050E → #031019) + 바닥에서 올라오는 민트 빛, 강조 = 민트 #4DFFD2(위 글자는 #02050E),
+   카드 = 랜딩 다운로드·리더보드 카드와 같은 어두운 유리(옅은 흰 그라데이션 + 1px 흰 테두리 + 안쪽 민트 빛),
+   글자 = 한글 Pretendard, 숫자·영문 Archivo Expanded. 작은 표시·버튼은 캡슐 대신 글자·아이콘으로 두고,
+   주 버튼과 LIVE 표시만 랜딩처럼 민트 알약으로 쓴다. 빨강(허용선·탈락·안전 경고)은 기존 의미 그대로 둔다. */
+:root, .tone-light, .tone-dark {
+  color-scheme: dark;
+  --mint: #4DFFD2; --mint-hover: #86FFE2; --mint-ink: #CFFFF2;
+  --navy: #02050E;
+  --text: #FFFFFF;
+  --text-2: rgb(255 255 255 / 82%);
+  --muted: rgb(255 255 255 / 62%);
+  --dim: rgb(255 255 255 / 40%);
+  --panel-line: rgb(255 255 255 / 10%);
+  --grid: rgb(255 255 255 / 7%);
+  --fg-rgb: 255 255 255;
+  --accent: #4DFFD2; --accent-rgb: 77 255 210; --on-accent: #02050E;
+  --accent-glow: rgb(77 255 210 / 35%);
+  --red-light: #FF8F8F;
+  --warn: #FF8F8F; --warn-rgb: 255 107 107; --warn-text: #FF8F8F;
+  --caution: #A4BDC9; --caution-rgb: 164 189 201; --caution-text: #C4D4DC;
+  --neutral: #7DA0B2; --neutral-rgb: 125 160 178;
+  --field: rgb(255 255 255 / 5%);
+  --surface-bg: #02050E;
+  --card-bg: linear-gradient(180deg, rgb(255 255 255 / 8%), rgb(255 255 255 / 2.5%) 60%, rgb(255 255 255 / 4%));
+  --card-edge: rgb(255 255 255 / 8%);
+  --card-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%), inset 0 0 24px rgb(77 255 210 / 5%), 0 18px 48px rgb(0 0 0 / 30%);
+  --radius-card: 1.4rem;
+  --radius-inner: .9rem;
+  --ui: "Pretendard", "Pretendard Variable", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--ui);
+}
+body {
+  background:
+    radial-gradient(ellipse 70% 28% at 50% 112%, rgb(77 255 210 / 22%), rgb(77 255 210 / 0%) 70%),
+    radial-gradient(ellipse 120% 55% at 50% 125%, rgb(31 184 154 / 20%), rgb(31 184 154 / 0%) 70%),
+    radial-gradient(ellipse 60% 45% at 35% 45%, rgb(77 255 210 / 5%), rgb(77 255 210 / 0%) 70%),
+    linear-gradient(180deg, #010207 0%, #02050E 50%, #031019 100%) fixed;
+  background-color: #02050E;
+}
+::selection { background: rgb(77 255 210 / 35%); color: #FFFFFF; }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+/* 기본 컨트롤: 어두운 입력란, 마우스를 올리면 민트 테두리 */
+button { border-color: var(--panel-line); background: rgb(255 255 255 / 5%); color: var(--text); }
+button:hover { border-color: var(--mint); }
+select { background: rgb(255 255 255 / 6%); border: 1px solid rgb(255 255 255 / 14%); color: var(--text); }
+select option { background: #0A1420; color: #FFFFFF; }
+input[type="range"] { accent-color: var(--mint); }
+
+/* 머리글: 랜딩 상단 메뉴처럼 민트 심볼 + 흰 글자, 상태는 글자·점으로만 */
+.brand-mark { color: var(--mint); filter: drop-shadow(0 0 .6rem rgb(77 255 210 / 45%)); }
+.brand-name { font-family: var(--num); letter-spacing: .14em; color: rgb(255 255 255 / 70%); }
+.brand-name em { color: var(--mint); }
+h1 { font-weight: 700; color: #FFFFFF; letter-spacing: -.01em; }
+.stage-badge { background: none; border-color: transparent; padding-left: 0; padding-right: 0; color: var(--muted); }
+.stage-badge i { background: var(--dim); }
+/* LIVE는 랜딩 Team의 LIVE 배지와 같은 민트 알약 */
+.stage-badge[data-kind="live"] { padding: .4rem 1rem; color: var(--navy); background: var(--mint); border-color: var(--mint);
+  box-shadow: 0 0 1.5rem rgb(77 255 210 / 35%); letter-spacing: .12em; }
+.stage-badge[data-kind="live"] i { background: var(--navy); box-shadow: none; animation: live-blink 1.6s ease-in-out infinite; }
+@keyframes live-blink { 50% { opacity: .25; } }
+.stage-badge[data-kind="replay"] { color: var(--text); border-color: transparent; }
+.stage-badge[data-kind="replay"] i { background: var(--mint); }
+.mode-chip, .mode-chip[data-kind="group"] { background: none; border-color: transparent; padding-left: 0; padding-right: 0; color: var(--muted); font-weight: 600; }
+.mode-chip[data-kind="group"] { color: var(--mint); }
+.runner-label { color: var(--muted); }
+.history-toggle { background: none; border-color: transparent; color: var(--muted); padding-left: .2rem; padding-right: .2rem; }
+.history-toggle:hover { color: var(--text); border-color: transparent; }
+.history-toggle[aria-expanded="true"] { background: none; color: var(--mint); border-color: transparent; }
+.history-panel { background: linear-gradient(180deg, rgb(10 30 40 / 97%), rgb(4 12 20 / 98%)); border: 0;
+  box-shadow: inset 0 0 0 1px rgb(77 255 210 / 28%), 0 1.5rem 3rem rgb(0 0 0 / 55%); }
+.history-item { background: rgb(255 255 255 / 4%); color: var(--text); }
+.history-item:hover, .history-item:focus-visible { background: rgb(77 255 210 / 12%); color: #FFFFFF; }
+.history-item.live::before { color: var(--mint); }
+.history-item.current { outline: 2px solid var(--mint); }
+.history-chip { background: none; color: var(--mint); padding-left: 0; }
+.history-chip button { background: var(--mint); color: var(--navy); }
+.history-chip button:hover { background: var(--mint-hover); }
+/* 상태 배너: 정보 = 민트 글자, 연결 문제 = 흰 글자, 안전 경고 = 빨강(그대로) */
+.banner { color: var(--mint-ink); background: rgb(4 18 24 / 92%); border: 0; box-shadow: inset 0 0 0 1px rgb(77 255 210 / 40%), 0 .8rem 2rem rgb(0 0 0 / 40%); }
+.banner.disconnected, .banner.insufficient, .banner.paused, .banner.stale, .banner.clock {
+  color: #FFFFFF; background: rgb(10 18 28 / 94%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 22%), 0 .8rem 2rem rgb(0 0 0 / 40%); }
+.banner.safety { color: #FFFFFF; background: var(--red); box-shadow: none; }
+
+/* 카드: 랜딩 다운로드·리더보드 카드와 같은 어두운 유리 */
+.guide-card, .stat, .panel, .guide-card.tone-dark, .panel.tone-dark, .map-panel.tone-dark {
+  background: var(--card-bg); border: 0; border-radius: var(--radius-card); box-shadow: var(--card-shadow);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+}
+/* 큰 안내 카드: 랜딩 Team 코스 판처럼 가운데에서 은은한 민트 빛 */
+.guide-card.tone-dark {
+  background: radial-gradient(ellipse 70% 90% at 30% 60%, rgb(77 255 210 / 10%), rgb(77 255 210 / 0%) 70%),
+    linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 2%));
+  box-shadow: inset 0 0 0 1px rgb(77 255 210 / 18%), inset 0 0 32px rgb(77 255 210 / 6%), 0 18px 48px rgb(0 0 0 / 30%);
+}
+.map-panel.tone-dark { background: radial-gradient(ellipse 60% 55% at 50% 50%, rgb(77 255 210 / 6%), rgb(77 255 210 / 0%) 70%), var(--card-bg); }
+.panel-head h2 { color: #FFFFFF; }
+.panel-tag { background: none; padding: 0; color: var(--mint); font-weight: 500; letter-spacing: .02em; }
+.hero > .guide-card .guide-main::before { color: var(--mint); }
+.guide-card .kicker { color: rgb(255 255 255 / 78%); }
+.reason-line { color: #FFFFFF; }
+.stat-hr.over { box-shadow: inset 0 0 0 1px rgb(255 107 107 / 55%), var(--card-shadow); }
+.stat-hr.over .stat-value { color: var(--warn); }
+.zoomable:hover { box-shadow: var(--card-shadow), 0 0 0 2px rgb(77 255 210 / 55%); }
+.guide-card.tone-dark.zoomable:hover { box-shadow: inset 0 0 0 1px rgb(77 255 210 / 18%), 0 0 0 2px rgb(77 255 210 / 55%); }
+/* 확대 버튼: 원형 캡슐 없이 아이콘만 */
+.zoom-open-btn { background: none; border-color: transparent; color: rgb(255 255 255 / 55%); }
+.zoom-open-btn:hover, .zoom-open-btn:focus-visible { background: none; border-color: transparent; color: var(--mint); }
+
+/* 후보·판정판·판단 기록: 선택은 랜딩 리더보드의 선택 줄처럼 민트 테두리 + 옅은 민트 바탕 */
+.cand { background: var(--field); border-color: transparent; }
+.gauge { background: rgb(255 255 255 / 4%); }
+.cand.chosen { background: linear-gradient(180deg, rgb(77 255 210 / 18%), rgb(77 255 210 / 6%)); border-color: var(--mint);
+  box-shadow: inset 0 0 0 1px var(--mint), 0 0 1.6rem rgb(77 255 210 / 18%); }
+.cand.chosen, .cand.chosen .cand-delta, .cand.chosen .cand-pace, .cand.chosen .gauge-hr { color: var(--mint); }
+.cand.chosen .cand-pace small, .cand.chosen .cand-foot, .cand.chosen .gauge-hr small { color: rgb(255 255 255 / 62%); }
+.cand.chosen .cand-foot b { color: #FFFFFF; }
+.cand.chosen .cand-tag { background: var(--mint); color: var(--navy); }
+.cand.chosen .gauge { background: rgb(77 255 210 / 6%); }
+.cand.chosen .bar-pred { background: linear-gradient(180deg, var(--mint), rgb(77 255 210 / 30%)); box-shadow: 0 0 1rem rgb(77 255 210 / 35%); }
+.cand.chosen .bar-band { background: repeating-linear-gradient(0deg, rgb(77 255 210 / 35%) 0 2px, transparent 2px 5px); }
+.cand.chosen .allow-line { border-top-color: var(--red-light); }
+.cand.rejected .cand-tag { color: #FFFFFF; background: rgb(212 74 74 / 70%); }
+.candidate-list.pending .cand.chosen { background: var(--field); border-color: transparent; box-shadow: none; }
+.candidate-list.pending .cand.chosen .cand-pace, .candidate-list.pending .cand.chosen .cand-delta, .candidate-list.pending .cand.chosen .gauge-hr { color: var(--text); }
+@keyframes chosen-pulse { 0% { box-shadow: inset 0 0 0 1px var(--mint), 0 0 0 0 rgb(77 255 210 / 55%); } 100% { box-shadow: inset 0 0 0 1px var(--mint), 0 0 0 1.2rem rgb(77 255 210 / 0%); } }
+.lg-chosen::before { background: var(--mint); }
+.gb-head.chosen { color: var(--navy); background: var(--mint); }
+.gb-head.chosen small, .gb-head.chosen .gb-mark { color: rgb(2 5 14 / 70%); }
+.gb-head.current { box-shadow: inset 0 -2px 0 rgb(255 255 255 / 35%); }
+@keyframes chosen-head { 0% { box-shadow: 0 0 0 0 rgb(77 255 210 / 60%); } 100% { box-shadow: 0 0 0 .9rem rgb(77 255 210 / 0%); } }
+.gb-cell { background: var(--field); }
+.gb-cell.col-chosen, .stage .gb-cell.col-chosen.tight { background: rgb(77 255 210 / 14%); box-shadow: inset 0 0 0 1.5px var(--mint); color: var(--mint); }
+.gb-cell.col-chosen b, .gb-cell.col-chosen .gb-ok, .stage .gb-cell.col-chosen.tight .gb-ok, .stage .gb-cell.col-chosen .gb-pace { color: var(--mint); }
+.gb-cell.col-chosen small { color: rgb(255 255 255 / 62%); }
+.stage .gb-cell.col-chosen.gb-row-worst { box-shadow: inset 0 0 0 1.5px var(--mint); }
+.gb-cell.fail { background: repeating-linear-gradient(135deg, rgb(212 74 74 / 30%) 0 3px, rgb(212 74 74 / 10%) 3px 7px); color: var(--warn-text); }
+.gb-cell.col-chosen.fail { background: repeating-linear-gradient(135deg, rgb(212 74 74 / 55%) 0 3px, rgb(77 255 210 / 12%) 3px 7px); }
+.gb-cell.fail .gb-ok, .stage .gb-cell.fail .gb-ok { color: var(--warn-text); }
+.stage .gb-cell.fail .gb-pace { color: rgb(255 143 143 / 65%); }
+.stage .gb-cell.col-chosen.fail .gb-pace { color: rgb(255 255 255 / 70%); }
+.gb-cell.tight { background: rgb(212 74 74 / 12%); color: var(--warn-text); }
+.stage .gb-cell.tight { background: var(--field); color: var(--text); }
+.gb-name.gb-row-worst { background: rgb(212 74 74 / 10%); }
+.gb-ref { background: var(--mint); color: var(--navy); }
+.gb-name .gb-actual.actual-stopped { color: var(--caution-text); }
+.record-item { background: var(--field); }
+.record-item.latest { background: rgb(77 255 210 / 10%); border-color: transparent; color: #FFFFFF; box-shadow: inset 0 0 0 1.5px var(--mint); }
+.record-item.latest strong, .record-item.latest .rec-act { color: var(--mint); }
+.record-item.latest .rec-hr b { color: #FFFFFF; }
+.record-item.latest time, .record-item.latest .rec-hr { color: rgb(255 255 255 / 62%); }
+.hero > .records-panel .rec-tag { background: rgb(255 255 255 / 10%); color: var(--text); }
+.hero > .records-panel .rec-tag[data-tone="up"] { background: var(--mint); color: var(--navy); }
+.hero > .records-panel .rec-tag[data-tone="down"] { background: #FFD84D; color: var(--navy); }
+.hero > .records-panel .rec-tag[data-tone="danger"] { background: var(--red); color: #FFFFFF; }
+.hero > .records-panel .rec-tag[data-tone="hold"] { background: var(--mist-pale); color: var(--navy); }
+.hero > .records-panel .record-list:empty::after { border-color: rgb(77 255 210 / 22%); color: var(--muted); }
+.svg-course-done { stroke: var(--mint); filter: drop-shadow(0 0 5px rgb(77 255 210 / 50%)); }
+.svg-elev-done, .svg-elev-now { stroke: var(--mint); }
+
+/* 대기·토큰 입력: 랜딩 첫 화면 배경 위에 다운로드 카드와 같은 카드, 민트 주 버튼 */
+.waiting { border-radius: var(--radius-card); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  background:
+    radial-gradient(ellipse 60% 30% at 50% 108%, rgb(77 255 210 / 26%), rgb(77 255 210 / 0%) 70%),
+    radial-gradient(ellipse 55% 50% at 50% 42%, rgb(77 255 210 / 7%), rgb(77 255 210 / 0%) 70%),
+    linear-gradient(180deg, rgb(1 2 7 / 94%) 0%, rgb(2 5 14 / 94%) 55%, rgb(3 16 25 / 94%) 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%); }
+.radar span { border-color: var(--mint); }
+.radar i { background: var(--mint); box-shadow: 0 0 2rem rgb(77 255 210 / 55%); }
+.waiting-title { color: #FFFFFF; font-weight: 700; }
+.waiting-sub { color: rgb(255 255 255 / 70%); }
+.waiting-hint { color: rgb(255 255 255 / 45%); }
+.waiting-play, .auth-row button, #play-toggle, .zoom-close {
+  background: var(--mint); color: var(--navy); border: 0; font-weight: 700; box-shadow: 0 0 1.5rem rgb(77 255 210 / 28%);
+  transition: background-color .2s ease, box-shadow .2s ease; }
+.waiting-play:hover, .auth-row button:hover, #play-toggle:hover, .zoom-close:hover { background: var(--mint-hover); box-shadow: 0 0 2rem rgb(77 255 210 / 42%); }
+#play-toggle[data-playing="true"] { background: none; color: var(--text); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 22%); }
+#play-toggle[data-playing="true"]:hover { box-shadow: inset 0 0 0 1px var(--mint); }
+.auth-panel { min-width: 0; width: min(30rem, 100%); padding: 1.5rem; border: 0; border-radius: 1.25rem;
+  background: linear-gradient(180deg, rgb(255 255 255 / 10%), rgb(255 255 255 / 3%) 60%, rgb(255 255 255 / 5%));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%), inset 0 0 24px rgb(77 255 210 / 6%), 0 10px 30px rgb(0 0 0 / 35%); }
+.auth-panel label { font-weight: 600; color: #FFFFFF; }
+.auth-panel span { color: rgb(255 255 255 / 62%); }
+.auth-row input { background: rgb(255 255 255 / 6%); border: 1px solid rgb(255 255 255 / 16%); color: #FFFFFF; min-width: 0; }
+.auth-row input::placeholder { color: rgb(255 255 255 / 40%); }
+.auth-row input:focus { outline: none; border: 1.5px solid var(--mint); box-shadow: 0 0 0 3px rgb(77 255 210 / 15%); }
+.auth-row button { flex: none; }
+.auth-panel .auth-error { color: var(--warn-text); }
+.auth-panel:has(.auth-error:not(.hidden)) .auth-row input { border: 1.5px solid var(--warn-text); }
+
+/* 바닥줄: 연결 상태는 글자·점만, 재생 조작은 테두리 없는 줄 */
+.footer-row { color: var(--muted); }
+.footer-row .conn { background: none; padding: 0; }
+.conn-dot.on { background: var(--mint); box-shadow: 0 0 .5rem rgb(77 255 210 / 60%); }
+.conn-dot.off { background: var(--warn); }
+.replay-controls { background: none; border: 0; padding: 0; color: var(--text); }
+.debug-metrics { color: var(--caution-text); }
+
+/* 확대 모달: 랜딩 Team 소개 카드와 같은 판 */
+.zoom-modal { background: rgb(1 2 7 / 60%); }
+.zoom-dialog { border: 0; background: linear-gradient(180deg, rgb(10 30 40 / 97%), rgb(4 12 20 / 98%));
+  box-shadow: inset 0 0 0 1px rgb(77 255 210 / 30%), 0 0 60px rgb(77 255 210 / 12%), 0 30px 80px rgb(0 0 0 / 55%); }
+.zoom-head h2 { color: #FFFFFF; }
+.zoom-head p { color: rgb(255 255 255 / 78%); }
+.zoom-body > .is-zoomed:hover { box-shadow: var(--card-shadow); }
+.live-map { background: #050B14; }
+.live-map .route-tip { background: rgb(2 5 14 / 88%); color: #FFFFFF; box-shadow: inset 0 0 0 1px rgb(77 255 210 / 35%); }
+.map-standings { background: rgb(2 5 14 / 85%); border-color: rgb(77 255 210 / 25%); }
+.map-follow { background: rgb(2 5 14 / 85%); }
+.map-follow[aria-pressed="true"] { background: var(--mint); color: var(--navy); border-color: var(--mint); }
+
+/* 844: 랜딩과 같은 상단 메뉴(frontend/landing의 .nav와 같은 크기·유리·글자). 콘솔 맨 위 한 줄에 가운데 정렬하고,
+   지금 화면(Live)은 랜딩에서 선택된 메뉴처럼 굵게 표시한다. 크기는 rem이 아니라 랜딩과 같은 px·vw로 맞춘다 */
+.console { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.site-nav {
+  justify-self: center; display: flex; justify-content: space-between; align-items: center;
+  width: clamp(420px, 34vw, 600px); height: clamp(40px, 3.2vw, 56px); padding: 0 1.8em;
+  font-family: var(--num); font-size: clamp(12px, .85vw, 14px); color: #FFFFFF; border-radius: 999px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 10%), rgb(255 255 255 / 3%) 60%, rgb(255 255 255 / 5%));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%), inset 0 0 16px rgb(77 255 210 / 6%), 0 10px 30px rgb(0 0 0 / 35%);
+  -webkit-backdrop-filter: blur(24px) saturate(130%); backdrop-filter: blur(24px) saturate(130%);
+}
+.site-nav a { color: inherit; text-decoration: none; }
+.site-nav .nav-home { display: block; }
+.site-nav .wordmark { display: block; height: .92em; width: auto; }
+.site-nav ul { display: contents; list-style: none; }
+.site-nav ul a { font-weight: 400; opacity: .85; transition: opacity .2s ease; }
+.site-nav ul a:hover, .site-nav ul a.is-current { opacity: 1; }
+.site-nav ul a.is-current { font-weight: 600; }
+.site-nav .nav-mark { display: block; height: 1.9em; aspect-ratio: 730 / 520; color: var(--mint); filter: drop-shadow(0 0 6px rgb(77 255 210 / 45%)); }
+.site-nav .nav-mark svg { display: block; width: 100%; height: 100%; }
+html.zoom-open .site-nav { font-size: clamp(12px, .85vw, 14px); }
+/* 브랜드 심볼은 위 메뉴에 있으므로 머리글에서는 빼고 화면 이름만 둔다 */
+.topbar .brand-mark { display: none; }
+
+/* 844: 휴대폰·좁은 화면. 한 화면 고정 대신 세로로 쌓아 스크롤하고, 칸이 화면 밖으로 넘치지 않게 한다.
+   후보 칸이 많으면 패널 안에서만 가로로 밀어 본다(페이지 가로 넘침 없음) */
+@media (max-width: 767px) {
+  :root { font-size: 13px; }
+  html.zoom-open { font-size: 13px; }
+  html, body { height: auto; }
+  body { overflow-x: hidden; overflow-y: auto; }
+  .console { height: auto; min-height: 100svh; padding: 12px 16px 16px; grid-template-rows: none; gap: 12px; }
+  .site-nav { width: 100%; height: 44px; padding: 0 1.2em; font-size: 11px; }
+  .topbar { flex-wrap: wrap; gap: .4rem 1rem; }
+  .brand { flex: 1 0 100%; }
+  .runner-label { flex: 1 1 100%; max-width: 100%; order: 5; }
+  .banner { flex: 1 1 100%; margin-left: 0; white-space: normal; border-radius: 1rem; font-size: 1rem; }
+  /* 이전 기록 목록은 머리글 폭에 맞춰 연다(버튼 위치에서 열면 오른쪽이 화면 밖으로 잘린다) */
+  .topbar { position: relative; }
+  .history-box { position: static; }
+  .history-panel { left: 0; right: 0; width: auto; }
+  .hero, .stage, .hero > .guide-card { grid-template-columns: minmax(0, 1fr); }
+  .analysis, .context { grid-template-rows: none; }
+  .hero > .guide-card .actual-sum { grid-column: 1; grid-row: 2; justify-content: start; }
+  .hero > .guide-card .guide-main { grid-column: 1; grid-row: 3; }
+  .hero > .guide-card .reason-line { grid-row: 4; font-size: 1.35rem; }
+  .hero > .guide-card.is-empty .reason-line { font-size: 1.6rem; }
+  .guide-pace { font-size: 3.6rem; }
+  .candidate-list { display: flex; overflow-x: auto; min-height: 15rem; padding-bottom: .4rem; scroll-snap-type: x proximity; }
+  .candidate-list .cand { flex: 0 0 6.8rem; scroll-snap-align: start; }
+  .group-board, .stage .group-board { overflow-x: auto; grid-template-columns: 7.5rem repeat(var(--cols, 9), minmax(4rem, 1fr)); min-height: 12rem; }
+  .chart-panel { height: 18rem; }
+  .map-panel { height: 22rem; }
+  .panel-head { flex-wrap: wrap; row-gap: .2rem; }
+  .panel-head h2 { white-space: normal; }
+  .legend { flex-wrap: wrap; }
+  .waiting { position: fixed; inset: 0; border-radius: 0; z-index: 30; overflow-y: auto; padding-top: 56px; }
+  /* 대기·토큰 화면이 전체를 덮어도 상단 메뉴는 위에 남겨 다른 화면으로 갈 수 있게 한다 */
+  .site-nav { position: relative; z-index: 31; }
+  .waiting-card { padding: 1.5rem 16px; width: 100%; }
+  .waiting-title { font-size: 2rem; }
+  .radar { width: 6.5rem; height: 6.5rem; }
+  .auth-row { flex-wrap: wrap; }
+  .auth-row input { flex: 1 1 12rem; }
+  .auth-row button { flex: 1 1 auto; }
+  .footer-row { flex-wrap: wrap; gap: .6rem; }
+  .replay-controls { margin-left: 0; flex: 1 1 100%; flex-wrap: wrap; }
+  #recording-select { max-width: 100%; flex: 1 1 100%; }
+  .zoom-dialog { width: calc(100vw - 24px); height: calc(100svh - 48px); }
+}
+
+/* ── 844-2: 디자인 검토 반영 ───────────────────────────────────────────
+   1) 머리글: 랜딩 Team 머리(왼쪽 큰 제목 + 아래 한 줄 설명, 오른쪽 LIVE 배지)처럼 한 덩어리로 묶는다.
+      제목 줄 아래에 모드·러너를 '·'로 잇고, 오른쪽 끝에 상태(LIVE/재생)·이전 기록·배너를 모은다. 'RUNWAY AI'는 위 메뉴와 겹쳐 뺀다.
+   2) 민트는 'AI가 고른 것'(목표 페이스·선택 후보·예측선)과 주 버튼에만. 최신 기록·모드·실측선·지도 진행선은 흰색 계열.
+   3) 회색 알약 태그(통과·유지 등)는 바탕 없이 글자색만. 작은 글자는 12px 아래로 내려가지 않게. */
+.topbar {
+  display: grid; align-items: end; column-gap: .6rem; row-gap: .25rem; padding: .1rem .35rem 0;
+  grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center;
+  grid-template-areas: "brand banner history badge";
+}
+.topbar .brand { grid-area: brand; }
+.topbar .brand-name { display: none; }
+.topbar h1 { margin: 0; font-size: 1.7rem; line-height: 1.15; }
+.topbar .mode-chip { grid-area: mode; padding: 0; font-size: max(12px, .95rem); font-weight: 500; color: var(--text-2); }
+.topbar .mode-chip[data-kind="group"] { color: var(--text-2); }
+.topbar .runner-label { grid-area: runner; max-width: none; font-size: max(12px, .95rem); color: var(--muted); }
+.topbar .runner-label::before { content: "·"; margin-right: .6rem; color: var(--dim); }
+.topbar .banner, .topbar .history-box, .topbar .stage-badge { margin-left: .6rem; }
+.topbar .banner { grid-area: banner; justify-self: end; align-self: center; margin-left: 0; }
+.topbar .history-box { grid-area: history; align-self: center; }
+.topbar .history-panel { left: auto; right: 0; }
+.topbar .stage-badge { grid-area: badge; align-self: center; font-size: max(12px, .95rem); }
+.topbar .version-block { display: none; }
+/* 844-3: 모드(개인 페이스 · AI04)·러너/기록 이름은 청중에게 필요 없어 머리글에서 뺀다. 그룹이면 안내 카드 제목이 '공동 목표 페이스'로 알려 준다 */
+.topbar .mode-chip, .topbar .runner-label { display: none; }
+.stage-badge[data-kind="replay"] i { background: #FFFFFF; }
+.history-toggle { font-size: max(12px, .9rem); }
+.history-toggle[aria-expanded="true"], .history-chip { color: #FFFFFF; }
+.history-item.live::before { color: #FFFFFF; }
+
+/* 민트 절제: 청중이 2초 안에 볼 하나 = AI 목표 페이스 */
+.guide-pace { color: var(--mint); text-shadow: 0 0 2.2rem rgb(77 255 210 / 28%); }
+.guide-unit { color: rgb(77 255 210 / 60%); }
+.hero > .guide-card .actual-sum b { color: rgb(255 255 255 / 78%); }
+.panel-tag { color: var(--muted); font-size: max(12px, .75rem); }
+.record-item.latest { background: rgb(255 255 255 / 8%); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 70%); }
+.record-item.latest strong, .record-item.latest .rec-act { color: #FFFFFF; }
+@keyframes rec-flash { 0%, 30% { box-shadow: 0 0 0 3px rgb(255 255 255 / 85%), 0 0 1.4rem rgb(255 255 255 / 30%); } 100% { box-shadow: 0 0 0 0 rgb(255 255 255 / 0%); } }
+.conn-dot.on { background: #FFFFFF; box-shadow: none; }
+.zoomable:hover { box-shadow: var(--card-shadow), 0 0 0 2px rgb(255 255 255 / 45%); }
+.guide-card.tone-dark.zoomable:hover { box-shadow: inset 0 0 0 1px rgb(77 255 210 / 18%), 0 0 0 2px rgb(255 255 255 / 45%); }
+.svg-actual { stroke: #FFFFFF; stroke-opacity: .55; }
+.svg-dot { fill: #FFFFFF; }
+.svg-course-done { stroke: rgb(255 255 255 / 85%); filter: none; }
+.svg-elev-done, .svg-elev-now { stroke: rgb(255 255 255 / 75%); }
+.svg-runner { fill: #FFFFFF; stroke: var(--navy); }
+.svg-runner-ring { stroke: #FFFFFF; }
+/* '느리게' 노랑은 뜻이 있어 남기되 채도를 낮춰 네이비·민트 톤에 맞춘다 */
+.reason-line[data-tone="down"]::before { color: #EBCF74; }
+
+/* 알약 태그 → 글자색만 */
+.cand-tag, .candidate-list[data-density="many"] .cand-tag { background: none; padding: 0; font-size: max(12px, .78rem); color: var(--muted); }
+.cand.chosen .cand-tag { background: none; color: var(--mint); }
+.cand.rejected .cand-tag { background: none; color: var(--warn-text); }
+.hero > .records-panel .rec-tag { background: none; padding: 0; font-size: max(12px, .9rem); color: var(--muted); }
+.hero > .records-panel .rec-tag[data-tone="up"] { background: none; color: var(--mint); }
+.hero > .records-panel .rec-tag[data-tone="down"] { background: none; color: #EBCF74; }
+.hero > .records-panel .rec-tag[data-tone="danger"] { background: none; color: var(--warn-text); }
+.hero > .records-panel .rec-tag[data-tone="hold"] { background: none; color: var(--muted); }
+.record-item .rec-status { background: none; padding: 0; color: var(--caution-text); }
+.gb-ref, .stage .gb-ref { background: none; padding: 0; color: var(--mint-ink); font-size: max(12px, .8rem); }
+/* 작은 글자 하한 */
+.legend, .meta, .hero > .records-panel .panel-head .meta { font-size: max(12px, .85rem); }
+.svg-axis { font-size: max(12px, .85rem); }
+/* 확대 버튼: 아이콘은 더 밝게 */
+.zoom-open-btn { color: rgb(255 255 255 / 75%); }
+/* 판단 기록 건수는 머리 줄 가운데에 뜨지 않게 확대 버튼 바로 앞(오른쪽)으로 */
+.records-panel .panel-head > .meta:last-of-type { margin-left: auto; }
+
+@media (max-width: 767px) {
+  .topbar { grid-template-columns: minmax(0, 1fr) auto auto; column-gap: .8rem;
+    grid-template-areas: "brand history badge" "banner banner banner"; }
+  .topbar .runner-label::before { content: none; }
+  /* 범례는 아래 줄로 보내 확대 버튼이 제목 줄에 남게 한다 */
+  .panel-head .legend { order: 3; flex: 1 0 100%; }
+  .topbar .banner { justify-self: stretch; }
+  .topbar .history-box { justify-self: end; }
+  .topbar .history-panel { left: 0; right: 0; }
+  .topbar h1 { font-size: 1.45rem; }
+  /* 세로로 쌓이면 '→'가 빈 곳을 가리키므로 뺀다('지금'·'AI 목표' 이름표로 충분하다) */
+  .hero > .guide-card .actual-sum i { display: none; }
+  .group-board, .stage .group-board { position: relative; }
+  /* 판정판을 옆으로 밀어도 러너 이름 열은 왼쪽에 붙어 있게 한다 */
+  .stage .gb-name, .stage .gb-head.gb-corner { position: sticky; left: 0; z-index: 2; background: #0B141C; box-shadow: .4rem 0 .6rem rgb(11 20 28 / 90%); }
+  .group-board, .stage .group-board { grid-template-columns: 8.6rem repeat(var(--cols, 9), minmax(4.2rem, 1fr)); }
+  .stage .gb-name, .stage .gb-name.gb-row-worst { overflow: hidden; padding-left: .3rem; background: #0B141C; }
+  .stage .gb-head.gb-corner { padding-left: .3rem; }
+  .stage .gb-name, .stage .gb-head.gb-corner { border-radius: 0; }
+  .stage .gb-name .gb-who { font-size: 1rem; }
+  .stage .gb-name .gb-hr { font-size: 1.4rem; }
+  .stage .gb-head.gb-corner { white-space: normal; line-height: 1.2; font-size: max(12px, .8rem); }
+  /* 확대 버튼: 아이콘 크기는 그대로, 누르는 영역만 44px */
+  .zoom-open-btn { width: 44px; height: 44px; margin: -10px -10px -10px 0; }
+}

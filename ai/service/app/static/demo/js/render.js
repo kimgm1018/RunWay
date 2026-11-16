@@ -504,6 +504,18 @@
     return cards;
   }
 
+  // 844: 좁은 화면에서 후보 칸·판정판이 패널 안에서 가로로 넘치면 고른 후보가 가운데 오게 민다.
+  // scrollIntoView는 페이지까지 움직이므로 쓰지 않고, 넘치지 않는 넓은 화면에서는 아무것도 하지 않는다
+  function centerChosen() {
+    [['candidate-list', '.cand.chosen'], ['group-board', '.gb-head.chosen']].forEach(function (pair) {
+      var box = byId(pair[0]);
+      if (!box || box.scrollWidth <= box.clientWidth + 1) return;
+      var target = box.querySelector(pair[1]);
+      if (!target) return;
+      box.scrollLeft = Math.max(0, target.offsetLeft - (box.clientWidth - target.offsetWidth) / 2);
+    });
+  }
+
   // ── 그룹 판정판(AI10) ───────────────────
   function groupBoard(trace) {
     var board = byId('group-board');
@@ -780,6 +792,7 @@
     if (chip) chip.setAttribute('data-kind', mode.kind);
     var cards = candidateCards(trace, animate && !trace.group);
     groupBoard(trace);
+    centerChosen();
     var board = byId('group-board');
     if (board) {
       board.classList.remove('animating');
