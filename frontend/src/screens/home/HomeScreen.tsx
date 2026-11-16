@@ -607,33 +607,33 @@ export function HomeScreen() {
       <View style={styles.date}>
         <>
           <View style={styles.dateRow}>
-            {/* ‹ date › (담당자 피드백, S15P31E105-690): the arrows step a day, the date opens the calendar. Bare
+            <View style={styles.dateControls}>
+              {/* ‹ date › (담당자 피드백, S15P31E105-690): the arrows step a day, the date opens the calendar. Bare
                 text and arrows, no button shapes; no 오늘 button. */}
-            <DayArrow
-              direction={-1}
-              disabled={calendar || day <= earliestDay(today)}
-              onPress={() => choose(addDays(day, -1))}
-            />
-            <DateLine
-              value={day}
-              open={calendar}
-              month={calendarMonth}
-              onToggle={() => {
-                setCalendarMonth(kstMonth(day));
-                setCalendar(open => !open);
-              }}
-            />
-            <DayArrow
-              direction={1}
-              disabled={calendar || day >= today}
-              onPress={() => choose(addDays(day, 1))}
-            />
-            {/* The legend sits by the date (담당자 피드백, S15P31E105-690), so the card below gains its row. Where
-                large text leaves no room beside the date (320dp at 1.3×, S15P31E105-835), it drops to its own
-                line at the right instead of running off the screen. */}
-            {calendar ? null : (
-              <DayLegend stacked style={styles.dateLegend} />
-            )}
+              <DayArrow
+                direction={-1}
+                disabled={calendar || day <= earliestDay(today)}
+                onPress={() => choose(addDays(day, -1))}
+              />
+              <View style={styles.dateLineSlot}>
+                <DateLine
+                  value={day}
+                  open={calendar}
+                  month={calendarMonth}
+                  onToggle={() => {
+                    setCalendarMonth(kstMonth(day));
+                    setCalendar(open => !open);
+                  }}
+                />
+              </View>
+              <DayArrow
+                direction={1}
+                disabled={calendar || day >= today}
+                onPress={() => choose(addDays(day, 1))}
+              />
+            </View>
+            {/* Keep the legend below the date controls so digit width cannot change this row's height. */}
+            {calendar ? null : <DayLegend stacked style={styles.dateLegend} />}
           </View>
           {calendar ? null : (
             <WeekStrip
@@ -777,14 +777,16 @@ const styles = StyleSheet.create({
   date: { paddingHorizontal: recordsFrame.side, gap: 8 },
   // As tall as 준비도's line and the 오늘 button, so the date does not jump when 오늘 comes and goes.
   dateRow: {
-    minHeight: 32,
+    gap: 6,
+  },
+  dateControls: {
+    height: 32,
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     columnGap: 4,
-    rowGap: 6,
   },
-  dateLegend: { marginLeft: 'auto' },
+  dateLineSlot: { flex: 1, minWidth: 0 },
+  dateLegend: { height: 32, alignItems: 'flex-end' },
   arrow: {
     width: 28,
     height: 28,
