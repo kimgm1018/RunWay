@@ -380,7 +380,7 @@ export function SelectField<T extends number>({
       >
         <AppText
           style={[
-            typography.input,
+            styles.selectValue,
             { color: value === null ? colors.textTertiary : colors.text },
           ]}
         >
@@ -571,6 +571,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  // 연도·월·일처럼 숫자(Archivo)와 한글 접미사(Noto Sans KR)가 한 줄에 섞이면 안드로이드 기본 font
+  // padding이 폰트마다 달라 칸 안에서 글자 높이가 어긋나 보인다(857). TextField.tsx의 insideInput과
+  // 같은 방식으로 줄 높이를 없애고 세로 중앙 정렬만 남긴다.
+  selectValue: {
+    fontFamily: typography.input.fontFamily,
+    fontSize: typography.input.fontSize,
+    height: 20,
+    padding: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   selectGlass: {
     height: 58,

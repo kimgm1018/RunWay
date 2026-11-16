@@ -629,12 +629,22 @@ function useMyRecords(active: boolean) {
 
   const loadFirst = useCallback(() => {
     busy.current = true;
-    setStatus('loading');
+    // 기록 탭이 다시 선택될 때마다 active가 true로 바뀌며 이 함수가 다시 불린다(858). 이미 보여줄
+    // 목록이 있으면 'loading'으로 되돌리지 않아 탭 페이지가 스피너 높이로 줄었다가 늘어나며 바깥
+    // 스크롤이 맨 위로 튀는 현상을 막는다. 최초 로드·에러 재시도일 때만 로딩 상태를 보여준다.
+    setStatus(current => (current === 'ready' ? current : 'loading'));
     setMoreError(false);
     records
       .getRecent('recent', recordPageSize)
       .then(next => {
-        setItems(next);
+        // 탭을 다시 선택할 때마다 매번 새 배열을 내려받아 setItems로 바꿔치기하면 내용이 같아도 타일이
+        // 전부 다시 그려져 깜빡인다(858). id 순서가 그대로면 기존 배열을 유지해 불필요한 리렌더를 없앤다.
+        setItems(current =>
+          current.length === next.length &&
+          current.every((record, index) => record.id === next[index]?.id)
+            ? current
+            : next,
+        );
         setHasMore(next.length >= recordPageSize);
         setStatus('ready');
       })
@@ -723,7 +733,9 @@ function MyProfileLists({
     if (index < 0) {
       return;
     }
-    pager.current?.setPage(index);
+    // setPage는 중간 탭을 실제로 슬라이드해서 지나가(기록→저장된 코스처럼 두 칸 떨어진 탭을
+    // 누르면 스크랩을 거쳐가는 느낌). 탭 버튼을 눌렀을 때는 애니메이션 없이 바로 전환한다.
+    pager.current?.setPageWithoutAnimation(index);
     setPage(index);
   }, []);
 
@@ -774,7 +786,10 @@ function MyProfileLists({
   ]);
 
   const courses = saved.status === 'ready' ? saved.data : null;
-  const pagerHeight = Math.max(pageHeights[page] || 120, 120);
+  // 현재 페이지 높이만 쓰면 탭을 바꿀 때마다 PagerView 전체 높이가 바뀌어 세 탭 모두가 같이
+  // 다시 그려지며 깜빡인다(858). 세 페이지 중 가장 큰 높이로 고정해 탭 전환 중 리사이즈가
+  // 일어나지 않게 한다.
+  const pagerHeight = Math.max(...pageHeights, 120);
 
   return (
     <>
