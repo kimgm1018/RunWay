@@ -20,7 +20,7 @@
 ### 채널과 설정
 
 - 알림함 행을 만들고, 행이 새로 생기면 생성 트랜잭션 **커밋 후** 수신자의 기기 토큰(N03)들로 FCM 푸시를 보낸다([앱 밖 푸시](#앱-밖-푸시fcm)). 롤백되면 행도 푸시도 없다.
-- 설정 키는 기존 U19/U20만 사용한다. 팔로우·크루·댓글은 `notifications.community`, 그룹런 취소·시작 임박은 `notifications.groupRun`이다. 새 설정 컬럼은 추가하지 않는다.
+- 설정 키는 기존 U19/U20만 사용한다. 팔로우·크루·댓글은 `notifications.community`, 그룹런 취소·시작 임박·오늘 준비도는 `notifications.groupRun`이다(앱 설정 화면 이름 `러닝 알림`, S15P31E105-847). 새 설정 컬럼은 추가하지 않는다.
 - 해당 설정이 false이면 **행을 만들지 않으며 푸시도 보내지 않는다**. 같은 설정이 알림함과 푸시를 함께 결정하며 푸시 전용 설정은 두지 않는다. 나중에 설정을 켜도 과거 사건은 소급 생성하지 않는다.
 - `delivery_status`/`sent_at`은 **앱 밖 푸시 결과**다(S15P31E105-815에서 의미 변경). 새 행은 `PENDING`·`sent_at=NULL`로 저장되고 알림함(N01)에는 결과와 관계없이 바로 보인다. 기존(V42 이전) 행의 `SENT`는 앱 내 저장 의미로 남는다.
 
@@ -39,6 +39,7 @@
 | `NEW_FOLLOWER` | 행위자 `users.id` | community | 공개 계정 즉시 팔로우. 249 Kind |
 | `FOLLOW_REQUEST` | 행위자 `users.id` | community | 비공개 PENDING. 249 Kind |
 | `FOLLOW_APPROVED` | 승인자 `users.id` | community | U25 수동 승인만. 공개 전환 자동 승인 제외. 249 Kind |
+| `READINESS_TODAY` | `daily_readiness.id` | groupRun | 오늘 준비도 점수와 러닝 권유(S15P31E105-847). 아래 [오늘 준비도 발송](#오늘-준비도-발송). 앱은 targetId로 화면을 고르지 않고 홈 준비도를 연다 |
 
 ### 중복 방지
 
@@ -53,6 +54,16 @@
 | `POST_COMMENT` | `POST_COMMENT:{commentId}` |
 | `GROUP_RUN_PARTICIPATION_CANCELLED` | `GROUP_RUN_PARTICIPATION_CANCELLED:{groupRunId}:{recipientUserId}` |
 | `GROUP_RUN_START_REMINDER` | `GROUP_RUN_START_REMINDER:{groupRunId}:{recipientUserId}:{scheduledSlot}` — slot 규칙은 발송 정책 확정 후 |
+| `READINESS_TODAY` | `READINESS_TODAY:{userId}:{KST 날짜 yyyy-MM-dd}` — 회원·날짜당 1회. 점수가 다시 계산돼도 새 행을 만들지 않는다 |
+
+### 오늘 준비도 발송
+
+S15P31E105-847. 준비도 도메인이 공통 알림 모듈로 행을 만든다.
+
+- **본문**: `오늘 준비도는 {점수}점입니다. 달리러 가볼까요?` 점수는 `daily_readiness.readiness_score`를 앱 2.1과 같이 소수 둘째 자리까지, 끝의 0을 지워 쓴다(예 `72.5`, `80`).
+- **시각**: 매일 KST 08:00 정기 작업이 그 시각 오늘 결과가 있는 회원에게 보낸다. 08:00 이후 이벤트 평가가 오늘 결과를 처음 저장하면 그때 보낸다. 00:05 정기 평가 등 08:00 전에 저장된 결과는 08:00 작업이 보낸다(자정 발송 방지).
+- **대상**: 오늘(KST) `daily_readiness` 행이 있는 활성·건강정보 동의 회원. 결과가 없으면 보내지 않는다. 설정·푸시 규칙은 다른 종류와 같다.
+- **로그**: 회원 ID·날짜·예외 종류만 남기고 점수는 남기지 않는다.
 
 ### 팔로우 사건 소비
 

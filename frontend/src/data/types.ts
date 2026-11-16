@@ -297,7 +297,8 @@ export type NotificationKind =
   | 'POST_COMMENT'
   | 'NEW_FOLLOWER'
   | 'FOLLOW_REQUEST'
-  | 'FOLLOW_APPROVED';
+  | 'FOLLOW_APPROVED'
+  | 'READINESS_TODAY';
 
 // 7.x 커뮤니티 (CMT01–CMT11). The 7.3 share card shows heart rate and cadence and the bookmark,
 // share and 코스도 함께 공유 controls follow the K1 sheets; the API has none of these yet.

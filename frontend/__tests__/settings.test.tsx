@@ -499,3 +499,20 @@ test('8.4 to 8.6 withdraws after the agreement and the password, then signs out'
   expect(page).toContain('시작하기');
   await act(async () => screen.unmount());
 });
+
+// S15P31E105-847: 그룹런 알림 is 러닝 알림 now (its groupRun setting also covers 오늘 준비도), and it still saves groupRun.
+test('8.1 러닝 알림 switches the groupRun setting', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const update = jest.spyOn(repositories.settings, 'update');
+  const screen = await openSettings(repositories);
+  expect(() => labelled(screen, '그룹런 알림')).toThrow();
+  const before = labelled(screen, '러닝 알림').props.accessibilityState.checked;
+  await press(screen, '러닝 알림');
+  expect(labelled(screen, '러닝 알림').props.accessibilityState.checked).toBe(!before);
+  expect(update).toHaveBeenCalledWith(
+    expect.objectContaining({
+      notifications: expect.objectContaining({ groupRun: !before }),
+    }),
+  );
+  await act(async () => screen.unmount());
+});

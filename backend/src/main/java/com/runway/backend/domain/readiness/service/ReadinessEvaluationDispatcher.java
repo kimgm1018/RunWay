@@ -31,13 +31,16 @@ public class ReadinessEvaluationDispatcher implements DisposableBean {
     private static final Logger log = LoggerFactory.getLogger(ReadinessEvaluationDispatcher.class);
 
     private final ReadinessEvaluationService evaluationService;
+    private final ReadinessPushNotifier pushNotifier;
     private final ThreadPoolTaskExecutor executor;
 
     /** 넣었지만 아직 끝나지 않은 평가 작업 수. 실행기 내부 수치는 작업을 꺼낸 직후 잠시 0이 될 수 있어 직접 센다. */
     private final AtomicInteger pending = new AtomicInteger();
 
-    public ReadinessEvaluationDispatcher(ReadinessEvaluationService evaluationService) {
+    public ReadinessEvaluationDispatcher(
+            ReadinessEvaluationService evaluationService, ReadinessPushNotifier pushNotifier) {
         this.evaluationService = evaluationService;
+        this.pushNotifier = pushNotifier;
         this.executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(THREADS);
         executor.setMaxPoolSize(THREADS);
@@ -93,15 +96,36 @@ public class ReadinessEvaluationDispatcher implements DisposableBean {
             return;
         }
         for (LocalDate date : targets) {
+            boolean saved;
             try {
-                evaluationService.evaluate(userId, date);
+                saved = evaluationService.evaluate(userId, date).isPresent();
             } catch (RuntimeException e) {
                 log.warn(
                         "준비도 자동 평가 실패 (userId={}, date={}, {})",
                         userId,
                         date,
                         e.getClass().getSimpleName());
+                continue;
             }
+            if (saved) {
+                notifyToday(userId, date);
+            }
+        }
+    }
+
+    /**
+     * 평가 트랜잭션이 커밋된 뒤 오늘 준비도 푸시를 보낸다(S15P31E105-847). 오늘이 아니거나 KST 08:00 전이면 알리미가 그냥 돌아온다. 실패해도 평가 결과는
+     * 그대로이며 회원 ID·날짜·예외 종류만 남긴다.
+     */
+    private void notifyToday(long userId, LocalDate date) {
+        try {
+            pushNotifier.notifyIfDue(userId, date);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "준비도 푸시 생성 실패 (userId={}, date={}, {})",
+                    userId,
+                    date,
+                    e.getClass().getSimpleName());
         }
     }
 

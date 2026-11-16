@@ -115,6 +115,44 @@ public class ReadinessJdbcRepository {
                 Date.valueOf(today.minusDays(2)));
     }
 
+    /** 준비도 푸시용 그날 결과(S15P31E105-847). id는 daily_readiness.id. */
+    public record PushReadiness(long id, BigDecimal score) {}
+
+    /**
+     * 준비도 푸시 대상(S15P31E105-847): 그날 결과가 있는 활성·건강정보 동의 회원. ID 오름차순. 점수와 동의는 발송 직전 {@link
+     * #findPushReadiness}가 다시 읽는다.
+     */
+    public List<Long> findPushUserIds(LocalDate date) {
+        return jdbc.query(
+                """
+                SELECT r.user_id FROM daily_readiness r
+                JOIN users u ON u.id = r.user_id
+                WHERE r.readiness_date = ? AND u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE'
+                ORDER BY r.user_id
+                """,
+                (rs, n) -> rs.getLong("user_id"),
+                Date.valueOf(date));
+    }
+
+    /** 활성·건강정보 동의 회원의 그날 결과. 회원이 아니거나 동의가 없거나 결과가 없으면 빈 값. */
+    public Optional<PushReadiness> findPushReadiness(long userId, LocalDate date) {
+        return jdbc
+                .query(
+                        """
+                        SELECT r.id, r.readiness_score FROM daily_readiness r
+                        JOIN users u ON u.id = r.user_id
+                        WHERE r.user_id = ? AND r.readiness_date = ?
+                          AND u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE'
+                        """,
+                        (rs, n) ->
+                                new PushReadiness(
+                                        rs.getLong("id"), rs.getBigDecimal("readiness_score")),
+                        userId,
+                        Date.valueOf(date))
+                .stream()
+                .findFirst();
+    }
+
     /** from~to(포함)에 건강 행이 있는 날짜. 오름차순. */
     public List<LocalDate> findMetricDates(long userId, LocalDate from, LocalDate to) {
         return jdbc.query(
