@@ -50,14 +50,48 @@ class RunStatusPageUiTest {
         compose.onNodeWithContentDescription("케이던스 분당 171걸음").assertIsDisplayed()
     }
 
-    /** 9.2b: each source says its own state; a stopped heart sensor never keeps its old value. */
-    @Test fun lostAndLateSourcesSayTheirState() {
-        launch(measured.copy(feeds = MetricFeeds(location = FeedStatus.DELAYED, heartRate = FeedStatus.STOPPED)))
-        compose.onNodeWithText("위치 확인 지연 · 페이스 계산 대기").assertIsDisplayed()
+    /**
+     * S15P31E105-849 A안: late location keeps the pace face with one line; the last pace is grey and the distance is the
+     * last one confirmed. Heart rate and cadence states are not repeated on the face but kept in their detail.
+     */
+    @Test fun lateLocationKeepsTheLastPaceAndOneLine() {
+        val control = launch(measured.copy(feeds = MetricFeeds(location = FeedStatus.DELAYED, heartRate = FeedStatus.STOPPED)))
+        compose.onNodeWithText("위치 지연 · 마지막 페이스").assertIsDisplayed()
+        compose.onNodeWithContentDescription("페이스 킬로미터당 5분 56초, 지연").assertIsDisplayed()
+        compose.onNodeWithContentDescription("거리 2.38 킬로미터, 지연, 마지막 확인").assertIsDisplayed()
+        compose.onNodeWithText("km · 마지막 확인", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("운동 시간", useUnmergedTree = true).assertExists()
+        // No per-source board or icons on the face: the one line names the state.
+        compose.onNodeWithContentDescription("위치 지연, 심박 수집 중단").assertDoesNotExist()
+        compose.onNodeWithContentDescription("심박수 수집 중단").assertDoesNotExist()
+        compose.onNodeWithContentDescription("일시정지").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("심박·케이던스 보기").performClick()
         compose.onNodeWithContentDescription("심박수 수집 중단").assertIsDisplayed()
+        compose.onNodeWithText("수집 중단").assertIsDisplayed()
         compose.onNodeWithContentDescription("심박수 152").assertDoesNotExist()
-        compose.onNodeWithContentDescription("거리 2.38 킬로미터, 지연").assertIsDisplayed()
-        compose.onNodeWithContentDescription("위치 지연, 심박 수집 중단").assertIsDisplayed()
+        compose.onNodeWithContentDescription("케이던스 분당 171걸음").assertIsDisplayed()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+
+        // Back to live: the normal face returns without the line or labels.
+        control.snapshot.value = control.snapshot.value.copy(metrics = measured)
+        compose.onNodeWithText("위치 지연 · 마지막 페이스").assertDoesNotExist()
+        compose.onNodeWithText("km · 마지막 확인", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("거리 2.38 킬로미터").assertIsDisplayed()
+    }
+
+    /** A lost or stopped location never keeps a value: pace and distance are "– –" and the line says which state. */
+    @Test fun lostLocationShowsNoValues() {
+        val control = launch(measured.copy(feeds = MetricFeeds(location = FeedStatus.NO_SIGNAL)))
+        compose.onNodeWithText("위치 수신 없음").assertIsDisplayed()
+        compose.onNodeWithContentDescription("페이스 미수신").assertIsDisplayed()
+        compose.onNodeWithContentDescription("거리 미수신").assertIsDisplayed()
+        compose.onNodeWithText("km · 마지막 확인", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("경과 시간 14분 12초").assertIsDisplayed()
+
+        control.snapshot.value = control.snapshot.value.copy(metrics = measured.copy(feeds = MetricFeeds(location = FeedStatus.STOPPED)))
+        compose.onNodeWithText("위치 수집 중단").assertIsDisplayed()
+        compose.onNodeWithContentDescription("거리 수집 중단").assertIsDisplayed()
     }
 
     /** A request in flight locks the handle; the run is not shown as paused. */

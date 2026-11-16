@@ -41,7 +41,7 @@ class WatchFaceDisplayTest {
         val view = RunStatusDisplay.from(late)
         assertNull(view.paceTicks)
         assertFalse(view.paceOutOfRange)
-        assertTrue(RunStatusDisplay.degraded(view))
+        assertEquals(RunStatusDisplay.LOCATION_LAST_PACE, RunStatusDisplay.locationLine(view))
         assertEquals(listOf(StatusKind.GPS to StatusLevel.CHECKING), RunStatusDisplay.statusItems(view).map { it.kind to it.level })
     }
 
