@@ -125,10 +125,10 @@
 
   function drawCourse(course, trace) {
     var map = byId('course-map');
-    var elevation = byId('elevation');
-    if (!map || !elevation) return;
-    clear(map); clear(elevation);
-    var ms = sizeSvg(map), es = sizeSvg(elevation);
+    var elevation = byId('elevation'); // 프로토타입: 고도 패널을 뺐다. 있으면 그리고, 없으면 지도만 그린다
+    if (!map) return;
+    clear(map); if (elevation) clear(elevation);
+    var ms = sizeSvg(map), es = elevation ? sizeSvg(elevation) : null;
     var raw = course && Array.isArray(course.points) ? course.points : [];
     var points = raw.filter(function (p) { return Array.isArray(p) && num(p[0]) != null && num(p[1]) != null; });
     var context = document.querySelector('.context');
@@ -166,6 +166,7 @@
     if (progress != null && length) meta += ' · ' + Math.round(progress / length * 100) + '% 지점';
     put('course-meta', meta);
 
+    if (!elevation) return; // 프로토타입: 고도 패널 없음
     var elevIdx = [];
     points.forEach(function (p, i) { if (num(p[2]) != null) elevIdx.push(i); });
     if (elevIdx.length < 2 || !hasDist) {
