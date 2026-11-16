@@ -90,6 +90,9 @@ type RunActions = {
   cancel: () => void;
   recheck: () => void;
   abortStart: () => void;
+  // 워치가 등록됐지만 시작에 쓸 수 없을 때 워치 없이 폰으로 시작한다(S15P31E105-864). 개인 러닝만이며 그룹 모드에서는
+  // 아무것도 하지 않는다. 준비만 된 워치 세션은 제어기가 취소하고 폰 전용 세션을 새로 만든다.
+  startWithPhone: (config: RunConfig) => void;
   // 워치 단절·측정 끊김 때 기록·제어를 폰으로 넘긴다(S08 TAKE_OVER_PHONE, S15P31E105-464).
   takeOver: () => void;
   // 그룹런 대기방 준비 완료(G16)로 서버가 만든 내 READY 세션에 붙어 워치를 준비시킨다(S15P31E105-420). 같은 세션이면 그대로 둔다.
@@ -820,6 +823,16 @@ export function RunSessionProvider({
       },
       abortStart: () => {
         controlRef.current?.abortUnconfirmedStart();
+      },
+      startWithPhone: config => {
+        if (config.mode === 'GROUP' || groupRef.current) {
+          return;
+        }
+        pendingConfig.current = config;
+        const existing = controlRef.current?.getState();
+        const reusable = existing && !TERMINAL.includes(existing.status ?? '');
+        const target = reusable ? controlRef.current! : newControl();
+        target.startWithPhone(goalOf(config));
       },
       takeOver: () => {
         controlRef.current?.takeOver();

@@ -9,9 +9,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.LocationManager
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import com.runway.watch.readiness.runPermissions
+import com.runway.watch.readiness.sensorPermissions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,6 +53,20 @@ class ServiceKeepAlive(context: Context) : RunKeepAlive {
     override fun stop() {
         context.stopService(Intent(context, RunForegroundService::class.java))
     }
+}
+
+/** [RunCapability] from this app's granted permissions (S15P31E105-864). */
+class DeviceRunCapability(context: Context) : RunCapability {
+    private val context = context.applicationContext
+
+    override fun sensorsGranted(): Boolean {
+        val granted = runPermissions(Build.VERSION.SDK_INT)
+            .filter { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }.toSet()
+        val sensors = sensorPermissions(Build.VERSION.SDK_INT, granted)
+        return sensors.heartRate && sensors.activity
+    }
+
+    override fun remoteGps(): Boolean = RunLocationHold.permitted(context) && RunLocationHold.background(context)
 }
 
 /**
@@ -152,11 +169,11 @@ class RunForegroundService : Service() {
             } catch (e: Exception) {
                 // 백그라운드 위치 유형 시작 제한 등. 기록은 위치 없이 이어간다.
                 Log.w("RunSession", "location foreground refused: ${e.javaClass.simpleName}")
-                startForeground(RunNotification.ID, notification, health)
+                if (!startHealth(notification)) return START_NOT_STICKY
                 false
             }
         } else {
-            startForeground(RunNotification.ID, notification, health)
+            if (!startHealth(notification)) return START_NOT_STICKY
             false
         }
         foreground = true
@@ -170,6 +187,20 @@ class RunForegroundService : Service() {
             Log.w("RunSession", "wake lock refused: ${e.javaClass.simpleName}")
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Starts the health-type foreground. Android refuses it without heart rate or activity recognition (S15P31E105-864);
+     * that used to crash the app on START. The controller already rejects START without them, so a refusal here only
+     * stops the service: the run is not protected from the OS, but the app and its command result survive.
+     */
+    private fun startHealth(notification: android.app.Notification): Boolean = try {
+        startForeground(RunNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        true
+    } catch (e: Exception) {
+        Log.w("RunSession", "health foreground refused: ${e.javaClass.simpleName}")
+        stopSelf()
+        false
     }
 
     /**

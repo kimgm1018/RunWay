@@ -250,11 +250,25 @@ fun decodeSessionMessage(bytes: ByteArray): SessionEnvelope? {
 
 /** Builders for what the watch sends. Ids are written as JSON numbers as in the spec examples. */
 object SessionMessages {
-    fun prepared(messageId: String, sessionId: String, stateVersion: Long, ready: Boolean, reasonCode: String?): ByteArray =
-        encode("SESSION_PREPARED", messageId, null, sessionId, JSONObject()
+    /**
+     * [remoteGps] (S15P31E105-864): whether a run started from the phone with this app off screen can use watch GPS.
+     * Phone↔watch only; the phone does not forward it to the server. Omitted when null.
+     */
+    fun prepared(
+        messageId: String,
+        sessionId: String,
+        stateVersion: Long,
+        ready: Boolean,
+        reasonCode: String?,
+        remoteGps: Boolean? = null,
+    ): ByteArray {
+        val payload = JSONObject()
             .put("stateVersion", stateVersion)
             .put("ready", ready)
-            .put("reasonCode", reasonCode ?: JSONObject.NULL))
+            .put("reasonCode", reasonCode ?: JSONObject.NULL)
+        if (remoteGps != null) payload.put("remoteGps", remoteGps)
+        return encode("SESSION_PREPARED", messageId, null, sessionId, payload)
+    }
 
     fun startRequest(messageId: String, sessionId: String, expectedVersion: Long): ByteArray =
         encode("START_REQUEST", messageId, null, sessionId, JSONObject().put("expectedVersion", expectedVersion))
@@ -299,7 +313,7 @@ object SessionMessages {
     /**
      * The real result of an approved command. appliedAt only for APPLIED; reasonCode key always present.
      * END adds the upload fields (S15P31E105-311): [pendingBatchCount] watch batches still lack the server save ACK, and
-     * uploadComplete is true only for an applied end with none left.
+     * uploadComplete is true only for an applied end with none left. [gps] only for an applied START (S15P31E105-864).
      */
     fun commandResult(
         messageId: String,
@@ -311,6 +325,7 @@ object SessionMessages {
         reasonCode: String?,
         end: Boolean,
         pendingBatchCount: Int = 0,
+        gps: Boolean? = null,
     ): ByteArray {
         val payload = JSONObject()
             .put("commandId", commandId.toLong())
@@ -321,6 +336,8 @@ object SessionMessages {
             val applied = result == "APPLIED"
             payload.put("pendingBatchCount", pendingBatchCount).put("uploadComplete", applied && pendingBatchCount == 0)
         }
+        // 적용된 START만: 워치 운동이 GPS를 켰는지(S15P31E105-864). 폰↔워치 전용이며 서버로 보내지 않는다.
+        if (gps != null) payload.put("gps", gps)
         return encode("COMMAND_RESULT", messageId, replyTo, sessionId, payload)
     }
 
