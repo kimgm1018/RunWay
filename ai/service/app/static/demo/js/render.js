@@ -125,10 +125,10 @@
 
   function drawCourse(course, trace) {
     var map = byId('course-map');
-    var elevation = byId('elevation');
-    if (!map || !elevation) return;
-    clear(map); clear(elevation);
-    var ms = sizeSvg(map), es = sizeSvg(elevation);
+    var elevation = byId('elevation'); // 프로토타입: 고도 패널을 뺐다. 있으면 그리고, 없으면 지도만 그린다
+    if (!map) return;
+    clear(map); if (elevation) clear(elevation);
+    var ms = sizeSvg(map), es = elevation ? sizeSvg(elevation) : null;
     var raw = course && Array.isArray(course.points) ? course.points : [];
     var points = raw.filter(function (p) { return Array.isArray(p) && num(p[0]) != null && num(p[1]) != null; });
     var context = document.querySelector('.context');
@@ -166,6 +166,7 @@
     if (progress != null && length) meta += ' · ' + Math.round(progress / length * 100) + '% 지점';
     put('course-meta', meta);
 
+    if (!elevation) return; // 프로토타입: 고도 패널 없음
     var elevIdx = [];
     points.forEach(function (p, i) { if (num(p[2]) != null) elevIdx.push(i); });
     if (elevIdx.length < 2 || !hasDist) {
@@ -504,6 +505,18 @@
     return cards;
   }
 
+  // 844: 좁은 화면에서 후보 칸·판정판이 패널 안에서 가로로 넘치면 고른 후보가 가운데 오게 민다.
+  // scrollIntoView는 페이지까지 움직이므로 쓰지 않고, 넘치지 않는 넓은 화면에서는 아무것도 하지 않는다
+  function centerChosen() {
+    [['candidate-list', '.cand.chosen'], ['group-board', '.gb-head.chosen']].forEach(function (pair) {
+      var box = byId(pair[0]);
+      if (!box || box.scrollWidth <= box.clientWidth + 1) return;
+      var target = box.querySelector(pair[1]);
+      if (!target) return;
+      box.scrollLeft = Math.max(0, target.offsetLeft - (box.clientWidth - target.offsetWidth) / 2);
+    });
+  }
+
   // ── 그룹 판정판(AI10) ───────────────────
   function groupBoard(trace) {
     var board = byId('group-board');
@@ -780,6 +793,7 @@
     if (chip) chip.setAttribute('data-kind', mode.kind);
     var cards = candidateCards(trace, animate && !trace.group);
     groupBoard(trace);
+    centerChosen();
     var board = byId('group-board');
     if (board) {
       board.classList.remove('animating');

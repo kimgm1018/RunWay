@@ -66,6 +66,8 @@ class ScreenGalleryTest {
         "9.2_RunStatus" to { RunStatusPage(run, 3, 0, true, {}) },
         "9.2a_RunStatusFree" to { RunStatusPage(run.copy(metrics = metrics.copy(goalProgress = null), comparison = RecordComparison.NotSelected), 2, 0, true, {}) },
         "9.2b_RunStatusDegraded" to { RunStatusPage(run.copy(metrics = metrics.copy(feeds = MetricFeeds(FeedStatus.DELAYED, FeedStatus.NO_SIGNAL))), 3, 0, true, {}) },
+        "9.2b2_RunStatusLocationLost" to { RunStatusPage(run.copy(metrics = metrics.copy(feeds = MetricFeeds(FeedStatus.NO_SIGNAL))), 3, 0, true, {}) },
+        "9.2b3_RunStatusLocationStopped" to { RunStatusPage(run.copy(metrics = metrics.copy(feeds = MetricFeeds(FeedStatus.STOPPED))), 3, 0, true, {}) },
         "9.2c_RunStatusRange" to { RunStatusPage(run.copy(metrics = metrics.copy(paceSecondsPerKm = 520)), 3, 0, true, {}) },
         "9.2d_RunPhoneLost" to { RunStatusPage(run.copy(phoneConnected = false), 3, 0, true, {}) },
         "9.2e_RunServerDelay" to { RunStatusPage(run.copy(serverLinkLost = true), 3, 0, true, {}) },
@@ -73,6 +75,7 @@ class ScreenGalleryTest {
         "9.2-2_MetricDistance" to { RunDetailScreen(run, RunDetail.DISTANCE) {} },
         "9.2-3_MetricTime" to { RunDetailScreen(run, RunDetail.TIME) {} },
         "9.2-4_MetricBody" to { RunDetailScreen(run, RunDetail.BODY) {} },
+        "9.2-4b_MetricBodyOff" to { RunDetailScreen(run.copy(metrics = metrics.copy(feeds = MetricFeeds(FeedStatus.LIVE, FeedStatus.STOPPED, FeedStatus.NO_SIGNAL))), RunDetail.BODY) {} },
         "9.3a_PauseRequest" to { PauseRequestScreen(run.copy(pendingCommand = true, pendingIntent = RunIntent.PAUSE)) },
         "9.3_Paused" to { PausedScreen(run.copy(state = RunState.PAUSED), {}, {}) },
         "9.3c_ResumeRequest" to { PausedScreen(run.copy(state = RunState.PAUSED, pendingCommand = true, pendingIntent = RunIntent.RESUME), {}, {}) },
@@ -90,6 +93,10 @@ class ScreenGalleryTest {
         "9.4g_ResultAnalysisFailed" to { ResultScreen(result(RunResult(SaveStatus.SAVED, AnalysisStatus.FAILED))) },
         "9.4_ResultUnconfirmed" to { ResultScreen(result(RunResult(SaveStatus.UNCONFIRMED))) },
         "9.5_PaceCoaching" to { PaceCoachingPage(run, 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingAdjust" to { PaceCoachingPage(run.copy(coaching = CoachingGuide(350, RhythmBpm(176), Coaching.cue(176, 172))), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingManualApplied" to { PaceCoachingPage(bpm(BpmChangeStatus.APPLIED).copy(metrics = metrics.copy(rhythm = RhythmBpm(174))), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingRequesting" to { PaceCoachingPage(bpm(BpmChangeStatus.REQUESTING), 3, 1, true, {}, {}) },
+        "9.5_PaceCoachingServerLost" to { PaceCoachingPage(run.copy(serverLinkLost = true), 3, 1, true, {}, {}) },
         "9.5b_CoachingManual" to { RhythmManualScreen(run, {}, {}) },
         "9.5d_CoachingRequest" to { RhythmManualScreen(bpm(BpmChangeStatus.REQUESTING).copy(pendingCommand = true), {}, {}) },
         "9.5e_CoachingRejected" to { RhythmManualScreen(bpm(BpmChangeStatus.REJECTED), {}, {}) },
@@ -97,9 +104,11 @@ class ScreenGalleryTest {
         "9.6_RecordCompare" to { RecordComparePage(run, 3, 2, true) },
         "9.6b_RecordCompareWaiting" to { RecordComparePage(run.copy(comparison = RecordComparison.Waiting), 3, 2, true) },
         "9.7_GroupPace" to { GroupPacePage(group.copy(group = group.group!!.copy(notice = GroupNotice.PaceChanged(380, 370))), 3, 1, true) },
+        "9.7c_GroupPaceGapNotice" to { GroupPacePage(group.copy(group = group.group!!.copy(notice = GroupNotice.PaceChanged(380, 370), gapNotice = GroupNotice.GapWidened(160, "민지"))), 3, 1, true) },
         "9.7a_GroupStartRequest" to { StandbyScreen(ready.copy(mode = RunMode.GROUP, group = GroupStatus(GroupPhase.RUNNING, 370), pendingCommand = true, pendingIntent = RunIntent.START), false, {}, {}, {}) },
         "9.7b_GroupEnded" to { GroupEndedScreen(group.copy(group = group.group!!.copy(phase = GroupPhase.FORCE_FINISHED)), {}, {}) },
         "9.8_GroupPosition" to { GroupPositionPage(group, 3, 2, true) },
+        "9.8f_GroupPositionGapNotice" to { GroupPositionPage(group.copy(group = group.group!!.copy(gapNotice = GroupNotice.GapWidened(160, "민지"))), 3, 2, true) },
         "9.8b_GroupOrderTie" to { GroupPositionPage(position(GroupPosition.Known(GroupStanding(3, 2, 4, 45.0, 30.0))), 3, 2, true) },
         "9.8c_GroupOrderStale" to { GroupPositionPage(position(GroupPosition.Known(GroupStanding(3, 2, 5, 45.0, 30.0), delayed = true)), 3, 2, true) },
         "9.8d_GroupOrderUnavailable" to { GroupPositionPage(position(GroupPosition.Unavailable), 3, 2, true) },
@@ -111,9 +120,11 @@ class ScreenGalleryTest {
         assumeTrue(args.getString("gallery") == "true")
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(target.getExternalFilesDir(null), "gallery/${args.getString("galleryTag") ?: "default"}").apply { mkdirs() }
-        var current by mutableStateOf(cases.first())
+        // galleryOnly=<prefix> renders just the states whose name starts with it (e.g. 9.5_).
+        val selected = args.getString("galleryOnly")?.let { prefix -> cases.filter { it.first.startsWith(prefix) } } ?: cases
+        var current by mutableStateOf(selected.first())
         compose.setContent { RunwayWatchTheme { Box(Modifier.fillMaxSize()) { current.second() } } }
-        for (case in cases) {
+        for (case in selected) {
             current = case
             compose.waitForIdle()
             val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()

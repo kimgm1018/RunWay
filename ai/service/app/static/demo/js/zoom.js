@@ -10,7 +10,7 @@
            "'실제'는 최근 60초 동안 실제로 뛴 페이스입니다."},
     {selector: '.candidates-panel', key: 'candidates', title: '페이스 후보', scale: 1.4, wholeClick: true,
      text: '지금 페이스보다 30초 빠른 것부터 60초 느린 것까지 9개 후보를 놓고, 그 페이스로 2분 뛰면 심박이 얼마가 될지 AI(GRU)가 예측한 값입니다. ' +
-           '빗금은 허용 심박을 넘는 후보, 검은 칸이 고른 페이스입니다.'},
+           '빗금은 허용 심박을 넘는 후보, 민트색 칸이 고른 페이스입니다.'},
     {selector: '.chart-panel', key: 'chart', title: '심박 예측', scale: 1.4, wholeClick: true,
      text: '왼쪽 선은 실제 심박, 오른쪽으로 뻗은 선은 고른 페이스로 뛸 때 2분 뒤까지의 예측입니다. 빨간 점선이 넘지 말아야 할 허용 심박입니다.'},
     {selector: '.records-panel', key: 'records', title: '판단 기록', scale: 1.45, wholeClick: true,

@@ -492,7 +492,7 @@ export function SettingsScreen() {
           <Tiles>
             <Tile
               icon="users"
-              name="그룹런 알림"
+              name="러닝 알림"
               state={onOff(settings.notifications.groupRun)}
               on={settings.notifications.groupRun}
               disabled={savingSettings}

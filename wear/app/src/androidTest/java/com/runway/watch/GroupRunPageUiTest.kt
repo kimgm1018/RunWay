@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.runway.watch.run.*
+import com.runway.watch.ui.GroupRunDisplay
 import com.runway.watch.ui.WatchApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -46,15 +47,46 @@ class GroupRunPageUiTest {
         compose.onNodeWithContentDescription("페이스 킬로미터당 5분 40초").assertIsDisplayed()
     }
 
-    @Test fun pacePageShowsSharedAndOwnPaceAndFollowsChanges() {
+    /** S15P31E105-849: shared and own pace stay; a change is told briefly instead of the old → new line. */
+    @Test fun pacePageShowsSharedAndOwnPaceAndABriefChangeNotice() {
         val control = launch()
         openPage(2)
         compose.onNodeWithContentDescription("공동 페이스 킬로미터당 5분 40초").assertIsDisplayed()
         compose.onNodeWithText("내 5’42” · +2”").assertIsDisplayed()
 
+        compose.mainClock.autoAdvance = false
         control.update(running.copy(guidePaceSecondsPerKm = 355, notice = GroupNotice.PaceChanged(340, 355)))
+        compose.mainClock.advanceTimeByFrame()
         compose.onNodeWithContentDescription("공동 페이스 킬로미터당 5분 55초").assertIsDisplayed()
-        compose.onNodeWithText("이전 5’40” → 새 5’55”").assertIsDisplayed()
+        compose.onNodeWithText("목표가 변경됐어요").assertIsDisplayed()
+        compose.onNodeWithText("이전", substring = true).assertDoesNotExist()
+
+        compose.mainClock.advanceTimeBy(GroupRunDisplay.PACE_CHANGE_NOTICE_MS + 100)
+        compose.onNodeWithText("목표가 변경됐어요").assertDoesNotExist()
+        compose.onNodeWithContentDescription("공동 페이스 킬로미터당 5분 55초").assertIsDisplayed()
+        compose.onNodeWithText("내 5’42” · −13”").assertIsDisplayed()
+
+        // The same change resent stays hidden; the next one is told again.
+        control.update(running.copy(guidePaceSecondsPerKm = 355, notice = GroupNotice.PaceChanged(340, 355)))
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("목표가 변경됐어요").assertDoesNotExist()
+        control.update(running.copy(guidePaceSecondsPerKm = 345, notice = GroupNotice.PaceChanged(355, 345)))
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("목표가 변경됐어요").assertIsDisplayed()
+    }
+
+    /** The leader's widened-group notice keeps its meaning and stays after the change notice is gone (S15P31E105-629). */
+    @Test fun leadersGapNoticeStaysAfterTheChangeNotice() {
+        val control = launch()
+        openPage(2)
+        compose.mainClock.autoAdvance = false
+        control.update(running.copy(guidePaceSecondsPerKm = 355, notice = GroupNotice.PaceChanged(340, 355),
+            gapNotice = GroupNotice.GapWidened(160, "민지")))
+        compose.mainClock.advanceTimeBy(GroupRunDisplay.PACE_CHANGE_NOTICE_MS + 100)
+        compose.onNodeWithText("목표가 변경됐어요").assertDoesNotExist()
+        // The position page next door shows it too; the one in view is this page's.
+        val gap = compose.onAllNodesWithText("민지님 뒤처짐 · 160m")
+        assertEquals(1, (0 until gap.fetchSemanticsNodes().size).count { runCatching { gap[it].assertIsDisplayed() }.isSuccess })
     }
 
     @Test fun positionPageShowsRankCountsAndGaps() {

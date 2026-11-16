@@ -425,6 +425,39 @@ test('notifications come in one list, count as read once left, and open the rela
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-847: a 오늘 준비도 row reads its title and opens today's 준비도 on 2.1, from whichever menu 2.1 was on.
+test('a 오늘 준비도 notification opens 2.1 준비도', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const row: AppNotification = {
+    id: '901',
+    kind: 'READINESS_TODAY',
+    message: '오늘 준비도는 72.5점입니다. 달리러 가볼까요?',
+    createdAt: new Date().toISOString(),
+    read: false,
+    targetId: '55',
+  };
+  jest
+    .spyOn(repositories.notifications, 'list')
+    .mockResolvedValue({ items: [row], unreadCount: 1, nextCursor: null });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '러닝 분석');
+  expect(labelled(screen!, '러닝 분석').props.accessibilityState.selected).toBe(true);
+
+  await press(screen!, '알림');
+  await press(screen!, '읽지 않음, 오늘 준비도, 오늘 준비도는 72.5점입니다. 달리러 가볼까요?');
+  await settle();
+  expect(labelled(screen!, '준비도').props.accessibilityState.selected).toBe(true);
+  expect(labelled(screen!, '러닝 분석').props.accessibilityState.selected).toBe(false);
+  await act(async () => screen!.unmount());
+});
+
 test('an empty inbox shows the 2.9b empty state', async () => {
   const screen = await render('noNotifications');
   await press(screen, '알림');

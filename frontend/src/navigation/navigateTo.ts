@@ -21,6 +21,15 @@ export function openRecord(navigation: Navigate, recordId: string) {
   );
 }
 
+// Today's 준비도 on 2.1, from the 오늘 준비도 push and its 2.9 row (S15P31E105-847).
+export function openReadiness(navigation: Navigate) {
+  navigation.navigate(
+    'MainTabs',
+    { screen: 'HomeTab', params: { screen: 'Home', params: { menu: 'readiness' } } },
+    { pop: true },
+  );
+}
+
 // 러닝 시작하기 does what the 러닝 tab does (S15P31E105-683): the run tab's map as it was left (2.0F at first, or
 // 2.0 once a course is picked), so it never stacks a second map and 뒤로 still leaves for 홈.
 export function openRunTab(navigation: Navigate) {

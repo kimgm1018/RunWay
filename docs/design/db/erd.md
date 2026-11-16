@@ -357,6 +357,7 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 | 새 팔로워 | NEW_FOLLOWER | 행위자 users.id | 러너 프로필 |
 | 팔로우 요청 | FOLLOW_REQUEST | 행위자 users.id | 러너 프로필·요청 목록 |
 | 팔로우 승인 | FOLLOW_APPROVED | 승인자 users.id | 러너 프로필 |
+| 오늘 준비도(S15P31E105-847) | READINESS_TODAY | daily_readiness.id | 홈 준비도. 앱은 target_id로 화면을 고르지 않는다 |
 
 앱은 종류·대상 ID로 화면을 선택한다. target_id는 여러 테이블을 가리키므로 단일 FK를 두지 않는다. 서비스가 허용 코드와 종류별 대상 조합을 검증하고, 클릭 시 삭제 여부와 현재 열람 권한을 확인한다. 삭제된 대상은 이동 불가로 안내하며 알림 수신이 비공개 기록의 접근 권한을 부여하지는 않는다. 가입 거절 후 크루 상세 조회와 가입자 전용 기능 권한도 구분한다.
 

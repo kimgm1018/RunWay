@@ -1269,7 +1269,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 | `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching은 지원하지 않음. |
 
 
-`notifications.groupRun`은 user_settings.group_notifications_enabled, `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 2026-11-05 사용자 확정(S15P31E105-249) + 2026-11-06(S15P31E105-458): 공개 계정 새 팔로워·비공개 계정 새 팔로우 요청·수동 승인 **알림함 행**은 `notifications.community`를 따른다. false이면 행을 만들지 않으며 팔로우 전용 설정은 추가하지 않는다. 공개 전환 자동 승인 알림은 발송하지 않는다. 알림함 API는 [notifications.md](notifications.md)를 본다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 요청·응답에서 지원하지 않는다.
+`notifications.groupRun`은 user_settings.group_notifications_enabled(그룹런 취소·시작 임박·오늘 준비도 알림, 앱 표시 이름 `러닝 알림`, S15P31E105-847), `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 2026-11-05 사용자 확정(S15P31E105-249) + 2026-11-06(S15P31E105-458): 공개 계정 새 팔로워·비공개 계정 새 팔로우 요청·수동 승인 **알림함 행**은 `notifications.community`를 따른다. false이면 행을 만들지 않으며 팔로우 전용 설정은 추가하지 않는다. 공개 전환 자동 승인 알림은 발송하지 않는다. 알림함 API는 [notifications.md](notifications.md)를 본다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 요청·응답에서 지원하지 않는다.
 
 **사용 흐름과 응답 판단**
 

@@ -22,6 +22,7 @@ import com.runway.watch.ui.theme.HeroSize
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
 import androidx.wear.compose.material3.Text
+import com.runway.watch.ui.theme.largeFont
 import com.runway.watch.ui.theme.px
 
 /** A metric as shown while running. [delayed] values are the last ones received and are dimmed. */
@@ -81,7 +82,11 @@ object RunStatusDisplay {
     const val SERVER_DELAY = "기록 비교·그룹 정보가 멈췄어요"
     const val OFFLINE = "오프라인 · 저장 미확인"
     const val OUT_OF_RANGE = "페이스 눈금 범위 밖"
-    const val LOCATION_LATE = "위치 확인 지연 · 페이스 계산 대기"
+    /** Location late with a pace kept: the dimmed number is the last one received (S15P31E105-849 A안). */
+    const val LOCATION_LAST_PACE = "위치 지연 · 마지막 페이스"
+    const val LOCATION_LATE = "위치 지연 · 페이스 대기"
+    const val LOCATION_NO_SIGNAL = "위치 수신 없음"
+    const val LOCATION_STOPPED = "위치 수집 중단"
 
     fun from(snapshot: RunSnapshot, online: CheckState = CheckState.UNKNOWN): RunStatusView {
         val m = snapshot.metrics
@@ -112,11 +117,21 @@ object RunStatusDisplay {
     fun rim(view: RunStatusView): RimValues =
         RimValues(tl = view.ringProgress, dim = view.distance.delayed)
 
-    /** True when any measurement source is not live: the face switches to the per-source board (9.2b). */
-    fun degraded(view: RunStatusView): Boolean =
-        listOf(view.distance, view.heartRate, view.cadence).any { it.status != FeedStatus.LIVE }
+    /**
+     * The one line the status face shows while location is not live (S15P31E105-849 A안). Heart rate and cadence states
+     * are not repeated here; they stay in the heart-rate·cadence detail. Null while location is live.
+     */
+    fun locationLine(view: RunStatusView): String? = when (view.distance.status) {
+        FeedStatus.LIVE -> null
+        FeedStatus.DELAYED -> if (view.pace.text.missing) LOCATION_LATE else LOCATION_LAST_PACE
+        FeedStatus.NO_SIGNAL -> LOCATION_NO_SIGNAL
+        FeedStatus.STOPPED -> LOCATION_STOPPED
+    }
 
-    /** Words under a value on the 9.2b board. Only an existing feed state; no seconds-ago without a timestamp. */
+    /** Label under the distance while location is not live: a late value is the last one confirmed, never current. */
+    fun distanceLabel(view: RunStatusView): String = if (view.distance.delayed) "km · 마지막 확인" else "km"
+
+    /** Words for a source state in its detail. Only an existing feed state; no seconds-ago without a timestamp. */
     fun feedLabel(status: FeedStatus): String = when (status) {
         FeedStatus.LIVE -> "정상"
         FeedStatus.DELAYED -> "지연"
@@ -168,7 +183,9 @@ internal fun pauseHandle(view: RunStatusView, onPause: () -> Unit): HandleSpec? 
 /**
  * 9.2 운동 현황: pace as the key number over the pace dots, distance and time below. The upper-left arc is goal distance
  * progress. Tapping a value opens its detail (9.2-1~3); the heart mark on the left edge opens heart rate and cadence
- * (9.2-4). Link and sensor problems stay on this page as icons and one line (no forced screen change).
+ * (9.2-4). Link and sensor problems stay on this page as icons and one line (no forced screen change). While location
+ * is not live the face keeps this layout with one location line in place of the icons (S15P31E105-849 A안); heart
+ * rate and cadence states are read in their detail instead of being repeated here.
  */
 @Composable
 internal fun RunStatusPage(
@@ -176,17 +193,19 @@ internal fun RunStatusPage(
     online: CheckState = CheckState.UNKNOWN, onDetail: (RunDetail) -> Unit = {},
 ) {
     val view = RunStatusDisplay.from(snapshot, online)
-    val degraded = RunStatusDisplay.degraded(view)
+    val location = RunStatusDisplay.locationLine(view)
+    val linkProblem = view.phoneLost || view.serverLost || view.offline
     Box(Modifier.fillMaxSize()) {
         WatchFace(
             rim = RunStatusDisplay.rim(view),
-            ticks = if (degraded) null else view.paceTicks,
+            ticks = view.paceTicks,
             pages = PageDots(count, index),
             handle = pauseHandle(view, onPause),
             focused = visible,
         ) {
-            StatusIcons(RunStatusDisplay.statusItems(view))
-            if (degraded) DegradedBoard(view, onDetail) else StatusBoard(view, onDetail)
+            // The location line already names the GPS state, so its icons would only repeat it; a link problem keeps them.
+            if (location == null || linkProblem) StatusIcons(RunStatusDisplay.statusItems(view))
+            StatusBoard(view, location, linkProblem, onDetail)
         }
         // Heart mark on the left edge: a 48dp target for 9.2-4.
         Box(
@@ -198,54 +217,40 @@ internal fun RunStatusPage(
 }
 
 @Composable
-private fun StatusBoard(view: RunStatusView, onDetail: (RunDetail) -> Unit) {
+private fun StatusBoard(view: RunStatusView, location: String?, linkProblem: Boolean, onDetail: (RunDetail) -> Unit) {
     when {
         view.phoneLost -> BodyText(RunStatusDisplay.PHONE_LOST, RunwayColors.Warning, strong = true, announce = true)
         view.serverLost -> BodyText(RunStatusDisplay.SERVER_DELAY, announce = true)
         view.offline -> BodyText(RunStatusDisplay.OFFLINE, announce = true)
+        location != null -> BodyText(location, RunwayColors.Warning, announce = true)
     }
     Box(Modifier.clickable(role = Role.Button, onClickLabel = "페이스 자세히") { onDetail(RunDetail.PACE) }) {
         HeroMetric(view.pace.text, HeroSize.PACE, unit = null, dim = view.pace.delayed)
     }
     if (view.paceOutOfRange) Caption(RunStatusDisplay.OUT_OF_RANGE)
-    if (view.phoneLost || view.serverLost || view.offline) return
+    if (linkProblem) return
     Divider()
-    CellRow {
-        InlineMetric(view.distance.text, color = if (view.distance.delayed) RunwayColors.ContentDim else null,
+    if (location == null) CellRow {
+        InlineMetric(view.distance.text,
             modifier = Modifier.clickable(role = Role.Button, onClickLabel = "거리 자세히") { onDetail(RunDetail.DISTANCE) })
         InlineMetric(view.elapsed.text,
             modifier = Modifier.clickable(role = Role.Button, onClickLabel = "운동 시간 자세히") { onDetail(RunDetail.TIME) })
-    }
-}
-
-/** 9.2b: each source with its own state. No estimate is made up; a late value is the last one received, dimmed. */
-@Composable
-private fun DegradedBoard(view: RunStatusView, onDetail: (RunDetail) -> Unit) {
-    // Smaller than the normal hero: four sources and their states have to fit under it.
-    HeroMetric(view.pace.text, 72, unit = null, dim = view.pace.delayed)
-    if (view.distance.status != FeedStatus.LIVE) {
-        BodyText(RunStatusDisplay.LOCATION_LATE, RunwayColors.Warning, announce = true)
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(px(28))) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(px(2))) {
-            FeedCell(view.distance, Modifier.clickable { onDetail(RunDetail.DISTANCE) })
-            FeedCell(view.heartRate, Modifier.clickable { onDetail(RunDetail.BODY) }, warnWhenOff = true)
+    } else if (largeFont()) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(px(4))) {
+        // Stacked labelled cells do not fit a large font: the grey distance and the line above tell it is the last one.
+        InlineMetric(view.distance.text.copy(description = view.distance.text.description + if (view.distance.delayed) ", 마지막 확인" else ""),
+            color = RunwayColors.ContentDim,
+            modifier = Modifier.clickable(role = Role.Button, onClickLabel = "거리 자세히") { onDetail(RunDetail.DISTANCE) })
+        InlineMetric(view.elapsed.text,
+            modifier = Modifier.clickable(role = Role.Button, onClickLabel = "운동 시간 자세히") { onDetail(RunDetail.TIME) })
+    } else CellRow {
+        // Labelled cells: the distance is the last one confirmed (grey) or "– –", told apart from the running time.
+        Box(Modifier.clickable(role = Role.Button, onClickLabel = "거리 자세히") { onDetail(RunDetail.DISTANCE) }) {
+            ValueCell(view.distance.text.value, RunStatusDisplay.distanceLabel(view),
+                view.distance.text.description + if (view.distance.delayed) ", 마지막 확인" else "", valueColor = RunwayColors.ContentDim)
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(px(2))) {
-            FeedCell(view.elapsed, Modifier.clickable { onDetail(RunDetail.TIME) })
-            FeedCell(view.cadence, Modifier.clickable { onDetail(RunDetail.BODY) })
+        Box(Modifier.clickable(role = Role.Button, onClickLabel = "운동 시간 자세히") { onDetail(RunDetail.TIME) }) {
+            ValueCell(view.elapsed.text.value, "운동 시간", view.elapsed.text.description)
         }
-    }
-}
-
-@Composable
-private fun FeedCell(metric: LiveMetric, modifier: Modifier, warnWhenOff: Boolean = false) {
-    val off = metric.status != FeedStatus.LIVE
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        InlineMetric(metric.text, sizePx = 40, color = if (off) RunwayColors.ContentDim else null)
-        // An off heart sensor is a warning (pink, like the heart mark); the other sources only say their state.
-        Text(RunStatusDisplay.feedLabel(metric.status), style = RunwayType.Label,
-            color = if (off && warnWhenOff) RunwayColors.Warning else RunwayColors.ContentSecondary)
     }
 }
 
@@ -270,9 +275,14 @@ internal fun RunDetailScreen(
             RunDetail.DISTANCE -> HeroMetric(view.distance.text, HeroSize.SHORT, dim = view.distance.delayed)
             RunDetail.TIME -> HeroMetric(view.elapsed.text, HeroSize.forText(view.elapsed.text.value))
             RunDetail.BODY -> {
-                InlineHero(view.heartRate.text, "bpm", RunwayColors.Primary)
+                // Each source keeps its own state here, so the status face does not have to repeat them (S15P31E105-849).
+                // One step smaller while a state line has to fit under a value on the round face.
+                val size = if (view.heartRate.status == FeedStatus.LIVE && view.cadence.status == FeedStatus.LIVE) 88 else 68
+                InlineHero(view.heartRate.text, "bpm", RunwayColors.Primary, size)
+                FeedState(view.heartRate, warn = true)
                 Divider(180)
-                InlineHero(view.cadence.text, null, RunwayColors.Content)
+                InlineHero(view.cadence.text, null, RunwayColors.Content, size)
+                FeedState(view.cadence)
             }
             RunDetail.RHYTHM -> Unit
         }
@@ -280,9 +290,17 @@ internal fun RunDetailScreen(
     }
 }
 
+/** A source's state under its value, only when it is not live; an off heart sensor is a warning like the heart mark. */
 @Composable
-private fun InlineHero(text: MetricText, unit: String?, color: Color) {
-    InlineMetric(text, sizePx = 88, unit = unit ?: text.unit, color = if (text.missing) RunwayColors.ContentDim else color)
+private fun FeedState(metric: LiveMetric, warn: Boolean = false) {
+    if (metric.status == FeedStatus.LIVE) return
+    Text(RunStatusDisplay.feedLabel(metric.status), style = RunwayType.Label,
+        color = if (warn && metric.status != FeedStatus.DELAYED) RunwayColors.Warning else RunwayColors.ContentSecondary)
+}
+
+@Composable
+private fun InlineHero(text: MetricText, unit: String?, color: Color, sizePx: Int = 88) {
+    InlineMetric(text, sizePx = sizePx, unit = unit ?: text.unit, color = if (text.missing) RunwayColors.ContentDim else color)
 }
 
 /**

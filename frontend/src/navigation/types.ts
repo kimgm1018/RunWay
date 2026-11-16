@@ -12,10 +12,10 @@ import type {
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
-// The home tab's stack: 2.1 (opening one of my runs on 러닝 분석, S15P31E105-594), then 5.1 (on a day, YYYY-MM-DD)
-// and 5.3.
+// The home tab's stack: 2.1 (opening one of my runs on 러닝 분석, S15P31E105-594, or today's 준비도 from its push,
+// S15P31E105-847), then 5.1 (on a day, YYYY-MM-DD) and 5.3.
 export type HomeStackParamList = {
-  Home: { recordId: string } | undefined;
+  Home: { recordId: string } | { menu: 'readiness' } | undefined;
 } & Record<Exclude<HomeTabRouteName, 'Records'>, undefined> & {
     Records: { day: string } | undefined;
   };

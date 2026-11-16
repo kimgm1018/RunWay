@@ -2,6 +2,10 @@ package com.runway.watch.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,7 +24,9 @@ import com.runway.watch.ui.format.MetricText
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
 import com.runway.watch.ui.theme.HeroSize
+import com.runway.watch.ui.theme.largeFont
 import com.runway.watch.ui.theme.px
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 /** A line of text with what TalkBack reads for it. */
@@ -70,6 +76,10 @@ sealed interface GroupPositionView {
  * (G10, GRP-004·008); the watch never ranks runners or computes a pace itself.
  */
 object GroupRunDisplay {
+    const val PACE_CHANGED = "목표가 변경됐어요"
+    /** How long the change notice stays while the page is in view; afterwards only the new pace remains (S15P31E105-849). */
+    const val PACE_CHANGE_NOTICE_MS = 5_000L
+
     fun status(snapshot: RunSnapshot): GroupStatus = snapshot.group ?: GroupStatus()
 
     fun pace(snapshot: RunSnapshot): GroupPaceView {
@@ -130,7 +140,8 @@ object GroupRunDisplay {
         val from = MetricFormat.pace(notice.fromSecondsPerKm)
         val to = MetricFormat.pace(notice.toSecondsPerKm)
         if (from.missing || to.missing) return null
-        return GroupLine("이전 ${from.value} → 새 ${to.value}", "공동 페이스 변경, ${from.description}에서 ${to.description}로")
+        // The new pace is the big number above, so the line only says it changed; TalkBack still hears both paces.
+        return GroupLine(PACE_CHANGED, "공동 페이스 변경, ${from.description}에서 ${to.description}로")
     }
 
     /** The leader's widened-group notice (S15P31E105-629): who is at the back when known, else a generic line. */
@@ -138,8 +149,8 @@ object GroupRunDisplay {
         val distance = meters(notice.meters.toDouble())
         val spoken = spokenMeters(notice.meters.toDouble())
         return notice.memberName?.let {
-            GroupLine("${it}님이 뒤처졌어요 ($distance)", "그룹 간격 알림, ${it}님이 뒤처졌어요, 선두와 후미 $spoken")
-        } ?: GroupLine("그룹이 벌어졌어요 ($distance)", "그룹 간격 알림, 그룹이 벌어졌어요, 선두와 후미 $spoken")
+            GroupLine("${it}님 뒤처짐 · $distance", "그룹 간격 알림, ${it}님이 뒤처졌어요, 선두와 후미 $spoken")
+        } ?: GroupLine("그룹 간격 벌어짐 · $distance", "그룹 간격 알림, 그룹이 벌어졌어요, 선두와 후미 $spoken")
     }
 
     /** First-to-last distance of the whole group; shown in every running state since it is not this runner's. */
@@ -193,21 +204,38 @@ object GroupRunDisplay {
 }
 
 /**
- * 9.7 공동 페이스: the group's shared guide pace as the key number and the server's change notice. The runner's own
- * rhythm BPM fits their stride and lives on the status page; the update time is left out until the server sends one.
+ * 9.7 공동 페이스: the group's shared guide pace as the key number, with the runner's own pace and the difference
+ * under it. A change is told by "목표가 변경됐어요" for
+ * [GroupRunDisplay.PACE_CHANGE_NOTICE_MS] of the page being in view, then only the new pace remains (S15P31E105-849).
+ * [seenChange] is the last change already shown that long; the pager keeps it so a page rebuilt by swiping does not
+ * show it again. The leader's widened-group notice stays as long as the phone sends it. The runner's own rhythm BPM
+ * fits their stride and lives on the status page; the update time is left out until the server sends one.
  */
 @Composable
-internal fun GroupPacePage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit = {}) {
+internal fun GroupPacePage(
+    snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit = {},
+    seenChange: MutableState<GroupNotice.PaceChanged?> = remember { mutableStateOf(null) },
+) {
     val status = RunStatusDisplay.from(snapshot)
+    val notice = GroupRunDisplay.status(snapshot).notice as? GroupNotice.PaceChanged
+    val fresh = notice != null && notice != seenChange.value
+    LaunchedEffect(notice, fresh, visible) {
+        if (fresh && visible) {
+            delay(GroupRunDisplay.PACE_CHANGE_NOTICE_MS)
+            seenChange.value = notice
+        }
+    }
     WatchFace(rim = RunStatusDisplay.rim(status), pages = PageDots(count, index), handle = pauseHandle(status, onPause), focused = visible) {
         when (val view = GroupRunDisplay.pace(snapshot)) {
             is GroupPaceView.Pace -> {
+                view.gap?.let { GapHeader(it) }
                 Caption("공동 페이스")
                 HeroMetric(view.pace, HeroSize.PACE, unit = null)
-                view.change?.let { Line(it, RunwayColors.Content, announce = true, strong = true) }
-                // S15P31E105-629: the leader's widened-group notice takes the own-pace line's place to fit the face.
-                view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
-                    ?: view.mine?.let { Line(it, RunwayColors.ContentSecondary) }
+                // Short notes under the number at the size of the other lines (S15P31E105-849), so they stay on one line.
+                view.change?.takeIf { fresh }?.let { Line(it, RunwayColors.Content, announce = true) }
+                // With a large font the top gap line leaves room for one note: the own pace waits out the brief change notice.
+                view.mine?.takeUnless { view.gap != null && fresh && view.change != null && largeFont() }
+                    ?.let { Line(it, RunwayColors.ContentSecondary) }
             }
             is GroupPaceView.Message -> MessageBody(view.message, "공동 페이스")
         }
@@ -228,10 +256,11 @@ internal fun GroupPositionPage(snapshot: RunSnapshot, count: Int, index: Int, vi
                 val location = snapshot.metrics.feeds.location
                 val ended = GroupRunDisplay.status(snapshot).phase.let { it == GroupPhase.FINISHED || it == GroupPhase.FORCE_FINISHED }
                 val noMe = !ended && (location == FeedStatus.NO_SIGNAL || location == FeedStatus.STOPPED)
+                view.gap?.let { GapHeader(it) }
                 if (noMe) StatusIcons(listOf(StatusItem(StatusKind.GPS, StatusLevel.PROBLEM, "위치 수신 없음")))
                 MessageBody(view.message, if (noMe) null else "진행 순서")
-                view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
-                    ?: view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
+                // The gap notice already carries the first-to-last distance.
+                if (view.gap == null) view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
             }
         }
     }
@@ -241,6 +270,7 @@ internal fun GroupPositionPage(snapshot: RunSnapshot, count: Int, index: Int, vi
 private fun StandingBody(view: GroupPositionView.Standing) {
     // A late standing is the last one received: marked and grey, never shown as current (9.8c). The time it was
     // last confirmed needs a server timestamp, which G10 does not carry yet.
+    view.gap?.let { GapHeader(it) }
     if (view.delayed) StatusChip("순위 갱신 지연")
     Row(
         Modifier.clearAndSetSemantics { contentDescription = view.rankDescription + (view.total?.let { ", 전체 ${it.removePrefix("/ ")}" } ?: "") },
@@ -254,13 +284,15 @@ private fun StandingBody(view: GroupPositionView.Standing) {
             style = RunwayType.number(36), color = RunwayColors.ContentSecondary, maxLines = 1)
     }
     view.tie?.let { StatusChip("공동 순위 · ${it}명") }
-    CellRow {
+    val cells: @Composable () -> Unit = {
         SideCell(view.ahead, "바로 앞", view.delayed)
         SideCell(view.behind, "바로 뒤", view.delayed)
     }
+    // With the top gap line, stacked cells would leave the face with a large font; side by side they fit.
+    if (view.gap != null) Row(horizontalArrangement = Arrangement.spacedBy(px(44)), verticalAlignment = Alignment.Bottom) { cells() }
+    else CellRow(cells)
     // S15P31E105-629: the leader's widened-group notice includes the first-to-last distance, so it replaces that line.
-    view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
-        ?: view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
+    if (view.gap == null) view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
 }
 
 /** Gap to the nearest runner on one side; nobody there reads 없음, someone without a delivered gap "– –". */
@@ -270,16 +302,32 @@ private fun SideCell(side: GroupSide, label: String, delayed: Boolean) {
     ValueCell(value, label, side.description, valueColor = if (delayed) RunwayColors.ContentDim else RunwayColors.Content)
 }
 
+/**
+ * The leader's widened-group notice as one warning line at the top of the face (S15P31E105-849), like the location line
+ * of 9.2: the page below keeps its own layout. TalkBack reads the full sentence.
+ */
+@Composable
+private fun GapHeader(line: GroupLine) {
+    Text(
+        line.text,
+        Modifier.semantics {
+            contentDescription = line.description
+            liveRegion = LiveRegionMode.Polite
+        },
+        style = RunwayType.Body, color = RunwayColors.Warning, textAlign = TextAlign.Center, maxLines = 1,
+    )
+}
+
 /** Notices are read out once by TalkBack when they change; they stay in the page, not a separate inbox. */
 @Composable
-private fun Line(line: GroupLine, color: Color, announce: Boolean = false, strong: Boolean = false) {
+private fun Line(line: GroupLine, color: Color, announce: Boolean = false) {
     Text(
         line.text,
         Modifier.semantics {
             contentDescription = line.description
             if (announce) liveRegion = LiveRegionMode.Polite
         },
-        style = RunwayType.number(if (strong) 32 else 28, if (strong) FontWeight.Bold else FontWeight.SemiBold), color = color,
+        style = RunwayType.number(28, FontWeight.SemiBold), color = color,
         textAlign = TextAlign.Center,
     )
 }
