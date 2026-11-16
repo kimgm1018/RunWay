@@ -1,6 +1,5 @@
 import React, {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -370,16 +369,6 @@ function Pager({
     ...(hasNext ? [1 as const] : []),
   ];
   const middle = hasPrevious ? width : 0;
-  // Back to the middle once the new pages are in, and again a moment later: on Android the fling that turned the
-  // page can still be settling and would leave the pager on a side page.
-  useLayoutEffect(() => {
-    list.current?.scrollTo({ x: middle, animated: false });
-    const again = setTimeout(
-      () => list.current?.scrollTo({ x: middle, animated: false }),
-      120,
-    );
-    return () => clearTimeout(again);
-  }, [pageKey, middle]);
   // Android can end one fling twice; the second end, before the pager is back in the middle, is the same turn.
   const turnedAt = useRef(0);
   const settle = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -399,6 +388,7 @@ function Pager({
   };
   return (
     <ScrollView
+      key={pageKey}
       ref={list}
       horizontal
       pagingEnabled
@@ -761,8 +751,9 @@ const styles = StyleSheet.create({
   week: {
     flexDirection: 'row',
     gap: 2,
+    height: dayHeight + stripPadding * 2,
   },
-  dayBox: { flex: 1 },
+  dayBox: { flex: 1, minWidth: 0 },
   // Room round the capsule for the ring.
   dayRoom: { padding: stripPadding },
   ring: {

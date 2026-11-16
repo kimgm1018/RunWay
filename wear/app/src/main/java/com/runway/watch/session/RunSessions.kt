@@ -112,6 +112,8 @@ class RunSessions private constructor(context: Context) {
         log = { Log.i(TAG, it) },
         // S15P31E105-604: one buzz when the phone relays a shared pace change.
         paceAlert = WatchGroupPaceAlert(context, haptics),
+        // S15P31E105-864: 권한 없는 시작을 준비·시작 단계에서 거절하고, 원격 시작 GPS 가능 여부를 폰에 알린다.
+        capability = DeviceRunCapability(context),
     )
     val control = SessionRunControl(controller, scope, uploader.state, live)
 

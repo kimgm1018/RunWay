@@ -42,6 +42,8 @@ const control = (change: Partial<RunControlState>): RunControlState => ({
   phoneGps: 'on',
   approxPosition: null,
   clock: null,
+  watchRemoteGps: null,
+  watchGps: null,
   ...change,
 });
 

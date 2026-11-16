@@ -115,6 +115,9 @@ private const val CUE_FAILED = "CUE_PLAYBACK_FAILED"
 private const val EXERCISE_LOST = "EXERCISE_LOST"
 private const val CONTROL_DEVICE_CHANGED = "CONTROL_DEVICE_CHANGED"
 private const val PHONE_FALLBACK = "PHONE_FALLBACK"
+private const val PHONE_ONLY = "PHONE_ONLY"
+/** Heart rate or activity recognition missing (S15P31E105-864): SESSION_PREPARED ready=false and START REJECTED. */
+internal const val PERMISSION_REQUIRED = "WATCH_PERMISSION_REQUIRED"
 
 /**
  * Runs approved commands once per commandId (S15P31E105-256 [D], watch-mobile-server-integration.md 9.4).
@@ -139,6 +142,8 @@ class WatchSessionController(
     private val log: (String) -> Unit = {},
     /** One buzz per shared pace change the phone relayed (S15P31E105-604). */
     private val paceAlert: GroupPaceAlert = NoGroupPaceAlert,
+    /** Run permissions and remote GPS (S15P31E105-864). */
+    private val capability: RunCapability = FullCapability,
 ) {
     private val mutex = Mutex()
     /** When each command result was sent (monotonic ms), to log how long the server receipt took (S15P31E105-533). */
@@ -364,8 +369,14 @@ class WatchSessionController(
         log("PREPARE ${message.sessionId} v$version received")
         // 측정 batch의 생산 기기 ID가 없으면 기록을 저장할 수 없으므로 준비하지 않는다(S15P31E105-311).
         val deviceId = message.deviceId()
-        val ready = deviceId != null
-        val reason = if (ready) null else "DEVICE_ID_MISSING"
+        // 심박·활동 인식 권한이 없으면 운동 서비스를 시작할 수 없으므로 준비 불가로 답한다(S15P31E105-864).
+        val reason = when {
+            deviceId == null -> "DEVICE_ID_MISSING"
+            !capability.sensorsGranted() -> PERMISSION_REQUIRED
+            else -> null
+        }
+        val ready = reason == null
+        val remoteGps = capability.remoteGps()
         val groupRunId = message.groupRunId()
         // 같은 세션을 다시 준비해도 시작 때 고정한 시차는 그 운동이 끝날 때까지 유지한다(S15P31E105-839).
         val offset = store.prepared()?.takeIf { it.sessionId == message.sessionId }?.clockOffsetMs
@@ -389,8 +400,8 @@ class WatchSessionController(
                 groupRunId = groupRunId,
             )
         }
-        sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason))
-        log("PREPARE ${message.sessionId} v$version replied ready=$ready after=${elapsedMs() - prepareMs}ms")
+        sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason, remoteGps))
+        log("PREPARE ${message.sessionId} v$version replied ready=$ready reason=${reason ?: "-"} remoteGps=$remoteGps after=${elapsedMs() - prepareMs}ms")
         // 시작 결과도 서버 시각으로 보고하도록 시작 전에 시차를 추정해 둔다(9.7 준비/상태 왕복, S15P31E105-839).
         // 추정이 없을 때만 묻는다. 답이 시작보다 늦으면 그 운동은 워치 시각 그대로 보고한다(아래 serverTimeFor).
         if (ready && offset == null && clock.current(now()) == null) sendStateQuery(message.sessionId)
@@ -470,6 +481,7 @@ class WatchSessionController(
             }
             // 실제 적용 시각은 서버 기준으로 보정한다(9.4). 한 운동은 시작 때 정한 시차 하나로 보정한다.
             outcome(OutcomeResult.APPLIED, serverTimeFor(message.sessionId, action, now()), null)
+                .let { if (action == "START") it.copy(gps = gateway.startedWithGps) else it }
         } catch (e: TimeoutCancellationException) {
             outcome(OutcomeResult.UNKNOWN, null, "EXERCISE_CALL_TIMEOUT")
         } catch (e: ExerciseRejected) {
@@ -532,6 +544,8 @@ class WatchSessionController(
             val prepared = store.prepared()
             if (prepared == null || prepared.sessionId != sessionId || !prepared.ready) return "NOT_PREPARED"
             if (prepared.stateVersion != expected) return "VERSION_MISMATCH"
+            // 준비 뒤 권한을 회수했을 수 있다. 서비스 시작 거절로 앱이 종료되지 않게 실행 전에 거절한다(S15P31E105-864).
+            if (!capability.sensorsGranted()) return PERMISSION_REQUIRED
             return null
         }
         if (current.sessionId != sessionId) return "NOT_PREPARED"
@@ -672,6 +686,7 @@ class WatchSessionController(
             store.nextMessageId(), replyTo, outcome.sessionId, outcome.commandId,
             wire, outcome.appliedAt, outcome.reasonCode, end = end,
             pendingBatchCount = pendingBatches,
+            gps = outcome.gps.takeIf { outcome.action == "START" && outcome.result == OutcomeResult.APPLIED },
         )
         val delivered = sendWithRetry(SessionPaths.COMMAND_RESULT, bytes)
         log("${outcome.action} ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
@@ -735,7 +750,9 @@ class WatchSessionController(
         val active = state == RunState.RUNNING || state == RunState.PAUSED
         // 폰으로 기록을 넘긴 운동은 끝까지 폰이 제어한다(S08). 한 번 넘어간 세션은 이후 스냅샷과 상관없이 유지한다.
         val phone = message.payload.optString("recordingMode") == PHONE_FALLBACK || (sameSession && current.phoneRecording)
-        val watchRecords = active && !phone
+        // 처음부터 폰으로만 기록하는 운동(S15P31E105-864 폰으로 시작)은 워치가 측정하지 않는다. 운동 서비스·재연결·박자를 켜지 않는다.
+        val phoneOnly = message.payload.optString("recordingMode") == PHONE_ONLY
+        val watchRecords = active && !phone && !phoneOnly
         val lost = sameSession && current.measurementLost && watchRecords
         // 앱이 다시 시작된 뒤에도 서버가 운동 중이라고 하면 이 세션의 측정값을 계속 batch로 만든다.
         if (phone && handedSession != message.sessionId) handOver(message.sessionId)
@@ -770,7 +787,7 @@ class WatchSessionController(
             rhythmCueEnabled = message.rhythmCueEnabled() ?: if (sameSession) current.rhythmCueEnabled else true,
         )
         if (newer || phone) {
-            exerciseRunning = state == RunState.RUNNING && !lost && !phone
+            exerciseRunning = state == RunState.RUNNING && !lost && !phone && !phoneOnly
             syncPlayback()
         } else if (_state.value.rhythmCueEnabled != current.rhythmCueEnabled) {
             // 설정만 바뀐 같은 버전 스냅샷은 운동 상태를 건드리지 않고 박자만 다시 맞춘다(S15P31E105-706).

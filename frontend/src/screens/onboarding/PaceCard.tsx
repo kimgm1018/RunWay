@@ -238,7 +238,7 @@ function MetricInput({
             keyboardType={keyboardType}
             selectionColor={colors.accent}
             style={[
-              typography.metricLarge,
+              metricFont,
               styles.metricInput,
               { color: colors.text },
             ]}
@@ -253,6 +253,13 @@ function MetricInput({
     </View>
   );
 }
+
+// 안드로이드는 한 줄 입력에 lineHeight가 있으면 재렌더링(탭 전환 등) 후 세로 중앙정렬이 틀어진다
+// (TextField.tsx의 inputFont와 같은 이유, 858-3). 글꼴만 남기고 중앙정렬은 스타일에서 따로 준다.
+const metricFont = {
+  fontFamily: typography.metricLarge.fontFamily,
+  fontSize: typography.metricLarge.fontSize,
+};
 
 // 5 seconds a tap on 1.6b's − / +.
 const paceStep = 5;
@@ -501,7 +508,12 @@ const styles = StyleSheet.create({
     borderColor: onboardingLook.ink,
     paddingHorizontal: 13.5,
   },
-  metricInput: { flex: 1, padding: 0 },
+  metricInput: {
+    flex: 1,
+    padding: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   auto: {
     flexDirection: 'row',
     alignItems: 'center',

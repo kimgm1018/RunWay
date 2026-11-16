@@ -444,7 +444,7 @@ function Form({
                 options={years}
                 format={value => `${value}년`}
                 onChange={value => changeMonthOrYear(value, month)}
-                style={styles.flex}
+                style={styles.dateYear}
               />
               <SelectField
                 glass
@@ -454,7 +454,7 @@ function Form({
                 options={months}
                 format={value => `${pad(value)}월`}
                 onChange={value => changeMonthOrYear(year, value)}
-                style={styles.flex}
+                style={styles.dateMonthDay}
               />
               <SelectField
                 glass
@@ -464,7 +464,7 @@ function Form({
                 options={days}
                 format={value => `${pad(value)}일`}
                 onChange={setDay}
-                style={styles.flex}
+                style={styles.dateMonthDay}
               />
             </View>
           ) : null}
@@ -618,7 +618,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 16,
+    // content와 같은 24로 맞춰 뒤로가기 버튼 좌측이 아래 입력 칸들과 일치하게 한다(859).
+    paddingHorizontal: 24,
     paddingBottom: 12,
   },
   title: {
@@ -724,6 +725,10 @@ const styles = StyleSheet.create({
     color: settingsLook.label,
   },
   dateRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  // "2000년"이 "01월"·"16일"보다 글자가 많아 똑같이 3등분하면 잘린다(857). 정확히 3등분하지
+  // 않고 연도 칸에 더 넓은 비율을 준다.
+  dateYear: { flex: 1.6 },
+  dateMonthDay: { flex: 1 },
   choices: { flexDirection: 'row', gap: 10 },
   choice: {
     flex: 1,
