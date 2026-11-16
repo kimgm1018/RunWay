@@ -77,6 +77,16 @@ class PaceCoachingDisplayTest {
         assertEquals("리듬 BPM 171 적용 확인 불가", status(BpmChangeStatus.UNKNOWN))
     }
 
+    /** S15P31E105-846: the BPM really playing is shown only when it is off the guide's target. */
+    @Test fun playingRhythmShowsOnlyWhenItDiffersFromTheTarget() {
+        val off = PaceCoachingDisplay.from(snapshot(bpm = 170)).playingRhythm!!
+        assertEquals("170", off.value)
+        assertEquals("지금 리듬 170 BPM", off.description)
+        assertNull(PaceCoachingDisplay.from(snapshot(bpm = 165)).playingRhythm)
+        assertNull(PaceCoachingDisplay.from(snapshot(bpm = null)).playingRhythm)
+        assertNull(PaceCoachingDisplay.from(snapshot(coaching = null)).playingRhythm)
+    }
+
     @Test fun serverLinkLossIsShown() {
         assertTrue(PaceCoachingDisplay.from(snapshot(lost = true)).serverLost)
         assertEquals("서버 연결 끊김", PaceCoachingDisplay.SERVER_LOST)
