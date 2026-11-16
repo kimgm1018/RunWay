@@ -105,4 +105,24 @@ class RunStatusDisplayTest {
         assertTrue(v.measurementLost)
         assertFalse(view().measurementLost)
     }
+
+    /** S15P31E105-849 A안: one location line per state; heart rate and cadence never add their own line. */
+    @Test fun locationStateIsOneLineAndNeverFakesAValue() {
+        fun feeds(location: FeedStatus, heart: FeedStatus = FeedStatus.LIVE) = view(measured.copy(feeds = MetricFeeds(location = location, heartRate = heart)))
+        assertNull(RunStatusDisplay.locationLine(view()))
+        assertNull(RunStatusDisplay.locationLine(feeds(FeedStatus.LIVE, heart = FeedStatus.STOPPED)))
+
+        val late = feeds(FeedStatus.DELAYED, heart = FeedStatus.NO_SIGNAL)
+        assertEquals("위치 지연 · 마지막 페이스", RunStatusDisplay.locationLine(late))
+        assertTrue(late.pace.delayed)
+        assertEquals("km · 마지막 확인", RunStatusDisplay.distanceLabel(late))
+        val lateNoPace = view(measured.copy(paceSecondsPerKm = null, feeds = MetricFeeds(location = FeedStatus.DELAYED)))
+        assertEquals("위치 지연 · 페이스 대기", RunStatusDisplay.locationLine(lateNoPace))
+
+        val lost = feeds(FeedStatus.NO_SIGNAL)
+        assertEquals("위치 수신 없음", RunStatusDisplay.locationLine(lost))
+        assertTrue(lost.pace.text.missing && lost.distance.text.missing)
+        assertEquals("km", RunStatusDisplay.distanceLabel(lost))
+        assertEquals("위치 수집 중단", RunStatusDisplay.locationLine(feeds(FeedStatus.STOPPED)))
+    }
 }

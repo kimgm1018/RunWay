@@ -115,13 +115,15 @@ private fun RunPager(
     val pager = rememberPagerState(initialPage = page.coerceIn(0, pages.lastIndex)) { pages.size }
     LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
     LaunchedEffect(pager) { snapshotFlow { pager.currentPage }.collect(onPage) }
+    // The shared-pace change already shown long enough (S15P31E105-849), kept here so swiping does not show it again.
+    val seenPaceChange = remember { mutableStateOf<GroupNotice.PaceChanged?>(null) }
     HorizontalPager(pager, Modifier.fillMaxSize()) { index ->
         val visible = pager.currentPage == index
         when (pages[index]) {
             RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause, online, onDetail)
             RunPage.PACE_COACHING -> PaceCoachingPage(snapshot, pages.size, index, visible, onPause) { onDetail(RunDetail.RHYTHM) }
             RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible, onPause)
-            RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible, onPause)
+            RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible, onPause, seenPaceChange)
             RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible, onPause)
         }
     }
