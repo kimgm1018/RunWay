@@ -5,13 +5,16 @@ import { coachingSentence, type VoiceGuide } from './coachingVoice';
 // - 워치가 적용한 코칭(폰으로 기록 중이면 새로 받은 코칭)마다 applied를 부른다.
 // - 같은 명령(commandId)은 한 번만 다룬다(재전송 무시).
 // - 음성 설정이 켜져 있고 러닝 중일 때만 읽는다. 일시정지·종료되면 읽던 문장을 멈춘다.
-// - 읽지 않은 코칭도 다음 비교의 직전 안내가 된다(첫 안내·설정 꺼짐·일시정지 포함).
+// - 읽지 않은 코칭도 다음 비교의 직전 안내가 된다(첫 안내·설정 꺼짐·일시정지·그룹 공동 페이스 음성과 중복 포함).
 
 export type CoachingVoiceOut = {
   // 음성 설정 '코칭 음성 알림'(voiceCoachingEnabled).
   enabled: () => boolean;
   speak: (sentence: string) => void;
   stop: () => void;
+  // 그룹런 중 공동 페이스 음성이 같은 페이스를 방금 말했으면 true(S15P31E105-906). 읽지 않고, 읽은 문장은 spoken으로 알린다.
+  duplicate?: (paceSecPerKm: number) => boolean;
+  spoken?: (paceSecPerKm: number) => void;
 };
 
 export type CoachingAnnouncer = {
@@ -38,7 +41,11 @@ export function createCoachingAnnouncer(out: CoachingVoiceOut): CoachingAnnounce
       const sentence = coachingSentence(next, previous);
       previous = next;
       if (sentence && running && out.enabled()) {
+        if (out.duplicate?.(next.paceSecPerKm)) {
+          return;
+        }
         out.speak(sentence);
+        out.spoken?.(next.paceSecPerKm);
       }
     },
     setRunning(value) {

@@ -103,3 +103,28 @@ test('reset forgets the previous guide and handled commands', () => {
     '여유가 있어요. 6분 페이스로 올려도 좋아요.',
   );
 });
+
+// S15P31E105-906: 그룹런 공동 페이스 음성이 같은 페이스를 방금 말했으면 코칭은 읽지 않는다(다음 비교의 기준은 이어 간다).
+test('skips a guide the group pace voice just announced and keeps it as the next baseline', () => {
+  const duplicate = jest.fn((pace: number) => pace === 400);
+  const spoken = jest.fn();
+  const out = {
+    enabled: jest.fn(() => true),
+    speak: jest.fn(),
+    stop: jest.fn(),
+    duplicate,
+    spoken,
+  };
+  const announcer = createCoachingAnnouncer(out);
+  announcer.setRunning(true);
+  announcer.applied(guide(360, 'OK'));
+  announcer.applied(guide(400, 'OK'));
+  expect(out.speak).not.toHaveBeenCalled();
+  expect(spoken).not.toHaveBeenCalled();
+  // 400이 기준이 됐으므로 403은 변화가 작아 읽지 않고, 380은 읽는다.
+  announcer.applied(guide(403, 'OK'));
+  expect(out.speak).not.toHaveBeenCalled();
+  announcer.applied(guide(380, 'OK'));
+  expect(out.speak).toHaveBeenCalledTimes(1);
+  expect(spoken).toHaveBeenCalledWith(380);
+});
