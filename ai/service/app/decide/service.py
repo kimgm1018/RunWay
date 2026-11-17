@@ -3,7 +3,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -135,6 +135,28 @@ def _apply_readiness(user_id, thresholds: HrThresholds, result, readiness_lookup
     return readiness_adjust.lower_thresholds(thresholds, adjust.drop_bpm), adjust, warnings
 
 
+def _demo_override(user_id, thresholds: HrThresholds, hr_overrides) -> HrThresholds | None:
+    """S15P31E105-913: 시연 설정으로 허용·위험 심박을 고정한 회원이면 그 값의 기준을, 아니면 None.
+
+    DB 학습값·모집단 섞기·위험 오프셋·준비도 보정을 모두 쓰지 않고 지정값 그대로다. 출처는 응답 스키마 값에 맞춰
+    PERSONAL(비중 1.0)로 표시한다. hr_overrides가 None·빈 맵이거나 그 회원이 없으면 None이라 이전과 같다.
+    """
+    override = hr_overrides.get(user_id) if hr_overrides and user_id is not None else None
+    if override is None:
+        return None
+    return dc_replace(thresholds, danger_bpm=override.danger_bpm, sustain_bpm=override.sustain_bpm,
+                      source="PERSONAL", weight=1.0, provisional=False, danger_offset_bpm=0.0)
+
+
+def _apply_readiness_or_override(user_id, thresholds: HrThresholds, result, readiness_lookup, at: datetime,
+                                 hr_overrides=None):
+    """고정 회원이면 준비도 보정 없이 고정 기준(readiness=None), 아니면 _apply_readiness(S15P31E105-676)."""
+    fixed = _demo_override(user_id, thresholds, hr_overrides)
+    if fixed is not None:
+        return fixed, None, ()
+    return _apply_readiness(user_id, thresholds, result, readiness_lookup, at)
+
+
 def _threshold_lookup(user_id, lookup, cfg, *, configured: bool = True):
     if user_id is None:
         return blend_hr_thresholds(cfg), (), None
@@ -213,7 +235,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                user_personalization_lookup=None, hr_threshold_lookup=None,
                gru_personalization_enabled: bool = True,
                hr_threshold_lookup_configured: bool = True, cue_bpm_calc=None, bpm_lookup=None,
-               gru_gb_enabled: bool = False, readiness_lookup=None) -> DecideOutcome:
+               gru_gb_enabled: bool = False, readiness_lookup=None, hr_overrides=None) -> DecideOutcome:
     """신선도 검사부터 정책 응답까지 수행한다.
 
     gru_personalization_enabled=False면 userId가 있어도 개인화 조회·경고·로그를 하지 않는다.
@@ -221,6 +243,8 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     gru_gb_enabled=True면 기준선과 같은 행의 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
     기본값 True는 이전 동작(조회기 None = 사용 불가 경고)을 그대로 유지한다.
     readiness_lookup(S15P31E105-676, READINESS_ADJUST_ENABLED일 때만): 오늘 준비도가 낮으면 허용 심박을 낮춘다.
+    hr_overrides(S15P31E105-913, 시연 설정 hrThresholdOverrides, 기본 None=꺼짐): {userId: HrOverride}. 그 회원은 학습값·
+    준비도 보정 없이 고정 허용·위험 심박으로 판단한다.
     """
     begin = time.perf_counter()
     compatibility_warnings = (("HR_REFERENCE_INPUT_IGNORED",)
@@ -250,6 +274,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
             and len(body.history.hr_bpm) == 1):
         thresholds, threshold_warnings = _thresholds_for_user(body.user_id, hr_threshold_lookup, cfg,
                                                               configured=hr_threshold_lookup_configured)
+        thresholds = _demo_override(body.user_id, thresholds, hr_overrides) or thresholds
         at = now()
         # 1칸 PLAN_HOLD는 GRU 예측을 하지 않아 과거·미래 경사를 채우지 않는다. 그래서 자유러닝 경고를 붙이지 않는다.
         # (일반 경로의 자유러닝 판정 is_free_run은 팀 계약이라 바꾸지 않는다.)
@@ -273,8 +298,8 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
 
     thresholds, threshold_warnings, gru_gb, threshold_row = _user_hr_lookup_full(
         body.user_id, hr_threshold_lookup, cfg, configured=hr_threshold_lookup_configured)
-    thresholds, readiness, readiness_warnings = _apply_readiness(body.user_id, thresholds, threshold_row,
-                                                                 readiness_lookup, received_at)
+    thresholds, readiness, readiness_warnings = _apply_readiness_or_override(
+        body.user_id, thresholds, threshold_row, readiness_lookup, received_at, hr_overrides)
     threshold_warnings = tuple(threshold_warnings) + readiness_warnings
 
     hr_now, speed_now, pace_now = recent_inputs(body.history)
