@@ -391,7 +391,9 @@ test('3.1c draws each saved course from the C03 points, on a compact map for the
     node =>
       typeof node.type !== 'string' &&
       Array.isArray(node.props.route) &&
-      node.props.compact === true,
+      node.props.compact === true &&
+      // The map inside RunMap's load guard carries the same props (S15P31E105-898).
+      !('guard' in node.props),
   );
   expect(maps.length).toBeGreaterThan(0);
   expect(maps.length).toBeLessThanOrEqual(3);

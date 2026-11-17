@@ -27,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
           add(MelonMediaPackage())
           add(PlaceNamePackage())
           add(RunwayNaverMapLegalPackage())
+          add(NaverMapAuthPackage())
           add(SpotifyRemotePackage())
           add(CoachingVoicePackage())
           add(ScreenCapturePackage())
@@ -40,6 +41,8 @@ class MainApplication : Application(), ReactApplication {
     super.onCreate()
     // 화면이 꺼져도 끝없이 기다리는 요청이 없게 네이티브 HTTP 상한과 유휴 연결 정리를 둔다(S15P31E105-533).
     RunwayHttpClient.install(this)
+    // 지도 키 인증 실패(401/429)를 첫 지도보다 먼저 듣는다(S15P31E105-898).
+    NaverMapAuthWatch.install(this)
     createPushChannel()
     loadReactNative(this)
   }
