@@ -49,6 +49,7 @@ import {
 import { RulerPicker } from '../../components/RulerPicker';
 import { formatGoalDuration, goalLimits } from '../run/goal/runGoal';
 import { GlassIconButton } from '../../components/GlassIconButton';
+import { useSheetDrag } from '../../components/SheetDrag';
 import {
   copyCoursePreferences,
   courseShapeOptions,
@@ -243,7 +244,7 @@ export function TodayRunScreen() {
   }, [locate]);
   const [recenter, setRecenter] = useState(0);
   // A tap on the map folds 코스 조건 down to its title so the map shows; a tap on the title opens it again
-  // (S15P31E105-683, 담당자 요청).
+  // (S15P31E105-683, 담당자 요청). Dragged down it folds too, and its title dragged up opens it (S15P31E105-899).
   const [folded, setFolded] = useState(false);
   const [panelHeight, setPanelHeight] = useState(0);
   const foldOffset = useRef(new Animated.Value(0)).current;
@@ -254,6 +255,17 @@ export function TodayRunScreen() {
       useNativeDriver: true,
     }).start();
   }, [foldOffset, folded, panelHeight]);
+  const foldRange = Math.max(0, panelHeight - foldedPeek);
+  const { drag: foldDrag, panHandlers: foldPan } = useSheetDrag({
+    direction: folded ? 'up' : 'down',
+    range: foldRange,
+    // The fold goes on from where the finger let go.
+    onCommit: dy => {
+      foldOffset.setValue((folded ? foldRange : 0) + dy);
+      foldDrag.setValue(0);
+      setFolded(!folded);
+    },
+  });
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
   const openPicker = (kind: 'origin' | 'destination') => setPicking(kind);
   const oneWay = preferences?.shape === 'point_to_point';
@@ -426,8 +438,13 @@ export function TodayRunScreen() {
             <Animated.View
               style={[
                 styles.panel,
-                { transform: [{ translateY: foldOffset }] },
+                {
+                  transform: [
+                    { translateY: Animated.add(foldOffset, foldDrag) },
+                  ],
+                },
               ]}
+              {...foldPan}
               onLayout={event =>
                 setPanelHeight(event.nativeEvent.layout.height)
               }
