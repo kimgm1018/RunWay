@@ -129,6 +129,28 @@
       spread: standing.gapM != null ? '선두–후미 ' + meters(standing.gapM) : null};
   }
 
+  // 912: LIVE_METRICS(약 5초)로 판단 사이에도 심박·페이스·거리·경과 시간을 갱신한다. 판단보다 오래된 값은 쓰지 않는다.
+  // 안내 페이스·리듬·순위·공동 페이스는 판단 값 그대로다(콘솔 logic.js liveFor와 같은 규칙).
+  function parseMs(value) { var ms = Date.parse(value || ''); return Number.isFinite(ms) ? ms : null; }
+  function liveRow(trace, runners, label) {
+    var list = Array.isArray(runners) ? runners : [];
+    var row = label == null ? list[0] : list.filter(function (r) { return r && r.label === label; })[0];
+    if (!row) return null;
+    var at = parseMs(row.measuredAt), base = parseMs(trace && trace.inputAsOf);
+    if (at != null && base != null && at < base) return null;
+    return row;
+  }
+  function liveElapsed(trace, row) {
+    var at = parseMs(row && row.measuredAt), base = parseMs(trace && trace.inputAsOf), now = num(trace && trace.elapsedSec);
+    if (now == null) return null;
+    return at != null && base != null ? now + (at - base) / 1000 : now;
+  }
+  function liveRemaining(input, row) {
+    var remaining = num(input.remainingM), at = num(input.distanceM), now = row ? num(row.distanceM) : null;
+    if (remaining == null || at == null || now == null) return remaining;
+    return Math.max(0, remaining - (now - at));
+  }
+
   // SSE 한 판단 → 워치 화면 값
   function view(trace, options) {
     options = options || {};
@@ -140,7 +162,8 @@
       var members = Array.isArray(group.members) ? group.members : [];
       var index = Math.min(options.runner || 0, Math.max(0, members.length - 1));
       var me = members[index] || {};
-      var own = actualPaceSec(me.speedNowMps, me.paceNowSecPerKm);
+      var live = liveRow(trace, options.live, me.label || ('러너 ' + (index + 1)));
+      var own = live ? actualPaceSec(live.speedMps, live.paceSecPerKm) : actualPaceSec(me.speedNowMps, me.paceNowSecPerKm);
       var shared = hasGuide ? num(decision.recommendedPaceSecPerKm) : null;
       return {
         mode: 'group', runner: me.label || ('러너 ' + (index + 1)), runnerCount: members.length,
@@ -150,9 +173,9 @@
           ? '이전 ' + pace(decision.fromPaceSecPerKm).value + ' → 새 ' + pace(shared).value : null,
         mine: mineLine(own, shared),
         statusPace: pace(own), paceTicks: paceTicks(own), paceOutOfRange: paceOutOfRange(own),
-        distance: null,                                   // 멤버별 거리는 SSE에 없음 → 숨김
-        elapsed: duration(trace.elapsedSec),
-        heart: heart(me.hrNowBpm),
+        distance: live && num(live.distanceM) != null ? distance(live.distanceM) : null,   // 판단에는 멤버별 거리가 없다. 5초 값이 오면 보인다(912)
+        elapsed: duration(live ? liveElapsed(trace, live) : trace.elapsedSec),
+        heart: heart(live ? live.hrBpm : me.hrNowBpm),
         rhythm: null,                                     // 그룹 판단에는 리듬 BPM이 없음 → 숨김
         goalProgress: null,
         position: position(options.standing, me.label),
@@ -160,8 +183,10 @@
       };
     }
     var input = trace.input || {};
-    var ownSec = actualPaceSec(input.speedNowMps, input.paceNowSecPerKm);
-    var dist = num(input.distanceM), remaining = num(input.remainingM);
+    var live = liveRow(trace, options.live, null);
+    var ownSec = live ? actualPaceSec(live.speedMps, live.paceSecPerKm) : actualPaceSec(input.speedNowMps, input.paceNowSecPerKm);
+    var dist = live && num(live.distanceM) != null ? num(live.distanceM) : num(input.distanceM);
+    var remaining = live ? liveRemaining(input, live) : num(input.remainingM);
     var cue = num(decision.cueBpm);
     return {
       mode: 'personal', runner: null, runnerCount: 1,
@@ -171,7 +196,8 @@
       rhythmTicks: hasGuide ? bpmTicks(cue) : null,
       beatMs: hasGuide ? beatIntervalMs(cue) : null,
       statusPace: pace(ownSec), paceTicks: paceTicks(ownSec), paceOutOfRange: paceOutOfRange(ownSec),
-      distance: distance(dist), elapsed: duration(trace.elapsedSec), heart: heart(input.hrNowBpm),
+      distance: distance(dist), elapsed: duration(live ? liveElapsed(trace, live) : trace.elapsedSec),
+      heart: heart(live ? live.hrBpm : input.hrNowBpm),
       goalProgress: dist != null && remaining != null && dist + remaining > 0 ? Math.min(1, dist / (dist + remaining)) : null
     };
   }

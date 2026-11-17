@@ -23,6 +23,7 @@ printf '%s\n' "$query" >> "$MOCK_DIR/sql"
 if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
 elif [[ $query == *user_profiles* ]]; then echo "${USER_PROFILES_RESULT:-t}"
 elif [[ $query == *daily_readiness* ]]; then echo "${READINESS_RESULT:-t}"
+elif [[ $query == *is_hr_measured* ]]; then echo "${LIVE_RESULT:-t}"
 elif [[ $query == *running_metric_samples* ]]; then echo "${BPM_RESULT:-t}"
 elif [[ $query == *running_route_points* ]]; then echo "${ROUTE_RESULT:-t}"
 elif [[ $query == *has_database_privilege* ]]; then echo "${GRANT_RESULT:-t}"
@@ -89,16 +90,39 @@ class ReadonlyGrantTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("to_regclass", (self.root / "sql").read_text())
 
-    def test_bpm_record_columns_are_granted_before_waiting_without_heart_rate(self):
+    def test_bpm_record_columns_are_granted_before_waiting(self):
         result = self.run_grant()
         self.assertEqual(result.returncode, 0, result.stderr)
         sql = (self.root / "sql").read_text()
         self.assertIn("GRANT SELECT (running_session_id, measured_at, elapsed_duration, speed, cadence)", sql)
         self.assertIn("GRANT SELECT (session_id, action, target_bpm, result, applied_at)", sql)
         self.assertNotIn("GRANT SELECT ON public.running_metric_samples", sql)       # 테이블 전체는 주지 않는다
-        self.assertIn("NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'heart_rate', 'SELECT')",
-                      sql)
+        self.assertIn("NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'grade', 'SELECT')", sql)
         self.assertLess(sql.index("public.running_metric_samples TO runway_ai"), sql.index("to_regclass"))
+
+    def test_live_metric_columns_are_granted_only_heart_rate_flag_and_distance(self):
+        # 912 시연 실시간 측정값(2026-11-17 승인 방식 A): 심박·측정 여부·누적 거리 세 칸만 더 준다.
+        # 이전 기대값(heart_rate 미부여 검사)은 이 결정으로 바뀌었다. 경사·진행 거리·기기·ID·쓰기는 계속 주지 않는다.
+        result = self.run_grant()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sql = (self.root / "sql").read_text()
+        self.assertIn("GRANT SELECT (heart_rate, is_hr_measured, total_distance)\n  ON public.running_metric_samples TO runway_ai",
+                      sql)
+        for column in ("heart_rate", "is_hr_measured", "total_distance"):
+            self.assertIn(f"has_column_privilege('runway_ai', 'public.running_metric_samples', '{column}', 'SELECT')\n", sql)
+        for column in ("grade", "route_progress", "device_id", "id"):
+            self.assertIn(f"NOT has_column_privilege('runway_ai', 'public.running_metric_samples', '{column}', 'SELECT')", sql)
+        self.assertIn("NOT has_table_privilege('runway_ai', 'public.running_metric_samples', 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                      sql)
+        self.assertNotIn("NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'heart_rate', 'SELECT')", sql)
+        self.assertLess(sql.index("(heart_rate, is_hr_measured, total_distance)"), sql.index("to_regclass"))
+
+    def test_live_metric_privilege_failure_stops_deployment(self):
+        self.env["LIVE_RESULT"] = "f"
+        result = self.run_grant()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("시연 실시간 측정값 읽기 권한 확인 실패", result.stderr)
+        self.assertNotIn("to_regclass", (self.root / "sql").read_text())
 
     def test_bpm_record_privilege_failure_stops_deployment(self):
         self.env["BPM_RESULT"] = "f"

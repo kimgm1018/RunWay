@@ -40,7 +40,7 @@ SQL
 [[ $result == t ]] || { echo 'daily_readiness 읽기 권한 확인 실패' >&2; exit 1; }
 echo 'daily_readiness 읽기 권한 확인 완료'
 # AI04 목표 BPM 개인 기록(S15P31E105-438): 측정값은 속도·케이던스·시간 칸만, BPM 변경 기록은 BPM·적용 칸만 준다.
-# 심박 등 다른 건강 칸은 열지 않는다. 두 테이블 모두 V1·V3부터 있으므로 V10을 기다리지 않는다.
+# 심박·누적 거리는 아래 시연 실시간 측정값(912) 블록에서만 준다. 두 테이블 모두 V1·V3부터 있으므로 V10을 기다리지 않는다.
 result=$(psql_admin <<'SQL'
 GRANT SELECT (running_session_id, measured_at, elapsed_duration, speed, cadence)
   ON public.running_metric_samples TO runway_ai;
@@ -48,7 +48,7 @@ GRANT SELECT (session_id, action, target_bpm, result, applied_at)
   ON public.session_control_events TO runway_ai;
 SELECT has_column_privilege('runway_ai', 'public.running_metric_samples', 'cadence', 'SELECT')
   AND has_column_privilege('runway_ai', 'public.session_control_events', 'applied_at', 'SELECT')
-  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'heart_rate', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'grade', 'SELECT')
   AND NOT has_table_privilege('runway_ai', 'public.running_metric_samples', 'INSERT,UPDATE,DELETE,TRUNCATE')
   AND NOT has_table_privilege('runway_ai', 'public.session_control_events', 'INSERT,UPDATE,DELETE,TRUNCATE');
 SQL
@@ -69,6 +69,27 @@ SQL
 )
 [[ $result == t ]] || { echo '러닝 경로 읽기 권한 확인 실패' >&2; exit 1; }
 echo '러닝 경로 읽기 권한 확인 완료'
+# 시연 콘솔 실시간 측정값(S15P31E105-912, 2026-11-17 사용자 승인 방식 A): 심박·심박 측정 여부·누적 거리 세 칸을 더 준다.
+# 대상 회원(demo userAllowlist)의 시연 세션만, liveMetricsSec가 켜져 있고 콘솔이 연결돼 있을 때만 읽는다.
+# 경사·진행 거리·기기·ID 칸과 쓰기 권한은 주지 않는다.
+# 주의: 이 스크립트는 master 배포 때 AI CD(Jenkinsfile.ai-cd)가 자동 실행한다. 912가 배포되면 liveMetricsSec가 꺼져 있어도
+# 위 열 권한이 부여된다. 912를 되돌릴 때는 이전 커밋 배포 전에 먼저 사람이 아래를 실행한다(옛 스크립트가 heart_rate 미부여를 검사한다).
+#   REVOKE SELECT (heart_rate, is_hr_measured, total_distance) ON public.running_metric_samples FROM runway_ai;
+result=$(psql_admin <<'SQL'
+GRANT SELECT (heart_rate, is_hr_measured, total_distance)
+  ON public.running_metric_samples TO runway_ai;
+SELECT has_column_privilege('runway_ai', 'public.running_metric_samples', 'heart_rate', 'SELECT')
+  AND has_column_privilege('runway_ai', 'public.running_metric_samples', 'is_hr_measured', 'SELECT')
+  AND has_column_privilege('runway_ai', 'public.running_metric_samples', 'total_distance', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'grade', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'route_progress', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'device_id', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'id', 'SELECT')
+  AND NOT has_table_privilege('runway_ai', 'public.running_metric_samples', 'INSERT,UPDATE,DELETE,TRUNCATE');
+SQL
+)
+[[ $result == t ]] || { echo '시연 실시간 측정값 읽기 권한 확인 실패' >&2; exit 1; }
+echo '시연 실시간 측정값 읽기 권한 확인 완료'
 # 개인화 테이블 생성 업무(410)와 AI 배포를 분리한다.
 # 테이블이 아직 없어도 기존 테이블의 최소 권한 검증은 생략하지 않는다.
 result=$(psql_admin <<'SQL'
