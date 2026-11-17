@@ -5,10 +5,10 @@ import numpy as np
 
 from app.decide.service import _apply_readiness_or_override, _user_hr_lookup_full, recent_inputs
 from app.gru_gb import apply_gb, is_identity, personal_weight
-from app.group_pace.ahead import REASON as AHEAD_REASON, AheadSettings, try_ahead
+from app.group_pace.ahead import REASON as AHEAD_REASON, AheadSettings, ForceAhead, try_ahead, try_force_ahead
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
-from app.pace_selector import DELTAS, FLOOR_STEP_SEC_PER_KM, PaceSelector, candidate_paces, upper_bound
+from app.pace_selector import DELTAS, FLOOR_STEP_SEC_PER_KM, PACE_EPS, PaceSelector, candidate_paces, upper_bound
 from app.policy.mpc_policy import _mean, allow_at
 from app.schemas import Candidate, PredictRequest
 
@@ -84,7 +84,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
                          hr_threshold_lookup_configured: bool = True, detail: dict | None = None,
                          gru_gb_enabled: bool = False, readiness_lookup=None, ahead: AheadSettings | None = None,
                          ahead_wait_sec: float | None = None, ahead_demo_wait: bool = False,
-                         hr_overrides=None) -> GroupPaceResponse:
+                         hr_overrides=None, force_ahead: ForceAhead | None = None) -> GroupPaceResponse:
     """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다.
 
     gru_gb_enabled=True면 회원마다 자기 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
@@ -93,6 +93,8 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
     올리는지 본다(app.group_pace.ahead). ahead_wait_sec는 출발 뒤 대기 시간(시연 계정 그룹은 짧게).
     hr_overrides(S15P31E105-913, 시연 설정 hrThresholdOverrides, 기본 None=꺼짐): {userId: HrOverride}. 그 회원은 학습값·
     준비도 보정 없이 고정 허용·위험 심박으로 판단한다.
+    force_ahead(S15P31E105-915, 시연 설정 speedUpForceAfterSec, 기본 None=꺼짐): 출발 후 정해진 시각에 기존 선택과
+    관계없이 출발 페이스 − step으로 한 번 올린다(이유 코드는 AHEAD). 실측 심박이 위험선 이상이면 내지 않는다.
     """
     current = body.current_group_pace_sec_per_km
     paces = candidate_paces(current, DELTAS)
@@ -151,8 +153,8 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         mean_past = _mean(tuple(past_speeds)) if len(past_speeds) == 6 else None
         hr_members.append((ref, allow, mean_past, mean_grade))
 
-    def response(index, reason):
-        pace = paces[index]
+    def response(index, reason, forced_pace=None):
+        pace = paces[index] if forced_pace is None else forced_pace   # 915 강제 가속은 후보 밖 페이스일 수 있다
         changed = abs(pace - current) >= 10
         if not changed:
             index, pace = baseline, current
@@ -228,6 +230,25 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             floor_step_sec_per_km=FLOOR_STEP_SEC_PER_KM)
     if selection.cap_missing:
         warnings.append("RECOVERY_CAP_MISSING")
+    if force_ahead is not None:
+        # S15P31E105-915 시연 그룹: 기존 선택(감속·유지·여유 가속 막힘)과 관계없이 정해진 시각에 한 번 올린다.
+        forced, forced_blocked = try_force_ahead(
+            force=force_ahead, mode=body.pace_mode, current=current, start_pace=body.start_recommended_pace_sec_per_km,
+            elapsed_sec=body.elapsed_sec, now=body.now, last_change=body.last_change,
+            histories=[r.history.hr_bpm for r in requests], dangers=[member[0].danger_bpm for member in hr_members])
+        if detail is not None:
+            detail["forceAhead"] = {"afterSec": force_ahead.after_sec, "stepSec": force_ahead.step_sec,
+                                    "applied": forced is not None, "blockedBy": forced_blocked}
+        if forced is not None:
+            if detail is not None:
+                # 콘솔 카드가 기존 AHEAD와 같게 뜨도록 ahead 항목에 forced 표식만 더한다
+                detail["ahead"] = {**(detail.get("ahead") or {}), "applied": True, "blockedBy": None, "forced": True,
+                                   "waitSec": force_ahead.after_sec, "demoWait": True,
+                                   "marginBpm": ahead.margin_bpm if ahead is not None else 0.0,
+                                   "stepSec": force_ahead.step_sec,
+                                   "startPace": body.start_recommended_pace_sec_per_km, "fastestPace": forced}
+            candidate = next((j for j, p in enumerate(paces) if abs(p - forced) <= PACE_EPS), baseline)
+            return response(candidate, AHEAD_REASON, forced_pace=forced)
     if ahead is not None and selection.index == paces.index(current):
         target = try_ahead(
             settings=ahead, wait_sec=ahead.wait_sec if ahead_wait_sec is None else ahead_wait_sec,

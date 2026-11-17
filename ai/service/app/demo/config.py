@@ -49,6 +49,8 @@ class DemoConfig:
     speed_up_margin_bpm: float | None = None
     # 912: 대상 회원의 최신 심박·실제 페이스·거리를 콘솔에 보내는 주기(초). null이면 끈다(기본). 3~30초
     live_metrics_sec: float | None = None
+    # S15P31E105-915: 시연 회원이 낀 TOGETHER 그룹은 출발 후 이 시각(초)에 여유 가속을 강제로 한 번 낸다. None이면 끈다(기본)
+    speed_up_force_after_sec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,8 @@ def account_settings_summary(config: DemoConfig) -> str:
         return "기본" if value is None else f"{value:g}"
     return (f"시연 계정 설정: 고정 {len(config.hr_threshold_overrides)}명, 가속 폭 {shown(config.speed_up_step_sec)}"
             f"·확인 {shown(config.speed_up_calm_sec)}·여유 {shown(config.speed_up_margin_bpm)}"
-            f"·대기 {config.speed_up_warmup_sec:g}")
+            f"·대기 {config.speed_up_warmup_sec:g}"
+            + ("" if config.speed_up_force_after_sec is None else f"·강제 {config.speed_up_force_after_sec:g}"))
 
 
 def load_demo_settings() -> DemoSettings:
