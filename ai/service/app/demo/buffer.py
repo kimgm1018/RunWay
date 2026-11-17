@@ -19,7 +19,11 @@ MAX_SESSIONS = 40
 IDLE_EXPIRE_SEC = 7 * 24 * 3600.0 # 마지막 기록 뒤 7일 보관
 MAX_TOTAL_ROUTE_POINTS = 60000    # 시연 수집(inlet) 경로 점 전체 상한
 LIVE_AFTER_SEC = 120.0            # 마지막 기록이 이보다 최근이면 '진행 중'
-MAX_SUBSCRIBERS = 5               # 747: 발표 화면·발표자 노트북·확인용 탭 등
+MAX_SUBSCRIBERS = 50              # 900: 토큰 없는 공개 라이브(청중 폰 등)와 함께 쓰는 세션당 화면 연결 상한
+# 900 자동 전환: 마지막 판단 뒤 이 시간이 지나면 '끝난 러닝'으로 본다. 개인 AI04는 5초 간격(일시정지 중에도 PAUSED 판단),
+# 그룹 AI10은 간격이 길어 콘솔 GROUP_STALE_MS(50초)보다 넉넉히 둔다
+PERSONAL_END_AFTER_SEC = 30.0
+GROUP_END_AFTER_SEC = 90.0
 MAX_ROUTE_POINTS = 12000          # 세션당(1초 간격 약 3시간 20분)
 MAX_COURSE_SUMMARY_POINTS = 500
 # 그룹 러닝 스트림 키. Nginx 경로(/v1/demo/sessions/(latest|[0-9]+)/events)를 바꾸지 않도록 숫자 키를 쓰고,
@@ -52,6 +56,7 @@ class DemoBuffer:
         self._route_points: dict[int, deque] = {}
         self._route_version: dict[int, int] = {}
         self._last_add: dict[int, datetime] = {}
+        self._first_add: dict[int, datetime] = {}   # 900: 시작 시각(가장 최근 시작 우선)
         self._latest_input: dict[int, float] = {}
         self._subscribers: dict[int, int] = {}
 
@@ -72,6 +77,7 @@ class DemoBuffer:
 
     def _drop(self, sid: int) -> None:
         self._last_add.pop(sid, None)
+        self._first_add.pop(sid, None)
         self._records.pop(sid, None)
         self._route_points.pop(sid, None)
         self._route_version.pop(sid, None)
@@ -108,6 +114,7 @@ class DemoBuffer:
             records = self._records.setdefault(session_id, deque())
             records.append((record_seq, trace))
             self._last_add[session_id] = current
+            self._first_add.setdefault(session_id, current)
             at = _time(trace["inputAsOf"]).timestamp()
             latest = max(at, self._latest_input.get(session_id, at))
             self._latest_input[session_id] = latest
@@ -213,6 +220,25 @@ class DemoBuffer:
         with self._lock:
             self._expire(self.now())
             return max(self._last_add, key=self._last_add.get) if self._last_add else None
+
+    def live_target(self) -> int | None:
+        """900: 라이브 콘솔(latest)이 보여 줄 세션. 진행 중(마지막 판단이 *_END_AFTER_SEC 안)인 것 중 그룹 우선,
+        그다음 가장 최근 시작. 진행 중인 것이 없으면 None(콘솔은 '러너 대기 중')."""
+        with self._lock:
+            current = self.now()
+            self._expire(current)
+            live = []
+            for sid, last in self._last_add.items():
+                if not self._records.get(sid):
+                    continue                       # 판단 없이 경로만 들어온 세션은 보여 줄 것이 없다
+                limit = GROUP_END_AFTER_SEC if is_group_key(sid) else PERSONAL_END_AFTER_SEC
+                if (current - last).total_seconds() <= limit:
+                    live.append((is_group_key(sid), self._first_add.get(sid, last), sid))
+            return max(live)[2] if live else None
+
+    def subscriber_count(self, session_id: int) -> int:
+        with self._lock:
+            return self._subscribers.get(session_id, 0)
 
     def subscribe(self, session_id: int) -> bool:
         with self._lock:

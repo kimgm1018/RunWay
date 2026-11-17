@@ -336,7 +336,8 @@ export function MeetingPlaceScreen() {
                 accessibilityLabel="장소·주소 검색"
                 placeholder="장소·주소 검색"
                 placeholderTextColor={stand.sub}
-                selectionColor={stand.mint}
+                selectionColor="transparent"
+                cursorColor={stand.text}
                 value={query}
                 maxLength={PLACE_SEARCH_MAX}
                 onChangeText={text => {

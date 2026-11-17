@@ -290,13 +290,23 @@ export function sheetFit({
 // bottom over the dimmed feed, with my comment bar at its foot. It rises to two thirds of the screen and
 // to the top while the keyboard is up; pulling its handle down or tapping the dim closes it. The comment
 // work is 7.2's: adding (CMT03), replying by handle, editing and deleting my own (CMT08 · CMT09).
+// What the sheet opens on besides the list (S15P31E105-907): 7.2 lists the comments itself, and its 답글 달기 and
+// ⋮ carry on here, writing the reply or opening that comment's menu.
+export type CommentSheetStart = {
+  kind: 'reply' | 'menu';
+  commentId: string;
+};
+
 export function CommentSheet({
   post,
+  start = null,
   onClose,
   onCountChange,
 }: {
   // The post whose comments are open, or null when the sheet is closed.
   post: Post | null;
+  // Read as the sheet opens on a post; applied once its comments are read.
+  start?: CommentSheetStart | null;
   onClose: () => void;
   // The post's comment count after one is added or deleted, for the feed line under it.
   onCountChange: (postId: string, count: number) => void;
@@ -357,8 +367,12 @@ export function CommentSheet({
     }
   }, [community, postId]);
 
+  const startAsked = useRef<CommentSheetStart | null>(null);
+  const startNow = useRef(start);
+  startNow.current = start;
   // A new post starts clean: its own comments, an empty bar.
   useEffect(() => {
+    startAsked.current = postId ? startNow.current : null;
     setDraft('');
     setEditing(null);
     setReplyTo(null);
@@ -598,6 +612,28 @@ export function CommentSheet({
       navigation.navigate('RunnerProfile', { userId: comment.author.userId });
     }
   };
+  // The reply or menu 7.2 asked for, on the comment as just read; a comment gone or closed to replies meanwhile
+  // leaves only the list.
+  useEffect(() => {
+    const asked = startAsked.current;
+    if (!asked || !comments) {
+      return;
+    }
+    startAsked.current = null;
+    const comment = comments.find(item => item.id === asked.commentId);
+    if (!comment || comment.deleted) {
+      return;
+    }
+    if (asked.kind === 'menu') {
+      if (comment.isMine) {
+        setCommentMenu(comment);
+      }
+    } else if (replyOpen(comment, comments)) {
+      // After the sheet has risen, so the keyboard comes up with it.
+      setTimeout(() => startReply(comment), 300);
+    }
+    // Only a new list applies what was asked.
+  }, [comments]);
   const sendable = Boolean(editing) || Boolean(draft.trim());
   // The sheet's own window decides its insets (S15P31E105-619): on Android the Modal window may or may not
   // reach under the navigation bar, so the app window's bottom inset could leave the comment bar under the

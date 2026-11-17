@@ -136,6 +136,9 @@ dependencies {
     implementation 'com.spotify.android:auth:5.0.0'
     implementation 'com.google.code.gson:gson:2.9.0'
     implementation 'com.google.android.gms:play-services-wearable:18.0.0'
+    // S15P31E105-898: NaverMapSdk's auth-failure listener. The map library brings the SDK at run time; the same
+    // version is named here only to compile against it.
+    compileOnly 'com.naver.maps:map-sdk:3.23.2'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.16.1'
     testImplementation 'org.json:json:20240303'

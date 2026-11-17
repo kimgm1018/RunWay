@@ -79,7 +79,7 @@ describe('comment sheet sending', () => {
       includeFontPadding: false,
       textAlignVertical: 'center',
     });
-    expect(input.props.selectionColor).toBe(communityLook.selection);
+    expect(input.props.selectionColor).toBe('transparent');
     expect(input.props.cursorColor).toBe(communityLook.ink);
   });
 

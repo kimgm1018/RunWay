@@ -65,8 +65,10 @@ export function TextField({
       ref={input}
       accessibilityLabel={props.accessibilityLabel ?? label}
       placeholderTextColor={colors.textTertiary}
-      selectionColor={colors.accent}
       {...props}
+      // Double-tap selection must not paint a tint; keep the caret with cursorColor.
+      selectionColor="transparent"
+      cursorColor={props.cursorColor ?? colors.text}
       onFocus={event => {
         setFocused(true);
         onFocus?.(event);
@@ -140,10 +142,14 @@ export function TextField({
   );
 }
 
-// Android pushes the placeholder up when a single-line input has a lineHeight, so only the font is applied.
+// Explicit lineHeight keeps the Android caret to the text line. Without it the caret
+// grows to the whole field height (S15P31E105-793 / MeetingPlace search). includeFontPadding
+// false stops Noto padding from clipping the placeholder when lineHeight is set.
 const inputFont = {
   fontFamily: typography.input.fontFamily,
   fontSize: typography.input.fontSize,
+  lineHeight: typography.input.lineHeight,
+  includeFontPadding: false,
 };
 
 const glassInk = '#02050E';
@@ -193,11 +199,13 @@ const styles = StyleSheet.create({
     color: '#3A5A6C',
   },
   // Android adds font padding above and below Noto Sans KR; without turning it off
-  // the text no longer fits this short line and sticks to the top.
+  // the text no longer fits this short line and sticks to the top. lineHeight matches
+  // the glyphs so the caret does not fill the short row.
   insideInput: {
     height: 24,
     fontFamily: fontFamily.medium,
     fontSize: 15.5,
+    lineHeight: 20,
     padding: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',

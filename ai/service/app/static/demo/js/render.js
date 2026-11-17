@@ -517,6 +517,15 @@
     });
   }
 
+  // 900: 고른 후보가 탈락일 때 이유 칩(후보 패널 제목 옆, 평소 화면에서도 보임)
+  function chosenWhy(trace) {
+    var chip = byId('chosen-why');
+    if (!chip) return;
+    var text = trace ? L().chosenRejectChip(trace) : null;
+    chip.textContent = text ? '탈락 후보 선택 · ' + text : '';
+    chip.classList.toggle('hidden', !text);
+  }
+
   // ── 그룹 판정판(AI10) ───────────────────
   function groupBoard(trace) {
     var board = byId('group-board');
@@ -793,6 +802,7 @@
     if (chip) chip.setAttribute('data-kind', mode.kind);
     var cards = candidateCards(trace, animate && !trace.group);
     groupBoard(trace);
+    chosenWhy(trace);
     centerChosen();
     var board = byId('group-board');
     if (board) {
@@ -891,6 +901,7 @@
     clear(byId('record-list')); clear(byId('candidate-list')); clear(byId('hr-chart'));
     put('candidate-meta', 'GRU가 예측한 2분 뒤 심박');
     groupBoard(null);
+    chosenWhy(null);
     setLabels(false);
     var fromEl = byId('guide-from');
     if (fromEl) fromEl.classList.add('hidden');

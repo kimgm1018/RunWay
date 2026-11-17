@@ -423,6 +423,8 @@ export function SearchScreen() {
           onBlur={() => setFocused(false)}
           placeholder={filter.placeholder}
           placeholderTextColor="rgba(2,5,14,0.42)"
+          selectionColor="transparent"
+          cursorColor={look.ink}
           accessibilityLabel={`${filter.placeholder} 검색`}
           autoCapitalize="none"
           autoCorrect={false}
@@ -734,11 +736,16 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: look.white,
   },
+  // lineHeight keeps the Android caret to the text (S15P31E105-793 / MeetingPlace search).
   input: {
     flex: 1,
+    height: 48,
     paddingVertical: 0,
     fontFamily: fontFamily.regular,
     fontSize: 16,
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     color: look.ink,
   },
   // A fixed height: a sideways list sized by its content can come out shorter than its chips.

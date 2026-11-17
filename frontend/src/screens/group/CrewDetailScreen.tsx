@@ -159,7 +159,8 @@ function ManageCard({
                 onChangeText={text => onCapacity(text.replace(/[^0-9]/g, ''))}
                 keyboardType="number-pad"
                 maxLength={3}
-                selectionColor={groupTone.text}
+                selectionColor="transparent"
+                cursorColor={groupTone.text}
                 style={styles.capacityInput}
               />
               <AppText style={styles.caption}>명</AppText>
@@ -1469,6 +1470,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     fontFamily: fontFamily.numberSemiBold,
     fontSize: 22,
+    lineHeight: 28,
     color: groupTone.text,
   },
   // The 시안's mint bar on the soft grey.

@@ -72,6 +72,8 @@ def _course_responses(monkeypatch, tmp_path):
 
 
 def test_course_requests_match_the_pre_free_run_responses(monkeypatch, tmp_path):
+    # S15P31E105-892: 이 고정 응답은 탐색 결과 그대로를 지킨다. km 평활화 결과는 test_km_smoothing.py에서 본다.
+    monkeypatch.setenv("PLAN_KM_SMOOTHING_ENABLED", "false")
     actual = _course_responses(monkeypatch, tmp_path)
     if os.getenv("AI09_REGRESSION_REGENERATE") == "1":
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)

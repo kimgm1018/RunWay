@@ -3,8 +3,8 @@
 
   var state = {traces: [], snapshot: null, stream: null, bootId: null, serverOffsetMs: 0,
     lastMessageAtMs: null, mode: 'replay', recording: null, playbackIndex: -1, playbackSpeed: 1,
-    playbackTimer: null, playing: false, restartSeen: false, sessions: [], token: null, liveSession: null,
-    viewing: null};
+    playbackTimer: null, playing: false, restartSeen: false, token: null, liveSession: null,
+    currentSessionId: undefined};
   root.__demoState = state;
   root.__demoMetrics = {renderLagMs: null};
 
@@ -12,12 +12,6 @@
   function show(el, visible) { if (el) el.classList.toggle('hidden', !visible); }
   function setBanner(kind, text) { root.RunwayDemoRender.setBanner(kind ? {kind: kind, text: text} : null); }
   function updateBanner() {
-    if (state.mode === 'history') {                       // 738: 지난 기록은 경고·'마지막 판단' 없음
-      root.RunwayDemoRender.setBanner(null);
-      var ageEl = document.getElementById('record-age');
-      if (ageEl) ageEl.classList.add('hidden');
-      return;
-    }
     var trace = state.traces[state.traces.length - 1];
     var age = document.getElementById('record-age');
     if (age) {                                   // 736: 라이브에서만 '마지막 판단 N초 전'
@@ -59,117 +53,31 @@
     list.insertBefore(marker, list.firstChild);
   }
 
-  // ── 738 '이전 기록' ─────────────────────
-  function renderHistory() {
-    var list = byId('history-list');
-    var button = byId('history-toggle');
-    if (button) button.classList.toggle('hidden', state.mode === 'replay');
-    if (!list) return;
-    list.textContent = '';
-    var rows = state.sessions || [];
-    if (!rows.length) {
-      var empty = document.createElement('li');
-      empty.className = 'history-empty';
-      empty.textContent = '아직 보관된 기록이 없습니다';
-      list.appendChild(empty);
-      return;
-    }
-    rows.forEach(function (row) {
-      var item = document.createElement('li');
-      var pick = document.createElement('button');
-      pick.type = 'button';
-      pick.className = 'history-item' + (row.live ? ' live' : '') + (state.viewing === row.sessionId ? ' current' : '');
-      pick.textContent = root.RunwayDemoLogic.historyRowText(row);
-      if (row.label) pick.title = row.label;
-      pick.addEventListener('click', function () { openHistory(row); });
-      item.appendChild(pick);
-      list.appendChild(item);
-    });
-  }
-
-  function toggleHistoryPanel(open) {
-    var panel = byId('history-panel');
-    var button = byId('history-toggle');
-    if (!panel) return;
-    var willOpen = open == null ? panel.classList.contains('hidden') : open;
-    show(panel, willOpen);
-    if (button) button.setAttribute('aria-expanded', String(willOpen));
-    if (willOpen) renderHistory();
-  }
-
-  async function openHistory(row) {
-    toggleHistoryPanel(false);
-    if (!state.token) return;
-    setBanner(null);
-    root.RunwayDemoRender.setConnection('이전 기록 불러오는 중…');
-    var data;
-    try {
-      data = await root.RunwayDemoStream.fetchSnapshot({token: state.token, session: 'h' + row.sessionId});
-    } catch (error) {
-      root.RunwayDemoRender.setConnection('이전 기록 실패 · 목록에서 다시 누르기');
-      return;
-    }
-    if (state.stream) { state.stream.close(); state.stream = null; }
-    state.mode = 'history';
-    state.viewing = row.sessionId;
-    state.sessions = data.sessions || state.sessions;
-    var traces = Array.isArray(data.traces) ? data.traces : [];
-    var recording = {id: 'h' + row.sessionId, label: (data.label || '이전 기록') + ' · ' + root.RunwayDemoLogic.historyRowText(row),
-      modelLabel: traces.length ? traces[traces.length - 1].modelVersion || null : null,
-      snapshot: {stage: 'L3', label: data.label, course: data.course || null}, traces: traces};
-    show(byId('replay-controls'), true);
-    show(byId('recording-select'), false);
-    show(byId('history-chip'), true);
-    bindHistoryControls();
-    var chipText = byId('history-chip-text');
-    if (chipText) chipText.textContent = '이전 기록 · ' + root.RunwayDemoLogic.historyRowText(row);
-    selectRecording([recording], 0);
-    gotoReplay(traces.length - 1);
-    if (root.RunwayDemoLiveMap) {
-      root.RunwayDemoLiveMap.reset();
-      root.RunwayDemoLiveMap.setCourse(data.course || null);
-      root.RunwayDemoLiveMap.setRoutes(data.routes || []);
-      root.RunwayDemoLiveMap.setCourse(data.course || null);
-    }
-    root.RunwayDemoRender.setConnection('이전 기록 다시 보기 · 슬라이더로 처음부터 볼 수 있습니다');
-  }
-
-  // 라이브 모드에서는 재생 조작을 묶지 않았으므로(startReplayMode에서만) 다시 보기 때 한 번만 묶는다
-  function bindHistoryControls() {
-    if (state.historyControlsBound) return;
-    state.historyControlsBound = true;
-    byId('play-toggle').addEventListener('click', function () {
-      if (state.mode === 'history') { state.playing ? stopPlayback() : startPlayback(); }
-    });
-    byId('play-speed').addEventListener('change', function (event) {
-      if (state.mode !== 'history') return;
-      state.playbackSpeed = Number(event.target.value) || 1;
-      root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
-      if (state.playing) { if (state.playbackTimer) clearTimeout(state.playbackTimer); schedulePlayback(); }
-    });
-    byId('progress').addEventListener('input', function (event) {
-      if (state.mode === 'history') gotoReplay(Number(event.target.value));
-    });
-  }
-
-  function backToLive() {
-    stopPlayback();
-    show(byId('replay-controls'), false);
-    show(byId('recording-select'), true);
-    show(byId('history-chip'), false);
-    state.mode = 'live';
-    state.viewing = null;
-    state.recording = null;
-    state.traces = [];          // 지난 기록을 라이브 기록과 합치지 않게 비운다
+  // 900: 화면을 비우고 '러너 대기 중'으로(보던 러닝이 끝났거나 다른 러닝으로 넘어갈 때)
+  function clearLive(waiting) {
+    state.traces = [];
     state.bootId = null;
-    state.playbackIndex = -1;
+    state.restartSeen = false;
+    state.snapshot = {stage: state.snapshot && state.snapshot.stage || 'L1A', label: '실시간 세션 대기', course: null};
+    root.RunwayDemoRender.reset(state.snapshot);
+    root.RunwayDemoRender.setHeader('예측기 연결 대기', root.RunwayDemoLogic.DEFAULT_POLICY_VERSION);
     if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.reset();
-    if (state.token) connectLive(state.token, state.liveSession);
-    renderHistory();
+    var list = byId('record-list');
+    if (list) list.textContent = '';
+    setBanner(null);
+    if (waiting) root.RunwayDemoRender.setConnection('러너 대기 중 · 새 러닝이 시작되면 바로 연결');
   }
 
   function handleSnapshot(snapshot) {
-    if (Array.isArray(snapshot.sessions)) { state.sessions = snapshot.sessions; renderHistory(); }
+    // 900: 다른 세션(또는 대기)으로 다시 연결됐으면 이전 세션 판단·지도를 합치지 않고 비운다
+    var sessionId = snapshot.sessionId == null ? null : snapshot.sessionId;
+    if (state.currentSessionId !== undefined && state.currentSessionId !== sessionId) clearLive(false);
+    state.currentSessionId = sessionId;
+    if (snapshot.waiting) {
+      clearLive(true);
+      state.serverOffsetMs = snapshot.serverTime ? Date.parse(snapshot.serverTime) - Date.now() : state.serverOffsetMs;
+      return;
+    }
     var previousBoot = state.bootId;
     var previousTraces = state.traces.slice();
     state.bootId = snapshot.bootId || state.bootId;
@@ -198,13 +106,14 @@
     }
     if (name === 'HEARTBEAT') {
       if (data && data.serverTime) state.serverOffsetMs = Date.parse(data.serverTime) - Date.now();
-      root.RunwayDemoRender.setConnection('연결됨 · 실시간 대기');
+      if (state.currentSessionId != null) root.RunwayDemoRender.setConnection('연결됨 · 실시간 대기');
       updateBanner();
       return;
     }
-    if (name === 'SESSIONS') {               // 738: 목록이 바뀌었을 때
-      state.sessions = data && Array.isArray(data.sessions) ? data.sessions : state.sessions;
-      renderHistory();
+    if (name === 'SESSION_SWITCH') {         // 900: 새 러닝 시작·보던 러닝 종료 → 비우고 바로 다시 연결
+      clearLive(!(data && data.sessionId != null));
+      if (data && data.sessionId != null) root.RunwayDemoRender.setConnection('새 러닝으로 전환 중…');
+      if (state.stream) state.stream.reconnectNow();
       return;
     }
     if (name === 'COURSE_UPDATE') {
@@ -244,17 +153,17 @@
         if (status === 'connected') root.RunwayDemoRender.setConnection('연결됨 · 판단 기록 대기');
         else if (status === 'waiting') root.RunwayDemoRender.setConnection('세션 대기 중');
         else if (status === 'full') {
-          root.RunwayDemoRender.setConnection('연결 가득(5개) · 다른 탭 닫기');
+          root.RunwayDemoRender.setConnection('연결 가득 · 잠시 뒤 자동 재연결');
           setBanner('stale', '연결 가득 · 다른 탭 닫기');
         } else if (status === 'unavailable') {
           root.RunwayDemoRender.setConnection('AI 준비 중 · 자동 재연결');
           setBanner('stale', 'AI 준비 중 · 잠시 기다리기');
-        } else if (status === 'unauthorized') {
-          sessionStorage.removeItem('runwayDemoToken');
-          root.RunwayDemoRender.setConnection('보기 토큰이 맞지 않습니다');
+        } else if (status === 'unauthorized') {   // 900: 공개가 꺼진 서버·틀린 토큰 → 토큰 입력창
+          try { sessionStorage.removeItem('runwayDemoToken'); } catch (error) { /* 저장소 없음 */ }
+          root.RunwayDemoRender.setConnection(state.token ? '보기 토큰이 맞지 않습니다' : '보기 토큰이 필요합니다');
           var input = byId('token-input');
           if (input) { input.value = ''; input.focus(); }
-          show(byId('auth-error'), true);
+          show(byId('auth-error'), !!state.token);
           show(byId('auth-panel'), true);
         } else { root.RunwayDemoRender.setConnection('연결 끊김 · 자동 재연결(계속되면 새로고침)'); updateBanner(); }
       }});
@@ -444,15 +353,17 @@
       root.RunwayDemoRender.setConnection('주소창 토큰이 거부되었습니다.');
       return;
     }
-    var token = sessionStorage.getItem('runwayDemoToken') || '';
+    // 900: 라이브(latest)는 토큰 없이 바로 연결한다. 서버가 401이면(공개 꺼짐·직접 지정 세션) 토큰 입력창을 띄운다
+    var token = '';
+    try { token = sessionStorage.getItem('runwayDemoToken') || ''; } catch (error) { token = ''; }
     var input = byId('token-input');
     if (input) input.value = token;
-    show(byId('auth-panel'), !token);
+    show(byId('auth-panel'), false);
     var session = root.RunwayDemoLogic.streamRef(params);
     function saveAndConnect() {
       var value = input ? input.value.trim() : '';
       if (!value) { setBanner('stale', '시연 보기 토큰을 입력해 주세요.'); return; }
-      sessionStorage.setItem('runwayDemoToken', value);
+      try { sessionStorage.setItem('runwayDemoToken', value); } catch (error) { /* 이 탭에서만 */ }
       show(byId('auth-panel'), false);
       show(byId('auth-error'), false);
       setBanner(null);
@@ -460,8 +371,7 @@
     }
     byId('token-save').addEventListener('click', saveAndConnect);
     if (input) input.addEventListener('keydown', function (event) { if (event.key === 'Enter') saveAndConnect(); });
-    if (token) connectLive(token, session);
-    else root.RunwayDemoRender.setConnection('시연 보기 토큰 대기');
+    connectLive(session === 'latest' ? null : token || null, session);
     window.setInterval(updateBanner, 1000);
   }
 
@@ -476,14 +386,6 @@
       root.RunwayDemoRender.setZoom(active);
     });
     state.mode = params.get('mode') === 'live' ? 'live' : 'replay';
-    var historyToggle = byId('history-toggle');
-    if (historyToggle) historyToggle.addEventListener('click', function () { toggleHistoryPanel(); });
-    var historyBack = byId('history-back');
-    if (historyBack) historyBack.addEventListener('click', backToLive);
-    document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && byId('history-panel') && !byId('history-panel').classList.contains('hidden')) toggleHistoryPanel(false);
-    });
-    renderHistory();
     if (state.mode === 'live') startLiveMode(params);
     else startReplayMode();
   });

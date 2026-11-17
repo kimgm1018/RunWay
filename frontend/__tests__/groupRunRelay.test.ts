@@ -63,7 +63,9 @@ const result = (commandId: string, change: Partial<Extract<WatchSessionEvent, { 
     ...change,
   }) as const;
 
-function setup(options: { linked?: boolean; noEvents?: boolean; groupPollMs?: number } = {}) {
+function setup(
+  options: { linked?: boolean; noEvents?: boolean; groupPollMs?: number; locationGranted?: boolean } = {},
+) {
   let current = view();
   const snapshots: { handler: ((snapshot: SessionSnapshot) => void) | null } = { handler: null };
   const session = {
@@ -123,6 +125,17 @@ function setup(options: { linked?: boolean; noEvents?: boolean; groupPollMs?: nu
   const control = createRunControl({
     session: session as unknown as Repositories['session'],
     watch: watch as unknown as Repositories['watchSession'],
+    ...(options.locationGranted === undefined
+      ? {}
+      : {
+          location: {
+            start: async () => options.locationGranted as boolean,
+            stop: async () => undefined,
+            subscribe: () => () => undefined,
+            requestPermission: async () => options.locationGranted as boolean,
+            current: async () => ({ latitude: 35.15, longitude: 129.11, accuracyM: 5, at: 0 }),
+          } as unknown as NonNullable<Parameters<typeof createRunControl>[0]['location']>,
+        }),
     timers: {
       resultWaitMs: 200,
       endResultWaitMs: 200,
@@ -374,5 +387,75 @@ test('the S02 polling stops once the group session ends', async () => {
   const calls = session.get.mock.calls.length;
   await wait(80);
   expect(session.get.mock.calls.length).toBe(calls);
+  control.dispose();
+});
+
+// S15P31E105-889: 대기방에서 폰으로 기록을 고른 그룹 세션(PHONE_ONLY)은 워치 없이 준비되고, 그룹장의 G09 START를
+// 폰이 직접 실행해 폰 기기로 보고한다.
+const phoneOnly = (change: Partial<RunningSessionView> = {}) =>
+  view({ controlDeviceId: '102', relayDeviceId: '102', recordingMode: 'PHONE_ONLY', ...change });
+
+test('a phone-only group session joins without a watch and is not told to connect one', async () => {
+  const { control, watch, setCurrent } = setup({ linked: false });
+  setCurrent(phoneOnly());
+
+  await control.joinGroup('201', goal, '77');
+
+  expect(watch.prepare).not.toHaveBeenCalled();
+  expect(control.getState()).toMatchObject({
+    sessionId: '201',
+    status: 'READY',
+    recordingMode: 'PHONE_ONLY',
+    problem: null,
+  });
+  control.dispose();
+});
+
+test("the leader's G09 START on a phone-only group session is run by the phone and reported with the phone", async () => {
+  const { control, session, watch, snapshot, setCurrent } = setup({ linked: false, locationGranted: true });
+  setCurrent(phoneOnly());
+  await control.joinGroup('201', goal, '77');
+
+  snapshot(phoneOnly({ pendingCommand: pending('START', '501', 1) }));
+  await wait(30);
+
+  expect(watch.sendCommand).not.toHaveBeenCalled();
+  expect(session.reportResult).toHaveBeenCalledWith(
+    '201',
+    'START',
+    expect.objectContaining({ commandId: '501', deviceId: '102', result: 'APPLIED' }),
+  );
+  expect(control.getState().status).toBe('RUNNING');
+  control.dispose();
+});
+
+test('a phone-only group START without location permission is not reported and asks for the permission', async () => {
+  // S15P31E105-889 리뷰 A-2/B-4: 개인 폰 시작과 같이 위치 권한이 없으면 GPS 없는 RUNNING을 만들지 않는다.
+  const { control, session, snapshot, setCurrent } = setup({ linked: false, locationGranted: false });
+  setCurrent(phoneOnly());
+  await control.joinGroup('201', goal, '77');
+
+  snapshot(phoneOnly({ pendingCommand: pending('START', '501', 1) }));
+  await wait(30);
+
+  expect(session.reportResult).not.toHaveBeenCalled();
+  expect(control.getState()).toMatchObject({ status: 'READY', problem: { kind: 'locationRequired' } });
+  control.dispose();
+});
+
+test('a phone-only group START already pending when joining is run by the phone', async () => {
+  // G18 뒤 새 세션에 붙을 때 이미 승인된 START가 있으면 attachTo가 폰으로 실행한다.
+  const { control, session, watch, setCurrent } = setup({ linked: false, locationGranted: true });
+  setCurrent(phoneOnly({ pendingCommand: pending('START', '501', 1) }));
+
+  await control.joinGroup('201', goal, '77');
+  await wait(30);
+
+  expect(watch.sendCommand).not.toHaveBeenCalled();
+  expect(session.reportResult).toHaveBeenCalledWith(
+    '201',
+    'START',
+    expect.objectContaining({ commandId: '501', deviceId: '102', result: 'APPLIED' }),
+  );
   control.dispose();
 });

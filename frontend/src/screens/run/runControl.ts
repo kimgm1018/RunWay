@@ -36,7 +36,9 @@ export type ControlProblem =
   | { kind: 'watchNotReady'; reasonCode: string | null }
   | { kind: 'rejected'; action: ControlAction; reasonCode: string | null }
   // 실행 미확인. 시작이면 "시작 여부를 확인할 수 없습니다".
-  | { kind: 'unconfirmed'; action: ControlAction }
+  // afterResult: 기기는 결과를 돌려줬지만 서버 저장(S03/S06 RESULT) 응답을 받지 못했다(S15P31E105-889). 기기는 실행했을 수 있어
+  // 다른 기기로 다시 시작하지 않고 같은 결과를 다시 보고한다.
+  | { kind: 'unconfirmed'; action: ControlAction; afterResult?: boolean }
   // 종료 저장 미확인. NO_RESULT는 2분 안에 워치 종료 결과가 오지 않음, UPLOAD_PENDING은 워치가 종료했지만
   // 마지막 기록 저장 확인이 없음(409). 워치가 저장을 확인하고 같은 결과를 다시 보내면 자동으로 확정된다(S15P31E105-446).
   | { kind: 'saveUnconfirmed'; reason: 'NO_RESULT' | 'UPLOAD_PENDING' }
@@ -898,7 +900,7 @@ export function createRunControl({
       }
       // 저장 여부를 모른다(응답 없음·서버 장애). 워치는 실행했을 수 있으므로 실패로 단정하지 않고 재확인을 기다린다.
       if (RETRYABLE.includes(code)) {
-        setState({ problem: { kind: 'unconfirmed', action } });
+        setState({ problem: { kind: 'unconfirmed', action, afterResult: true } });
         return;
       }
       if (RESYNC.includes(code)) {
@@ -947,6 +949,18 @@ export function createRunControl({
   // 같은 commandId는 다시 실행하지 않는다. 종료는 GPS·타이머를 멈추고 폰 batch 전체의 저장을 확인한 뒤 보고한다.
   async function executePhone(approval: CommandApproval) {
     inflight = approval;
+    // 폰으로 기록하는 그룹 출발(S15P31E105-889)은 위치 권한이 있어야 실행한다. 없으면 시작을 보고하지 않고 알린다(개인 폰 시작의
+    // locationRequired와 같다). 명령은 맡아 둔 채라 권한을 허용한 뒤 다시 확인(recheck)하면 같은 명령을 실행한다.
+    if (
+      approval.action === 'START' &&
+      groupRunId !== null &&
+      state.recordingMode === 'PHONE_ONLY' &&
+      !phoneDone.has(approval.commandId) &&
+      !(await location.requestPermission().catch(() => false))
+    ) {
+      setState({ pending: null, problem: { kind: 'locationRequired' } });
+      return;
+    }
     const sessionId = state.sessionId as string;
     syncPhone();
     const current = recorder;
@@ -1612,12 +1626,16 @@ export function createRunControl({
     } else if (serverCommandOf(view)?.commandId === pending.commandId && view.recordingMode === 'WATCH') {
       // 서버가 승인한 그룹 출발·종료가 아직 유효하다. 같은 명령을 다시 보내 워치가 보관한 결과(또는 첫 실행 결과)를 받는다.
       await deliver(approval);
+    } else if (serverCommandOf(view)?.commandId === pending.commandId && view.recordingMode === 'PHONE_ONLY') {
+      // 폰으로 기록하는 그룹 참가(S15P31E105-889): 서버가 승인한 출발·종료를 폰이 직접 실행하고 보고한다.
+      await executePhone(approval);
     } else {
       setState({ problem: { kind: 'unconfirmed', action } });
     }
   }
 
   // G16 READY 세션에 붙는다. 워치가 없으면 준비하지 않고 알린다. 이미 출발 명령이 있으면 attachTo가 전달한다.
+  // 폰으로 기록하는 세션(PHONE_ONLY, S15P31E105-889)은 워치를 찾거나 준비하지 않는다. 출발은 폰이 직접 실행한다.
   async function joinGroupFlow(sessionId: string, goal: SessionGoalDraft, group: string) {
     groupRunId = group;
     devices = await watch.getLinkedDevices();
@@ -1630,7 +1648,7 @@ export function createRunControl({
         startGps(recorder);
       }
     }
-    if (state.sessionId !== sessionId || state.status !== 'READY' || inflight) {
+    if (state.sessionId !== sessionId || state.status !== 'READY' || inflight || phoneMode()) {
       return;
     }
     if (!devices) {

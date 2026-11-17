@@ -227,7 +227,8 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                   accessibilityLabel="남길 말"
                   placeholder="알림으로 전할 말을 적어 주세요"
                   placeholderTextColor={stand.muted}
-                  selectionColor={stand.mint}
+                  selectionColor="transparent"
+                  cursorColor={stand.text}
                   value={message}
                   onChangeText={setMessage}
                   maxLength={messageLimit}
@@ -414,13 +415,17 @@ const styles = StyleSheet.create({
     borderColor: stand.glassLine,
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  // No lineHeight: on Android it clips the top of the input.
+  // lineHeight keeps the Android caret to the text line instead of the 78px box
+  // (S15P31E105-793).
   messageInput: {
     height: 78,
     padding: 0,
     paddingVertical: 12,
     fontFamily: typography.input.fontFamily,
     fontSize: 14,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'top',
     color: stand.text,
   },
   messageNote: { marginTop: 8 },

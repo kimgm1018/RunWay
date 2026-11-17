@@ -154,6 +154,8 @@ export function SatisfactionSurveyScreen() {
             accessibilityLabel="의견"
             placeholder="좋았던 점이나 아쉬운 점을 알려 주세요"
             placeholderTextColor={settingsLook.sub}
+            selectionColor="transparent"
+            cursorColor={settingsLook.ink}
             value={comment}
             onChangeText={setComment}
             maxLength={surveyCommentLimit}

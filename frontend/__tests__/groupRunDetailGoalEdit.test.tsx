@@ -296,3 +296,16 @@ test('switching 완주 시간 and 페이스 keeps the run, rounded to the picker
     switchDraft({ distanceKm: 21, input: 'TIME', value: 20 }, 'PACE').value,
   ).toBe(180);
 });
+
+test('past scheduled host can read pace but cannot change the goal or mode', async () => {
+  const { screen } = await renderDetail(
+    { isHost: true, scheduledAt: '2026-10-10T07:00:00+09:00', pace: settledPace },
+    repositories => {
+      repositories.groupRuns.setPaceMode = jest.fn(async () => {});
+    },
+  );
+  expect(texts(screen)).toContain('공동 페이스');
+  expect(texts(screen)).not.toContain('목표 페이스');
+  expect(() => labelled(screen, '목표 변경')).toThrow();
+  await act(async () => screen.unmount());
+});

@@ -122,8 +122,11 @@ public class RunningSessionControlService {
         if (controlDeviceId == null) {
             throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
-        // 제어기기는 본인의 연결된 WATCH여야 한다(폰 대체 제어는 START를 승인하지 않는다).
-        access.requireOwnedDevice(participantUserId, controlDeviceId, DeviceType.WATCH);
+        // 폰 전용은 연결된 PHONE, 워치 기록은 연결된 WATCH가 START를 실행한다.
+        access.requireOwnedDevice(
+                participantUserId,
+                controlDeviceId,
+                session.isPhoneOnly() ? DeviceType.PHONE : DeviceType.WATCH);
         access.requireUsableCourse(participantUserId, session.getCourseId());
         if (access.pendingCommand(session) != null) {
             throw new ApiException(ErrorCode.COMMAND_PENDING);
@@ -198,6 +201,12 @@ public class RunningSessionControlService {
      */
     @Transactional
     public GroupFinishOutcome forceFinishGroupParticipant(long sessionId) {
+        return forceFinishGroupParticipant(sessionId, false);
+    }
+
+    /** 자동 종료는 미확정 START의 최종 관리상 중단 사유를 기록한다. G12는 기존 사유를 보존한다. */
+    @Transactional
+    public GroupFinishOutcome forceFinishGroupParticipant(long sessionId, boolean recordAbortReason) {
         RunningSession session = sessionRepository.findByIdForUpdate(sessionId).orElse(null);
         if (session == null || session.isDeleted() || session.getStateVersion() < 1) {
             return GroupFinishOutcome.UNTOUCHED;
@@ -213,6 +222,10 @@ public class RunningSessionControlService {
                 return GroupFinishOutcome.UNTOUCHED;
             }
             start.get().markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
+            if (recordAbortReason) {
+                start.get().recordResult(ControlResult.UNKNOWN, null,
+                        SessionControlEvent.START_UNCONFIRMED_ABORTED);
+            }
             session.abortUnconfirmedStart(now());
             controlEventRepository.flush();
             events.publishEvent(SessionStreamChanged.state(session.getId()));

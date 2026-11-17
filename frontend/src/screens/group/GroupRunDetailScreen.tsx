@@ -77,6 +77,7 @@ import {
   runKind,
   type PaceChange,
 } from './GroupPaceCard';
+import { useRunState } from '../run/RunSession';
 import { CourseMapZoom } from './CourseMapZoom';
 import { GroupGoalSheet } from './GroupGoalSheet';
 
@@ -211,6 +212,8 @@ export function GroupRunDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunDetail'>>();
   const groupRunId = route.params?.groupRunId;
   const { groupRuns, clock } = useRepositories();
+  // 이 그룹런으로 진행 중인 내 러닝(S15P31E105-889). 없으면 출발한 그룹런에 대기방에서 지금 합류한다.
+  const localRun = useRunState();
   const { changed } = useGroupRunDraft();
   const toast = useToast();
   const detail = useResource(
@@ -336,8 +339,14 @@ export function GroupRunDetailScreen() {
     (canceller && colors.get(canceller.userId)) ??
     (run.isHost ? stand.mint : stand.sub);
 
+  const hostBeforeRun = run.isHost && run.status === 'SCHEDULED' && !pastRun;
+
   const changeMode = async (mode: GroupPaceMode) => {
-    if (!groupRuns.setPaceMode) {
+    if (
+      !hostBeforeRun ||
+      isStaleGroupRun(run, clock.now().getTime()) ||
+      !groupRuns.setPaceMode
+    ) {
       return;
     }
     setBusy(true);
@@ -357,7 +366,11 @@ export function GroupRunDetailScreen() {
 
   // S15P31E105-702: the host saves a new goal with G04; the card then shows 계산 중 until the new pace.
   const saveGoal = async (goal: GroupGoalUpdate) => {
-    if (!groupRuns.updateGoal) {
+    if (
+      !hostBeforeRun ||
+      isStaleGroupRun(run, clock.now().getTime()) ||
+      !groupRuns.updateGoal
+    ) {
       return;
     }
     setBusy(true);
@@ -388,7 +401,6 @@ export function GroupRunDetailScreen() {
       setBusy(false);
     }
   };
-  const hostBeforeRun = run.isHost && run.status === 'SCHEDULED';
   // The card explains the start pace, so only before the run (review A-3).
   const showPaceCard = !!run.pace && run.status === 'SCHEDULED';
 
@@ -438,10 +450,20 @@ export function GroupRunDetailScreen() {
       />
     </>
   ) : run.status === 'RUNNING' && run.joined ? (
-    <StandButton
-      title="진행 화면으로"
-      onPress={() => navigation.navigate('GroupRunProgress')}
-    />
+    localRun?.config.groupRunId === run.id ? (
+      <StandButton
+        title="진행 화면으로"
+        onPress={() => navigation.navigate('GroupRunProgress')}
+      />
+    ) : (
+      // 출발했지만 이 폰에 내 그룹 러닝이 없다(워치 시작 실패·늦게 들어옴). 대기방에서 지금 합류한다(G18).
+      <StandButton
+        title="지금 합류"
+        onPress={() =>
+          navigation.navigate('WaitingRoom', { groupRunId: run.id })
+        }
+      />
+    )
   ) : run.status === 'COMPLETED' && run.joined ? (
     <StandButton
       title="그룹런 결과 보기"
@@ -726,9 +748,7 @@ export function GroupRunDetailScreen() {
                       showKmPaces={!run.route?.length}
                       change={change}
                       canChangeMode={
-                        run.isHost &&
-                        run.status === 'SCHEDULED' &&
-                        !!groupRuns.setPaceMode
+                        hostBeforeRun && !!groupRuns.setPaceMode
                       }
                       busy={busy}
                       onChangeMode={changeMode}
@@ -754,7 +774,7 @@ export function GroupRunDetailScreen() {
                       <AppText style={[styles.muted, styles.flex]}>
                         내가 만든 그룹런
                       </AppText>
-                      {run.status === 'SCHEDULED' ? (
+                      {hostBeforeRun ? (
                         <>
                           <Pressable
                             accessibilityRole="button"

@@ -208,3 +208,20 @@ test('747 안내 카드 지금(실제) 한 값: 개인 그대로, 그룹 평균,
   assert.equal(m.actualSummary([{kind: 'stopped', text: '정지', sec: null}]), '정지');
   assert.equal(m.actualSummary([]), '—');
 });
+
+test('900 고른 후보가 탈락일 때만 이유 칩(개인 selectorReason, 그룹 decision.reason)', () => {
+  const personal = (passed, reason) => ({decision: {chosenIndex: 1}, selectorReason: reason,
+    candidates: [{passed: true}, {passed}]});
+  assert.equal(m.chosenRejectChip(personal(false, 'FLOOR')), '통과 후보 없음 → 한 단계 늦춤');
+  assert.equal(m.chosenRejectChip(personal(false, 'WARMUP_CAP')), '출발 3분 제한');
+  assert.equal(m.chosenRejectChip(personal(false, 'COOLDOWN')), '바꾼 지 2분 유지');
+  assert.equal(m.chosenRejectChip(personal(true, 'COOLDOWN')), null);       // 통과한 후보면 칩 없음
+  assert.equal(m.chosenRejectChip(personal(false, 'HR_LIMIT')), null);      // 세 이유 밖이면 칩 없음
+  assert.equal(m.chosenRejectChip(personal(false, undefined)), null);       // 옛 기록(이유 없음)
+  const group = (passed, reason) => ({decision: {chosenIndex: 0, reason},
+    group: {chosenIndex: 0, candidates: [{passed}]}, candidates: []});
+  assert.equal(m.chosenRejectChip(group(false, 'WARMUP_CAP')), '출발 3분 제한');
+  assert.equal(m.chosenRejectChip(group(true, 'WARMUP_CAP')), null);
+  assert.equal(m.chosenRejectChip({decision: {chosenIndex: null}}), null);
+  assert.equal(m.chosenRejectChip(null), null);
+});

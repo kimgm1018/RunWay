@@ -410,7 +410,8 @@ export function WithdrawPasswordScreen() {
                 setPassword(text);
                 setWrong(false);
               }}
-              selectionColor={settingsLook.ink}
+              selectionColor="transparent"
+              cursorColor={settingsLook.ink}
               style={styles.input}
             />
           </View>
@@ -583,7 +584,8 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: settingsLook.label,
   },
-  // Noto's tall glyphs need more than the 22 line, so the input keeps its own height without padding.
+  // Noto's tall glyphs need more than the 22 line, so the input keeps its own height
+  // without padding. lineHeight keeps the Android caret to the text (S15P31E105-793).
   input: {
     height: 26,
     padding: 0,
@@ -591,6 +593,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontFamily: fontFamily.medium,
     fontSize: 15.5,
+    lineHeight: 20,
     color: settingsLook.ink,
   },
   error: {

@@ -178,24 +178,44 @@ class GroupRunReadyConcurrencyIntegrationTest extends SharedContextIntegrationSu
                 .isTrue();
     }
 
-    /**
-     * QA 순차 호출 404의 원인 확인. G16은 연결된 워치와 폰이 모두 있어야 READY 세션을 만든다. W01로 폰만 등록하면 404 DEVICE_NOT_FOUND이고,
-     * 워치까지 등록하면 200이다.
-     */
+    /** 기기 선택을 생략하면 폰만 연결된 사용자는 폰 전용, 워치도 연결된 사용자는 워치 기록으로 준비한다. */
     @Test
-    void ready_requiresLinkedWatchAndPhone() throws Exception {
+    void ready_defaultsToPhoneWithoutWatch_andWatchWhenLinked() throws Exception {
         long groupRunId = createGroupRun();
         join(groupRunId, phoneOnlyId);
         registerDevice(phoneOnlyId, "PHONE");
 
-        MvcResult phoneOnly = ready(groupRunId, phoneOnlyId, READY);
-        assertThat(phoneOnly.getResponse().getStatus()).isEqualTo(404);
-        assertThat(phoneOnly.getResponse().getContentAsString()).contains("DEVICE_NOT_FOUND");
+        MvcResult phoneOnly =
+                mockMvc.perform(
+                                post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(phoneOnlyId)))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT phone_only FROM running_sessions WHERE id=?",
+                                Boolean.class,
+                                sessionIdOf(phoneOnly)))
+                .isTrue();
 
+        assertThat(ready(groupRunId, phoneOnlyId, UNREADY).getResponse().getStatus()).isEqualTo(200);
         registerDevice(phoneOnlyId, "WATCH");
-        MvcResult both = ready(groupRunId, phoneOnlyId, READY);
-        assertThat(both.getResponse().getStatus()).isEqualTo(200);
-        assertThat(sessionIdOf(both)).isPositive();
+        MvcResult both =
+                mockMvc.perform(
+                                post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(phoneOnlyId)))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT phone_only FROM running_sessions WHERE id=?",
+                                Boolean.class,
+                                sessionIdOf(both)))
+                .isFalse();
     }
 
     private List<MvcResult> concurrently(List<Callable<MvcResult>> calls) throws Exception {

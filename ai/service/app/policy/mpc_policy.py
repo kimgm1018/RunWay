@@ -400,4 +400,5 @@ class MpcPolicy:
                                    allow=baseline_allow, hard_eff=baseline_hard, actual_minus=actual_minus,
                                    prog=prog, warnings=tuple(warnings))
         return replace(output, handover_phase=phase, plan_weight=plan_weight, coaching_level=coaching_level,
-                       chosen_pred_hr_bpm=candidate.pred_hr_bpm if chosen is None else None)
+                       chosen_pred_hr_bpm=candidate.pred_hr_bpm if chosen is None else None,
+                       selector_reason=None if not_following else selection.reason)

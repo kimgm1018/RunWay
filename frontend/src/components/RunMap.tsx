@@ -31,6 +31,11 @@ import {
   type LngLat,
 } from '../geo';
 import { latinRuns } from './AppText';
+import {
+  MapLoadFailure,
+  useMapLoadGuard,
+  type MapLoadGuard,
+} from './MapLoadGuard';
 import { Icon } from './Icon';
 import { fontFamily, k1, palette } from '../theme';
 import {
@@ -582,582 +587,623 @@ function DotMarker({
   );
 }
 
-// The shared map for 2.0·3.x·4.2·5.2·6.x (ADR-0018, S15P31E105-415): the course, the run so far, the
-// places the screen sets and the members, on the Naver map.
-export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
-  {
-    route,
-    progress = 0,
-    segmentPaces,
-    paceLabels,
-    pacePlanDistanceM,
-    trail,
-    trailParts,
-    routeParts,
-    unmeasuredEdges,
-    position,
-    destination,
-    members,
-    muted = false,
-    showLocation = false,
-    customStyleId,
-    area,
-    logo,
-    fitTo,
-    interactive = true,
-    onTapMap,
-    onCameraIdle,
-    onShown,
-    onUserMove,
-    cameraLocked = false,
-    rotatable = true,
-    view = 'flat',
-    look,
-    placeLabel,
-    compact = false,
-    markers = true,
-    poles = true,
-    mintLine = false,
-    lineScale: givenLineScale,
-    textureView = false,
-    recenterSignal = 0,
-    style,
-  },
-  ref,
-) {
-  const map = useRef<NaverMapViewRef>(null);
-  useImperativeHandle(ref, () => map.current as NaverMapViewRef, []);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const { width: mapWidth, height } = size;
+// The map itself, made again under a new key when it is retried (S15P31E105-898).
+const RunMapBody = forwardRef<RunMapRef, RunMapProps & { guard: MapLoadGuard }>(
+  function NaverRunMap(
+    {
+      route,
+      progress = 0,
+      segmentPaces,
+      paceLabels,
+      pacePlanDistanceM,
+      trail,
+      trailParts,
+      routeParts,
+      unmeasuredEdges,
+      position,
+      destination,
+      members,
+      muted = false,
+      showLocation = false,
+      customStyleId,
+      area,
+      logo,
+      fitTo,
+      interactive = true,
+      onTapMap,
+      onCameraIdle,
+      onShown,
+      onUserMove,
+      cameraLocked = false,
+      rotatable = true,
+      view = 'flat',
+      look,
+      placeLabel,
+      compact = false,
+      markers = true,
+      poles = true,
+      mintLine = false,
+      lineScale: givenLineScale,
+      textureView = false,
+      recenterSignal = 0,
+      guard,
+    },
+    ref,
+  ) {
+    const map = useRef<NaverMapViewRef>(null);
+    useImperativeHandle(ref, () => map.current as NaverMapViewRef, []);
+    const [size, setSize] = useState({ width: 0, height: 0 });
+    const { width: mapWidth, height } = size;
 
-  const running = !!trail && trail.length > 0;
-  const hasRoute = !!route && route.length >= 2;
-  // The two chosen end points, shown while there is no course and no run (S15P31E105-659).
-  const endpoints = !!destination && !hasRoute && !running;
+    const running = !!trail && trail.length > 0;
+    const hasRoute = !!route && route.length >= 2;
+    // The two chosen end points, shown while there is no course and no run (S15P31E105-659).
+    const endpoints = !!destination && !hasRoute && !running;
 
-  // The camera follows whatever the screen shows; it moves only when that changes.
-  const fitted = fitTo?.length
-    ? regionFor(fitTo, 0.002)
-    : regionFor([
-        ...(route ?? []),
-        ...(trail ?? []),
-        ...(position ? [position] : []),
-        ...(destination && !route?.length && !running ? [destination] : []),
-        ...(members ?? []).map(member => member.position),
-      ]);
-  const { region, padding } = lowerToLogo(
-    fitted,
-    paddingFor(area, height),
-    logo,
-    mapWidth,
-    height,
-  );
-  const logoAt = logoFor(logo, padding, height);
+    // The camera follows whatever the screen shows; it moves only when that changes.
+    const fitted = fitTo?.length
+      ? regionFor(fitTo, 0.002)
+      : regionFor([
+          ...(route ?? []),
+          ...(trail ?? []),
+          ...(position ? [position] : []),
+          ...(destination && !route?.length && !running ? [destination] : []),
+          ...(members ?? []).map(member => member.position),
+        ]);
+    const { region, padding } = lowerToLogo(
+      fitted,
+      paddingFor(area, height),
+      logo,
+      mapWidth,
+      height,
+    );
+    const logoAt = logoFor(logo, padding, height);
 
-  // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
-  const tilted = view !== 'flat';
-  const mint = look === 'mint';
-  const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
-  // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
-  const darkMap = tilted && !mint;
-  const lineScale = givenLineScale ?? (mintLine === 'thin' ? 0.55 : 1);
-  // A card's own scale draws in whole pixels so every layer stays visible (S15P31E105-884).
-  const lineWidth = (dp: number) =>
-    givenLineScale === undefined
-      ? dp * lineScale
-      : wholePixelWidth(dp * lineScale);
-  const pathLook = {
-    ...baseLook,
-    ink: darkMapLook.ink,
-    ribbon: darkMapLook.ribbon,
-    centre: lineWidth(darkMapLook.coreWidth),
-    edge: lineWidth(darkMapLook.coreEdge),
-    shadow: darkMapLook.glowOuter,
-    shadowWidth: lineWidth(darkMapLook.glowOuterWidth),
-    inner: darkMapLook.glowInner,
-    innerWidth: lineWidth(darkMapLook.glowInnerWidth),
-  };
-  const me = running ? trail[trail.length - 1] : null;
-  const heading = useRef(0);
-  if (view === 'heading' && running) {
-    heading.current = headingOf(trail, heading.current);
-  }
-  const bearing =
-    view === 'heading' && me
-      ? (Math.round(heading.current / headingStep) * headingStep) % 360
-      : 0;
-  const target: Camera | undefined = !tilted
-    ? undefined
-    : view === 'heading' && me
-    ? {
-        latitude: me[1],
-        longitude: me[0],
-        zoom: headingZoom,
-        tilt: headingTilt,
-        bearing,
-      }
-    : {
-        latitude: region.latitude + region.latitudeDelta / 2,
-        longitude: region.longitude + region.longitudeDelta / 2,
-        zoom: Math.min(
-          zoomFor(region, padding, mapWidth, height) - leanZoomOut,
-          maxZoom,
-        ),
-        tilt: leanTilt,
-        bearing: 0,
-      };
-
-  // The padding is known only after layout, so it moves the camera as well.
-  const key = `${regionKey(region)}|${padding?.top ?? 0},${
-    padding?.bottom ?? 0
-  }|${view}|${bearing}`;
-  const shownKey = useRef('');
-  const everShown = useRef(false);
-  const shownSaid = useRef(false);
-  // Camera calls sent before the native map is ready are dropped, so they wait for it.
-  const [ready, setReady] = useState(false);
-  // The tilted views move the camera through the camera prop: the fit command lays the map flat.
-  const [camera, setCamera] = useState<Camera>();
-  // The first view lands at once rather than gliding there, so the map is shown sooner; later moves glide.
-  const [glides, setGlides] = useState(false);
-  useEffect(() => {
-    if (
-      !ready ||
-      !height ||
-      !mapWidth ||
-      cameraLocked ||
-      shownKey.current === key
-    ) {
-      return;
+    // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
+    const tilted = view !== 'flat';
+    const mint = look === 'mint';
+    const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
+    // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
+    const darkMap = tilted && !mint;
+    const lineScale = givenLineScale ?? (mintLine === 'thin' ? 0.55 : 1);
+    // A card's own scale draws in whole pixels so every layer stays visible (S15P31E105-884).
+    const lineWidth = (dp: number) =>
+      givenLineScale === undefined
+        ? dp * lineScale
+        : wholePixelWidth(dp * lineScale);
+    const pathLook = {
+      ...baseLook,
+      ink: darkMapLook.ink,
+      ribbon: darkMapLook.ribbon,
+      centre: lineWidth(darkMapLook.coreWidth),
+      edge: lineWidth(darkMapLook.coreEdge),
+      shadow: darkMapLook.glowOuter,
+      shadowWidth: lineWidth(darkMapLook.glowOuterWidth),
+      inner: darkMapLook.glowInner,
+      innerWidth: lineWidth(darkMapLook.glowInnerWidth),
+    };
+    const me = running ? trail[trail.length - 1] : null;
+    const heading = useRef(0);
+    if (view === 'heading' && running) {
+      heading.current = headingOf(trail, heading.current);
     }
-    // One frame later, so the new padding reaches the native map before the camera moves.
-    const frame = requestAnimationFrame(() => {
-      const first = !everShown.current;
-      everShown.current = true;
+    const bearing =
+      view === 'heading' && me
+        ? (Math.round(heading.current / headingStep) * headingStep) % 360
+        : 0;
+    const target: Camera | undefined = !tilted
+      ? undefined
+      : view === 'heading' && me
+      ? {
+          latitude: me[1],
+          longitude: me[0],
+          zoom: headingZoom,
+          tilt: headingTilt,
+          bearing,
+        }
+      : {
+          latitude: region.latitude + region.latitudeDelta / 2,
+          longitude: region.longitude + region.longitudeDelta / 2,
+          zoom: Math.min(
+            zoomFor(region, padding, mapWidth, height) - leanZoomOut,
+            maxZoom,
+          ),
+          tilt: leanTilt,
+          bearing: 0,
+        };
+
+    // The padding is known only after layout, so it moves the camera as well.
+    const key = `${regionKey(region)}|${padding?.top ?? 0},${
+      padding?.bottom ?? 0
+    }|${view}|${bearing}`;
+    const shownKey = useRef('');
+    const everShown = useRef(false);
+    const shownSaid = useRef(false);
+    // Camera calls sent before the native map is ready are dropped, so they wait for it.
+    const [ready, setReady] = useState(false);
+    // The tilted views move the camera through the camera prop: the fit command lays the map flat.
+    const [camera, setCamera] = useState<Camera>();
+    // The first view lands at once rather than gliding there, so the map is shown sooner; later moves glide.
+    const [glides, setGlides] = useState(false);
+    useEffect(() => {
+      if (
+        !ready ||
+        !height ||
+        !mapWidth ||
+        cameraLocked ||
+        shownKey.current === key
+      ) {
+        return;
+      }
+      // One frame later, so the new padding reaches the native map before the camera moves.
+      const frame = requestAnimationFrame(() => {
+        const first = !everShown.current;
+        everShown.current = true;
+        shownKey.current = key;
+        if (target) {
+          setCamera(target);
+        } else {
+          map.current?.animateRegionTo({
+            ...region,
+            duration: first ? 0 : 300,
+          });
+        }
+      });
+      return () => cancelAnimationFrame(frame);
+      // region and target are rebuilt every render; key says when they really changed.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, ready, height, mapWidth, cameraLocked]);
+    // After the first camera has reached the native map, later ones glide.
+    useEffect(() => {
+      if (!camera || glides) {
+        return;
+      }
+      const frame = requestAnimationFrame(() => setGlides(true));
+      return () => cancelAnimationFrame(frame);
+    }, [camera, glides]);
+    // 현재 위치로: back to the shown view however the user moved the map, gliding there.
+    const recentered = useRef(recenterSignal);
+    useEffect(() => {
+      if (recentered.current === recenterSignal || !ready) {
+        return;
+      }
+      recentered.current = recenterSignal;
       shownKey.current = key;
       if (target) {
-        setCamera(target);
+        map.current?.animateCameraTo({
+          latitude: target.latitude,
+          longitude: target.longitude,
+          zoom: target.zoom,
+          duration: 300,
+        });
       } else {
-        map.current?.animateRegionTo({ ...region, duration: first ? 0 : 300 });
+        map.current?.animateRegionTo({ ...region, duration: 300 });
       }
-    });
-    return () => cancelAnimationFrame(frame);
-    // region and target are rebuilt every render; key says when they really changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, ready, height, mapWidth, cameraLocked]);
-  // After the first camera has reached the native map, later ones glide.
-  useEffect(() => {
-    if (!camera || glides) {
-      return;
-    }
-    const frame = requestAnimationFrame(() => setGlides(true));
-    return () => cancelAnimationFrame(frame);
-  }, [camera, glides]);
-  // 현재 위치로: back to the shown view however the user moved the map, gliding there.
-  const recentered = useRef(recenterSignal);
-  useEffect(() => {
-    if (recentered.current === recenterSignal || !ready) {
-      return;
-    }
-    recentered.current = recenterSignal;
-    shownKey.current = key;
-    if (target) {
-      map.current?.animateCameraTo({
-        latitude: target.latitude,
-        longitude: target.longitude,
-        zoom: target.zoom,
-        duration: 300,
-      });
-    } else {
-      map.current?.animateRegionTo({ ...region, duration: 300 });
-    }
-    // region, target and key are rebuilt every render; only the signal asks for the move.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recenterSignal, ready]);
-  // Once the user moves the map the shown view is theirs; following again fits it afresh.
-  useEffect(() => {
-    if (cameraLocked) {
-      shownKey.current = '';
-    }
-  }, [cameraLocked]);
+      // region, target and key are rebuilt every render; only the signal asks for the move.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [recenterSignal, ready]);
+    // Once the user moves the map the shown view is theirs; following again fits it afresh.
+    useEffect(() => {
+      if (cameraLocked) {
+        shownKey.current = '';
+      }
+    }, [cameraLocked]);
 
-  // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
-  // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
-  const recordParts = routeParts?.filter(part => part.length >= 2);
-  const sections =
-    route && unmeasuredEdges?.length
-      ? routeSections(route, unmeasuredEdges)
-      : null;
-  // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
-  // Labels alone (no km colours) still cut the course into km so each label sits on its km (S15P31E105-748).
-  const kmCount = segmentPaces?.length || paceLabels?.length || 0;
-  const labelCount = paceLabels?.length ?? 0;
-  const labelPositions = useMemo(
-    () => route && pacePlanDistanceM && labelCount
-      ? paceLabelPositions(route, labelCount, pacePlanDistanceM)
-      : [],
-    [route, pacePlanDistanceM, labelCount],
-  );
-  const kmPieces = useMemo(
-    () =>
-      route && route.length >= 2 && kmCount > 0
-        ? splitRoute(route, kmCount)
-        : null,
-    [route, kmCount],
-  );
-  const pieces = hasRoute
-    ? recordParts
+    // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
+    // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
+    const recordParts = routeParts?.filter(part => part.length >= 2);
+    const sections =
+      route && unmeasuredEdges?.length
+        ? routeSections(route, unmeasuredEdges)
+        : null;
+    // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
+    // Labels alone (no km colours) still cut the course into km so each label sits on its km (S15P31E105-748).
+    const kmCount = segmentPaces?.length || paceLabels?.length || 0;
+    const labelCount = paceLabels?.length ?? 0;
+    const labelPositions = useMemo(
+      () =>
+        route && pacePlanDistanceM && labelCount
+          ? paceLabelPositions(route, labelCount, pacePlanDistanceM)
+          : [],
+      [route, pacePlanDistanceM, labelCount],
+    );
+    const kmPieces = useMemo(
+      () =>
+        route && route.length >= 2 && kmCount > 0
+          ? splitRoute(route, kmCount)
+          : null,
+      [route, kmCount],
+    );
+    const pieces = hasRoute
       ? recordParts
-      : sections
-      ? sections.measured
-      : !running && kmPieces
-      ? kmPieces
-      : [route]
-    : [];
-  const fastest = segmentPaces?.length ? Math.min(...segmentPaces) : 0;
-  const slowest = segmentPaces?.length ? Math.max(...segmentPaces) : 0;
-  // The centre line's colour per piece: the km colour when the course carries paces, ink otherwise.
-  const pieceColor = (index: number) =>
-    muted
-      ? tilted
-        ? darkMapLook.muted
-        : k1.mid
-      : running
-      ? pathLook.guide
-      : segmentPaces?.length
-      ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
-      : pathLook.ink;
-  // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is mint.
-  const tiltedGuide = running && tilted;
-  const loop = hasRoute && isLoop(route);
-  const hasTrail = !!trail && trail.length >= 2;
-  // The lines of the run so far: its parts when it has them, else the whole trail.
-  const trailLines = hasTrail
-    ? (trailParts ?? [trail]).filter(part => part.length >= 2)
-    : [];
-  // The shadow follows the same lines; a record in parts casts one per part.
-  const shadowLines = hasTrail
-    ? trailLines
-    : hasRoute && !muted
-    ? recordParts ?? sections?.measured ?? [route]
-    : [];
+        ? recordParts
+        : sections
+        ? sections.measured
+        : !running && kmPieces
+        ? kmPieces
+        : [route]
+      : [];
+    const fastest = segmentPaces?.length ? Math.min(...segmentPaces) : 0;
+    const slowest = segmentPaces?.length ? Math.max(...segmentPaces) : 0;
+    // The centre line's colour per piece: the km colour when the course carries paces, ink otherwise.
+    const pieceColor = (index: number) =>
+      muted
+        ? tilted
+          ? darkMapLook.muted
+          : k1.mid
+        : running
+        ? pathLook.guide
+        : segmentPaces?.length
+        ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
+        : pathLook.ink;
+    // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is mint.
+    const tiltedGuide = running && tilted;
+    const loop = hasRoute && isLoop(route);
+    const hasTrail = !!trail && trail.length >= 2;
+    // The lines of the run so far: its parts when it has them, else the whole trail.
+    const trailLines = hasTrail
+      ? (trailParts ?? [trail]).filter(part => part.length >= 2)
+      : [];
+    // The shadow follows the same lines; a record in parts casts one per part.
+    const shadowLines = hasTrail
+      ? trailLines
+      : hasRoute && !muted
+      ? recordParts ?? sections?.measured ?? [route]
+      : [];
 
-  return (
-    <NaverMapView
-      ref={map}
-      style={[{ backgroundColor: palette.white }, style]}
-      onLayout={event =>
-        setSize({
-          width: event.nativeEvent.layout.width,
-          height: event.nativeEvent.layout.height,
-        })
-      }
-      onInitialized={() => setReady(true)}
-      initialRegion={fitted}
-      // While the user holds the camera (지도 보기 moved by hand) the map leaves it where they put it.
-      camera={tilted && !cameraLocked ? camera : undefined}
-      animationDuration={glides ? 300 : 0}
-      customStyleId={customStyleId}
-      mapType="Basic"
-      // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
-      // lighter to load, and a card's map takes no gestures anyway (S15P31E105-562).
-      isLiteModeEnabled={compact && !tilted}
-      lightness={darkMap ? darkMapLook.lightness : undefined}
-      layerGroups={tilted ? tiltedLayers : flatLayers}
-      buildingHeight={buildingHeight}
-      locationOverlay={{ ...locationLook, isVisible: showLocation }}
-      mapPadding={padding}
-      logoAlign={logoAt?.align}
-      logoMargin={logoAt?.margin}
-      onTapMap={
-        onTapMap
-          ? ({ latitude, longitude }) => onTapMap([longitude, latitude])
-          : undefined
-      }
-      onCameraChanged={
-        onUserMove
-          ? ({ reason }) => {
-              if (reason === 'Gesture') {
-                onUserMove();
+    return (
+      <NaverMapView
+        ref={map}
+        style={styles.map}
+        onLayout={event => {
+          setSize({
+            width: event.nativeEvent.layout.width,
+            height: event.nativeEvent.layout.height,
+          });
+          guard.onLayout(event);
+        }}
+        onInitialized={() => {
+          setReady(true);
+          guard.onInitialized();
+        }}
+        // S15P31E105-898: the first tiles drawn; a map that never gets here is blank (auth or network failure).
+        onMapLoaded={guard.onMapLoaded}
+        initialRegion={fitted}
+        // While the user holds the camera (지도 보기 moved by hand) the map leaves it where they put it.
+        camera={tilted && !cameraLocked ? camera : undefined}
+        animationDuration={glides ? 300 : 0}
+        customStyleId={customStyleId}
+        mapType="Basic"
+        // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
+        // lighter to load, and a card's map takes no gestures anyway (S15P31E105-562).
+        isLiteModeEnabled={compact && !tilted}
+        lightness={darkMap ? darkMapLook.lightness : undefined}
+        layerGroups={tilted ? tiltedLayers : flatLayers}
+        buildingHeight={buildingHeight}
+        locationOverlay={{ ...locationLook, isVisible: showLocation }}
+        mapPadding={padding}
+        logoAlign={logoAt?.align}
+        logoMargin={logoAt?.margin}
+        onTapMap={
+          onTapMap
+            ? ({ latitude, longitude }) => onTapMap([longitude, latitude])
+            : undefined
+        }
+        onCameraChanged={
+          onUserMove
+            ? ({ reason }) => {
+                if (reason === 'Gesture') {
+                  onUserMove();
+                }
               }
-            }
-          : undefined
-      }
-      onCameraIdle={
-        onCameraIdle || onShown
-          ? ({ latitude, longitude }) => {
-              onCameraIdle?.([longitude, latitude]);
-              // The first rest after the first view was sent (a tilted view waits for its camera prop).
-              if (
-                onShown &&
-                !shownSaid.current &&
-                everShown.current &&
-                (!tilted || camera)
-              ) {
-                shownSaid.current = true;
-                onShown();
+            : undefined
+        }
+        onCameraIdle={
+          onCameraIdle || onShown
+            ? ({ latitude, longitude }) => {
+                onCameraIdle?.([longitude, latitude]);
+                // The first rest after the first view was sent (a tilted view waits for its camera prop).
+                if (
+                  onShown &&
+                  !shownSaid.current &&
+                  everShown.current &&
+                  (!tilted || camera)
+                ) {
+                  shownSaid.current = true;
+                  onShown();
+                }
               }
-            }
-          : undefined
-      }
-      isScrollGesturesEnabled={interactive}
-      isZoomGesturesEnabled={interactive}
-      isTiltGesturesEnabled={false}
-      isRotateGesturesEnabled={interactive && rotatable}
-      isExtentBoundedInKorea
-      isUseTextureViewAndroid={textureView}
-      isShowLocationButton={false}
-      isShowZoomControls={false}
-      isShowScaleBar={false}
-      isShowCompass={false}
-      locale="ko"
-    >
-      {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+            : undefined
+        }
+        isScrollGesturesEnabled={interactive}
+        isZoomGesturesEnabled={interactive}
+        isTiltGesturesEnabled={false}
+        isRotateGesturesEnabled={interactive && rotatable}
+        isExtentBoundedInKorea
+        isUseTextureViewAndroid={textureView}
+        isShowLocationButton={false}
+        isShowZoomControls={false}
+        isShowScaleBar={false}
+        isShowCompass={false}
+        locale="ko"
+      >
+        {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
           later, and removing them first (a feed switch) crashed in its getChildAt. */}
-      {ready ? (
-        <>
-          {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
-          {shadowLines.map((line, index) => (
-            <React.Fragment key={`shadow-${index}`}>
-              <NaverMapPathOverlay
-                coords={coordsOf(line)}
-                width={pathLook.shadowWidth}
-                color={pathLook.shadow}
-                zIndex={-1}
-              />
-              <NaverMapPathOverlay
-                coords={coordsOf(line)}
-                width={pathLook.innerWidth}
-                color={pathLook.inner}
-                zIndex={0}
-              />
-            </React.Fragment>
-          ))}
-          {/* The course uses the shared mint core and pale outline (km pace colours still override the core).
+        {ready ? (
+          <>
+            {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
+            {shadowLines.map((line, index) => (
+              <React.Fragment key={`shadow-${index}`}>
+                <NaverMapPathOverlay
+                  coords={coordsOf(line)}
+                  width={pathLook.shadowWidth}
+                  color={pathLook.shadow}
+                  zIndex={-1}
+                />
+                <NaverMapPathOverlay
+                  coords={coordsOf(line)}
+                  width={pathLook.innerWidth}
+                  color={pathLook.inner}
+                  zIndex={0}
+                />
+              </React.Fragment>
+            ))}
+            {/* The course uses the shared mint core and pale outline (km pace colours still override the core).
           The part run stays grey; while running the course is a guide under the measured trail. */}
-          {pieces.length > 0 ? (
-            <NaverMapMultiPathOverlay
-              pathParts={pieces.map((piece, index) => ({
-                coords: coordsOf(piece),
-                color: pieceColor(index),
-                outlineColor: tiltedGuide
-                  ? darkMapLook.guideOutline
-                  : pathLook.ribbon,
-                passedColor: pathLook.passed,
-                passedOutlineColor: tiltedGuide
-                  ? darkMapLook.guideOutline
-                  : pathLook.ribbon,
-              }))}
-              width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
-              outlineWidth={tiltedGuide ? darkMapLook.guideEdge : pathLook.edge}
-              progress={progress}
-              zIndex={1}
-            />
-          ) : null}
-          {/* The pause connectors: round grey dots at an even spacing, none on the course points they join. */}
-          {sections?.connectors.flatMap((line, index) =>
-            connectorDots(line).map(([longitude, latitude], dot) => (
-              <NaverMapCircleOverlay
-                key={`unmeasured-${index}-${dot}`}
-                latitude={latitude}
-                longitude={longitude}
-                radius={pauseDotRadiusM}
-                color={pauseDotColor}
-                outlineWidth={0}
+            {pieces.length > 0 ? (
+              <NaverMapMultiPathOverlay
+                pathParts={pieces.map((piece, index) => ({
+                  coords: coordsOf(piece),
+                  color: pieceColor(index),
+                  outlineColor: tiltedGuide
+                    ? darkMapLook.guideOutline
+                    : pathLook.ribbon,
+                  passedColor: pathLook.passed,
+                  passedOutlineColor: tiltedGuide
+                    ? darkMapLook.guideOutline
+                    : pathLook.ribbon,
+                }))}
+                width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
+                outlineWidth={
+                  tiltedGuide ? darkMapLook.guideEdge : pathLook.edge
+                }
+                progress={progress}
+                zIndex={1}
+              />
+            ) : null}
+            {/* The pause connectors: round grey dots at an even spacing, none on the course points they join. */}
+            {sections?.connectors.flatMap((line, index) =>
+              connectorDots(line).map(([longitude, latitude], dot) => (
+                <NaverMapCircleOverlay
+                  key={`unmeasured-${index}-${dot}`}
+                  latitude={latitude}
+                  longitude={longitude}
+                  radius={pauseDotRadiusM}
+                  color={pauseDotColor}
+                  outlineWidth={0}
+                  zIndex={2}
+                />
+              )),
+            )}
+            {/* The run so far: the shared mint core over both green outline layers, from a white start. */}
+            {trailLines.map((line, index) => (
+              <NaverMapPathOverlay
+                key={`trail-${index}`}
+                coords={coordsOf(line)}
+                width={pathLook.centre}
+                outlineWidth={pathLook.edge}
+                color={pathLook.ink}
+                outlineColor={pathLook.ribbon}
                 zIndex={2}
               />
-            )),
-          )}
-          {/* The run so far: the shared mint core over both green outline layers, from a white start. */}
-          {trailLines.map((line, index) => (
-            <NaverMapPathOverlay
-              key={`trail-${index}`}
-              coords={coordsOf(line)}
-              width={pathLook.centre}
-              outlineWidth={pathLook.edge}
-              color={pathLook.ink}
-              outlineColor={pathLook.ribbon}
-              zIndex={2}
-            />
-          ))}
-          {/* Every marker below is a view the native map redraws, so a covered map can leave them all off. */}
-          {markers ? (
-            <>
-              {hasTrail ? (
-                <DotMarker
-                  at={trail[0]}
-                  dot={{
-                    size: 10,
-                    fill: palette.white,
-                    ring: ink,
-                    ringWidth: 2.5,
-                  }}
-                />
-              ) : null}
-              {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
-              {hasRoute && !running && poles ? (
-                loop ? (
-                  // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
-                  // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.
-                  mint ? (
-                    position ? null : (
-                      <MePin at={route[0]} />
+            ))}
+            {/* Every marker below is a view the native map redraws, so a covered map can leave them all off. */}
+            {markers ? (
+              <>
+                {hasTrail ? (
+                  <DotMarker
+                    at={trail[0]}
+                    dot={{
+                      size: 10,
+                      fill: palette.white,
+                      ring: ink,
+                      ringWidth: 2.5,
+                    }}
+                  />
+                ) : null}
+                {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
+                {hasRoute && !running && poles ? (
+                  loop ? (
+                    // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
+                    // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.
+                    mint ? (
+                      position ? null : (
+                        <MePin at={route[0]} />
+                      )
+                    ) : (
+                      <PoleMarker
+                        at={route[0]}
+                        label="SF"
+                        compact={compact}
+                        darkMap={darkMap}
+                      />
                     )
                   ) : (
-                    <PoleMarker
-                      at={route[0]}
-                      label="SF"
-                      compact={compact}
-                      darkMap={darkMap}
-                    />
+                    <>
+                      <PoleMarker
+                        at={route[route.length - 1]}
+                        label="F"
+                        finish
+                        compact={compact}
+                        darkMap={darkMap}
+                      />
+                      <PoleMarker
+                        at={route[0]}
+                        label="S"
+                        compact={compact}
+                        darkMap={darkMap}
+                      />
+                    </>
                   )
-                ) : (
-                  <>
-                    <PoleMarker
-                      at={route[route.length - 1]}
-                      label="F"
-                      finish
-                      compact={compact}
-                      darkMap={darkMap}
-                    />
-                    <PoleMarker
-                      at={route[0]}
-                      label="S"
-                      compact={compact}
-                      darkMap={darkMap}
-                    />
-                  </>
-                )
-              ) : null}
-              {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
-              {paceLabels && !running
-                ? pieces.map((piece, index) => {
-                    const label = paceLabels[index];
-                    if (!label) {
-                      return null;
-                    }
-                    const width = 40 + label.length * 9.5;
-                    return (
-                      <NaverMapMarkerOverlay
-                        key={`pace-${index}`}
-                        isHideCollidedMarkers={!!pacePlanDistanceM}
-                        {...toCoord(labelPositions[index] ?? piece[Math.floor(piece.length / 2)])}
-                        width={width}
-                        height={26}
-                        anchor={{ x: 0.5, y: 0.5 }}
-                      >
-                        <View
-                          style={[
-                            styles.pill,
-                            darkMap && styles.pillDark,
-                            { width },
-                          ]}
+                ) : null}
+                {/* 구간 페이스 알약: black, a pale number circle on the left, on the middle of each km. */}
+                {paceLabels && !running
+                  ? pieces.map((piece, index) => {
+                      const label = paceLabels[index];
+                      if (!label) {
+                        return null;
+                      }
+                      const width = 40 + label.length * 9.5;
+                      return (
+                        <NaverMapMarkerOverlay
+                          key={`pace-${index}`}
+                          isHideCollidedMarkers={!!pacePlanDistanceM}
+                          {...toCoord(
+                            labelPositions[index] ??
+                              piece[Math.floor(piece.length / 2)],
+                          )}
+                          width={width}
+                          height={26}
+                          anchor={{ x: 0.5, y: 0.5 }}
                         >
-                          <View style={styles.pillNumber}>
-                            <Text style={styles.pillNumberText}>
-                              {latinRuns(index + 1, styles.pillNumberText)}
+                          <View
+                            style={[
+                              styles.pill,
+                              darkMap && styles.pillDark,
+                              { width },
+                            ]}
+                          >
+                            <View style={styles.pillNumber}>
+                              <Text style={styles.pillNumberText}>
+                                {latinRuns(index + 1, styles.pillNumberText)}
+                              </Text>
+                            </View>
+                            <Text style={styles.pillText}>
+                              {latinRuns(label, styles.pillText)}
                             </Text>
                           </View>
-                          <Text style={styles.pillText}>
-                            {latinRuns(label, styles.pillText)}
-                          </Text>
-                        </View>
-                      </NaverMapMarkerOverlay>
-                    );
-                  })
-                : null}
-              {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
-              {endpoints ? (
-                <>
-                  <PoleMarker
-                    at={destination as LngLat}
-                    label="F"
-                    finish
-                    darkMap={darkMap}
+                        </NaverMapMarkerOverlay>
+                      );
+                    })
+                  : null}
+                {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
+                {endpoints ? (
+                  <>
+                    <PoleMarker
+                      at={destination as LngLat}
+                      label="F"
+                      finish
+                      darkMap={darkMap}
+                    />
+                    {position ? (
+                      <PoleMarker at={position} label="S" darkMap={darkMap} />
+                    ) : null}
+                  </>
+                ) : null}
+                {running ||
+                (position && (placeLabel || (!hasRoute && !endpoints))) ? (
+                  <DotMarker
+                    at={
+                      running ? trail[trail.length - 1] : (position as LngLat)
+                    }
+                    dot={
+                      mint
+                        ? {
+                            size: 12,
+                            fill: ink,
+                            ring: palette.white,
+                            ringWidth: 2,
+                            glow: 'rgba(58, 90, 108, 0.16)',
+                            glowSize: 48,
+                          }
+                        : {
+                            size: 17,
+                            fill: pathLook.ink,
+                            ring: palette.white,
+                            ringWidth: 3,
+                            glow: tilted
+                              ? 'rgba(200, 255, 0, 0.18)'
+                              : 'rgba(58, 90, 108, 0.16)',
+                            glowSize: 48,
+                          }
+                    }
                   />
-                  {position ? (
-                    <PoleMarker at={position} label="S" darkMap={darkMap} />
-                  ) : null}
-                </>
-              ) : null}
-              {running ||
-              (position && (placeLabel || (!hasRoute && !endpoints))) ? (
-                <DotMarker
-                  at={running ? trail[trail.length - 1] : (position as LngLat)}
-                  dot={
-                    mint
-                      ? {
-                          size: 12,
-                          fill: ink,
-                          ring: palette.white,
-                          ringWidth: 2,
-                          glow: 'rgba(58, 90, 108, 0.16)',
-                          glowSize: 48,
-                        }
-                      : {
-                          size: 17,
-                          fill: pathLook.ink,
-                          ring: palette.white,
-                          ringWidth: 3,
-                          glow: tilted
-                            ? 'rgba(200, 255, 0, 0.18)'
-                            : 'rgba(58, 90, 108, 0.16)',
-                          glowSize: 48,
-                        }
-                  }
-                />
-              ) : null}
-              {/* Me on the mint map: 6.9's pin, at the end of the run while running (S15P31E105-683, 담당자 요청). */}
-              {mint && running ? <MePin at={trail[trail.length - 1]} /> : null}
-              {mint && position && !running && !endpoints ? (
-                <MePin at={position} />
-              ) : null}
-              {placeLabel && position && !running ? (
-                <PlaceBubble at={position} {...placeLabel} />
-              ) : null}
-              {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
+                ) : null}
+                {/* Me on the mint map: 6.9's pin, at the end of the run while running (S15P31E105-683, 담당자 요청). */}
+                {mint && running ? (
+                  <MePin at={trail[trail.length - 1]} />
+                ) : null}
+                {mint && position && !running && !endpoints ? (
+                  <MePin at={position} />
+                ) : null}
+                {placeLabel && position && !running ? (
+                  <PlaceBubble at={position} {...placeLabel} />
+                ) : null}
+                {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
           drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
-              {(members ?? []).map(member => {
-                const width = memberDot + 6 + member.label.length * 13 + 4;
-                return (
-                  <NaverMapMarkerOverlay
-                    key={member.label}
-                    {...toCoord(member.position)}
-                    width={width}
-                    height={memberHeight}
-                    anchor={{ x: memberDot / 2 / width, y: 0.5 }}
-                    zIndex={1}
-                  >
-                    <View style={[styles.member, { width }]}>
-                      <Dot
-                        size={memberDot}
-                        fill={member.color}
-                        ring={palette.white}
-                        ringWidth={2}
-                      />
-                      <Text
-                        style={[
-                          styles.memberName,
-                          darkMap
-                            ? styles.memberNameDark
-                            : styles.memberNameLight,
-                        ]}
-                      >
-                        {member.label}
-                      </Text>
-                    </View>
-                  </NaverMapMarkerOverlay>
-                );
-              })}
-            </>
-          ) : null}
-        </>
+                {(members ?? []).map(member => {
+                  const width = memberDot + 6 + member.label.length * 13 + 4;
+                  return (
+                    <NaverMapMarkerOverlay
+                      key={member.label}
+                      {...toCoord(member.position)}
+                      width={width}
+                      height={memberHeight}
+                      anchor={{ x: memberDot / 2 / width, y: 0.5 }}
+                      zIndex={1}
+                    >
+                      <View style={[styles.member, { width }]}>
+                        <Dot
+                          size={memberDot}
+                          fill={member.color}
+                          ring={palette.white}
+                          ringWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.memberName,
+                            darkMap
+                              ? styles.memberNameDark
+                              : styles.memberNameLight,
+                          ]}
+                        >
+                          {member.label}
+                        </Text>
+                      </View>
+                    </NaverMapMarkerOverlay>
+                  );
+                })}
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </NaverMapView>
+    );
+  },
+);
+
+// The shared map for 2.0·3.x·4.2·5.2·6.x (ADR-0018, S15P31E105-415): the course, the run so far, the
+// places the screen sets and the members, on the Naver map. S15P31E105-898: a map that cannot authorize or load
+// says so over itself, and 다시 시도 (or the automatic retry after an auth failure) makes it again.
+export const RunMap = forwardRef<RunMapRef, RunMapProps>(function GuardedRunMap(
+  props,
+  ref,
+) {
+  const guard = useMapLoadGuard(props.compact ? 'card' : 'map');
+  return (
+    <View style={props.style}>
+      {guard.created ? (
+        <RunMapBody key={guard.attempt} {...props} guard={guard} ref={ref} />
       ) : null}
-    </NaverMapView>
+      {guard.failed ? (
+        <MapLoadFailure compact={props.compact} onRetry={guard.retry} />
+      ) : null}
+    </View>
   );
 });
 
 const styles = StyleSheet.create({
+  map: { ...StyleSheet.absoluteFill, backgroundColor: palette.white },
   flex: { flex: 1 },
   bubbleBox: { alignItems: 'center' },
   bubble: {

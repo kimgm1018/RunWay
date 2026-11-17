@@ -234,6 +234,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | G13 | [그룹런 취소](./group-runs.md#g13-그룹런-취소) | POST | `/group-runs/{groupRunId}/cancel` | [group-runs.md](./group-runs.md) |
 | G14 | [그룹런 결과 조회](./group-runs.md#g14-그룹런-결과-조회) | GET | `/group-runs/{groupRunId}/results` | [group-runs.md](./group-runs.md) |
 | G16 | [그룹런 대기방 준비 완료](./group-runs.md#g16-그룹런-대기방-준비-완료) | POST | `/group-runs/{groupRunId}/participants/me/ready` | [group-runs.md](./group-runs.md) |
+| G18 | [그룹런 지금 합류](./group-runs.md#g18-그룹런-지금-합류) | POST | `/group-runs/{groupRunId}/participants/me/start` | [group-runs.md](./group-runs.md) |
 | M01 | [크루 검색](./crews.md#m01-크루-검색) | GET | `/crews` | [crews.md](./crews.md) |
 | M02 | [크루 상세](./crews.md#m02-크루-상세) | GET | `/crews/{crewId}` | [crews.md](./crews.md) |
 | M03 | [크루 생성](./crews.md#m03-크루-생성) | POST | `/crews` | [crews.md](./crews.md) |

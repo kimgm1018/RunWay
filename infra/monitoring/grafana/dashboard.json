@@ -2,6 +2,7 @@
   "uid": "runway-ec2",
   "title": "RunWay EC2",
   "schemaVersion": 39,
+  "refresh": "30s",
   "time": {
     "from": "now-6h",
     "to": "now"

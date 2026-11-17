@@ -477,7 +477,8 @@ export function SearchField({
           accessibilityLabel={label}
           placeholder="크루 이름이나 지역으로 검색"
           placeholderTextColor={groupTone.muted}
-          selectionColor={groupTone.accent}
+          selectionColor="transparent"
+          cursorColor={groupTone.text}
           value={value}
           onChangeText={onChangeText}
           maxLength={SEARCH_QUERY_MAX}
@@ -558,11 +559,13 @@ const styles = StyleSheet.create({
     borderColor: groupTone.cardLine,
   },
   roundOnNight: { backgroundColor: groupTone.quiet },
+  // lineHeight keeps the Android caret to the text (S15P31E105-793 / MeetingPlace search).
   searchInput: {
     flex: 1,
     height: 40,
     fontFamily: typography.input.fontFamily,
     fontSize: 14,
+    lineHeight: 18,
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',

@@ -30,6 +30,10 @@ import {
   watchGroupStatus,
 } from '../../watch/groupStatus';
 import { createGroupGapVoice } from '../../watch/groupGapVoice';
+import {
+  createGroupPaceVoice,
+  createPaceVoiceLedger,
+} from '../../watch/groupPaceVoice';
 import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
@@ -217,6 +221,8 @@ export function RunSessionProvider({
   } = useRepositories();
   // 코칭 음성 알림(voiceCoachingEnabled). 러닝 제어를 만들 때 서버 설정을 읽어 둔다.
   const voiceOn = useRef(false);
+  // 공동 페이스 음성과 개인 코칭 음성이 같은 페이스를 두 번 말하지 않게 서로 말한 페이스를 기억한다(S15P31E105-906).
+  const paceVoiceLedger = useRef(createPaceVoiceLedger());
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
@@ -554,6 +560,8 @@ export function RunSessionProvider({
           speakCoaching(sentence).catch(() => undefined);
         },
         stop: stopCoaching,
+        duplicate: pace => paceVoiceLedger.current.echoes('coaching', pace),
+        spoken: pace => paceVoiceLedger.current.record('coaching', pace),
       },
     });
     controlRef.current = next;
@@ -672,9 +680,25 @@ export function RunSessionProvider({
         speakCoaching(sentence).catch(() => undefined);
       },
     });
+    // 공동 페이스가 바뀌는 순간 폰 음성 안내(S15P31E105-906). 워치 진동과 같은 규칙(첫 값·오류 뒤 첫 값은 말하지 않음).
+    // 개인 코칭이 같은 페이스를 방금 말했으면 말하지 않는다(paceVoiceLedger).
+    paceVoiceLedger.current.reset();
+    const paceVoice = createGroupPaceVoice(
+      {
+        enabled: () => voiceOn.current,
+        running: () => myRunning.current,
+        canSpeak: () => voiceIsQuiet(),
+        speak: sentence => {
+          speakCoaching(sentence).catch(() => undefined);
+        },
+      },
+      paceVoiceLedger.current,
+    );
     return groupRuns.watchLive(
       groupRunId,
       value => {
+        // 공동 페이스가 먼저다: 같은 현황에서 뒤처짐 안내가 겹치면 페이스 문장을 읽는 동안 뒤처짐은 다음 현황으로 미뤄진다.
+        paceVoice.next(value);
         gapVoice.next(value);
         if (!send) {
           return;
@@ -695,6 +719,7 @@ export function RunSessionProvider({
         paceChange.reset();
         gapAlert.reset();
         gapVoice.reset();
+        paceVoice.reset();
       },
     );
   }, [groupActive, groupLink, groupRuns, watchSession]);
@@ -900,6 +925,11 @@ export function useRunActions() {
 // For screens that show the run; they re-render with every reading.
 export function useRunSession() {
   return { run: useContext(RunStateContext), ...useRunActions() };
+}
+
+// 지금 진행 중인 내 러닝만 읽는다(제공자 밖이면 null, S15P31E105-889). 조작이 필요 없는 화면용.
+export function useRunState() {
+  return useContext(RunStateContext);
 }
 
 // 개인 러닝의 요청 중·거절·미확인 표시용.

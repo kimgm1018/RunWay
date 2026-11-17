@@ -33,6 +33,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
 import { darkMapLook, routeStrokeLayers } from '../../components/mapRoute';
+import { MapLoadFailure, useMapLoadGuard } from '../../components/MapLoadGuard';
 import type { Post } from '../../data';
 import {
   bearingOf,
@@ -714,6 +715,16 @@ function MapReplay({
   // Whether the map has drawn its tiles (S15P31E105-719): until then a loading cover stands over it (or, in the
   // feed, the page's own map) and the timeline does not start.
   const [mapDrawn, setMapDrawn] = useState(false);
+  // S15P31E105-898: a map that cannot authorize or load says so, and 다시 시도 makes it again under a new key.
+  const guard = useMapLoadGuard('replay');
+  useEffect(() => {
+    if (guard.attempt === 0) {
+      return;
+    }
+    // The new map has neither said it is ready nor drawn; its overlays wait for it (S15P31E105-692).
+    setReady(false);
+    setMapDrawn(false);
+  }, [guard.attempt]);
   // The feed lifts its cover over the page once the map has drawn.
   const shownSaid = useRef(false);
   useEffect(() => {
@@ -968,187 +979,203 @@ function MapReplay({
     : null;
 
   const mapLayer = (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <NaverMapView
-        style={StyleSheet.absoluteFill}
-        camera={overview ? overviewCamera : camera}
-        // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
-        // flat. With no custom style to load, the map is ready once made.
-        onInitialized={() => setReady(true)}
-        // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
-        onMapLoaded={() => setMapDrawn(true)}
-        animationDuration={overview ? 0 : motion.duration}
-        animationEasing={motion.easing}
-        mapType="Basic"
-        layerGroups={{
-          BUILDING: true,
-          TRAFFIC: false,
-          TRANSIT: false,
-          BICYCLE: false,
-          MOUNTAIN: false,
-          CADASTRAL: false,
-        }}
-        buildingHeight={1}
-        isLiteModeEnabled={false}
-        // 공유 takes a picture of this screen (S15P31E105-704): a TextureView map is in it, a SurfaceView one
-        // comes out black.
-        isUseTextureViewAndroid
-        // The camera's middle sits where the runner's pin is, above the numbers.
-        mapPadding={
-          overview ? overviewPadding : { bottom: height * (1 - 2 * markerAt) }
-        }
-        // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
-        // still bright, instead of the foot where the dark band and the numbers cover it.
-        // In the feed the author row sits there, so the logo goes where the feed's own map puts it: just over
-        // the run's words (feedMapArea's foot at 60% of the page), counted from above the map's bottom padding.
-        logoAlign={inline ? 'BottomLeft' : 'TopLeft'}
-        logoMargin={
-          overview
-            ? { left: 18, bottom: 6 }
-            : inline
-            ? { left: 18, bottom: height * (2 * markerAt - 0.6) + 6 }
-            : { left: 18, top: insets.top + 86 }
-        }
-        isScrollGesturesEnabled={false}
-        isZoomGesturesEnabled={false}
-        isTiltGesturesEnabled={false}
-        isRotateGesturesEnabled={false}
-        isShowLocationButton={false}
-        isShowZoomControls={false}
-        isShowScaleBar={false}
-        isShowCompass={false}
-        locale="ko"
-      >
-        {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+    <View
+      pointerEvents="none"
+      style={StyleSheet.absoluteFill}
+      onLayout={guard.onLayout}
+    >
+      {guard.created ? (
+        <NaverMapView
+          key={guard.attempt}
+          style={StyleSheet.absoluteFill}
+          camera={overview ? overviewCamera : camera}
+          // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
+          // flat. With no custom style to load, the map is ready once made.
+          onInitialized={() => {
+            setReady(true);
+            guard.onInitialized();
+          }}
+          // S15P31E105-719: the first tiles are in (the Naver map's load, patched in), so the intro can start.
+          onMapLoaded={() => {
+            setMapDrawn(true);
+            guard.onMapLoaded();
+          }}
+          animationDuration={overview ? 0 : motion.duration}
+          animationEasing={motion.easing}
+          mapType="Basic"
+          layerGroups={{
+            BUILDING: true,
+            TRAFFIC: false,
+            TRANSIT: false,
+            BICYCLE: false,
+            MOUNTAIN: false,
+            CADASTRAL: false,
+          }}
+          buildingHeight={1}
+          isLiteModeEnabled={false}
+          // 공유 takes a picture of this screen (S15P31E105-704): a TextureView map is in it, a SurfaceView one
+          // comes out black.
+          isUseTextureViewAndroid
+          // The camera's middle sits where the runner's pin is, above the numbers.
+          mapPadding={
+            overview ? overviewPadding : { bottom: height * (1 - 2 * markerAt) }
+          }
+          // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
+          // still bright, instead of the foot where the dark band and the numbers cover it.
+          // In the feed the author row sits there, so the logo goes where the feed's own map puts it: just over
+          // the run's words (feedMapArea's foot at 60% of the page), counted from above the map's bottom padding.
+          logoAlign={inline ? 'BottomLeft' : 'TopLeft'}
+          logoMargin={
+            overview
+              ? { left: 18, bottom: 6 }
+              : inline
+              ? { left: 18, bottom: height * (2 * markerAt - 0.6) + 6 }
+              : { left: 18, top: insets.top + 86 }
+          }
+          isScrollGesturesEnabled={false}
+          isZoomGesturesEnabled={false}
+          isTiltGesturesEnabled={false}
+          isRotateGesturesEnabled={false}
+          isShowLocationButton={false}
+          isShowZoomControls={false}
+          isShowScaleBar={false}
+          isShowCompass={false}
+          locale="ko"
+        >
+          {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
             later, and removing them first (a feed switch) crashed in its getChildAt. */}
-        {ready ? (
-          <>
-            {drawConnectors &&
-              replaySections?.connectors.map((part, index) => (
+          {ready ? (
+            <>
+              {drawConnectors &&
+                replaySections?.connectors.map((part, index) => (
+                  <NaverMapPathOverlay
+                    key={`connector-${index}`}
+                    coords={part}
+                    width={3}
+                    color="#8A979E"
+                    outlineWidth={0}
+                    zIndex={0}
+                  />
+                ))}
+              {!overview && intro && whole === 1 && !replaySections ? (
+                // The whole course, thin and grey, over the opening overview; under the run's lines.
                 <NaverMapPathOverlay
-                  key={`connector-${index}`}
-                  coords={part}
+                  coords={coords}
                   width={3}
-                  color="#8A979E"
+                  color={darkMapLook.outline}
                   outlineWidth={0}
                   zIndex={0}
                 />
-              ))}
-            {!overview && intro && whole === 1 && !replaySections ? (
-              // The whole course, thin and grey, over the opening overview; under the run's lines.
-              <NaverMapPathOverlay
-                coords={coords}
-                width={3}
-                color={darkMapLook.outline}
-                outlineWidth={0}
-                zIndex={0}
-              />
-            ) : null}
-            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
-            {!replaySections ? (
-              <NaverMapPathOverlay
-                coords={coords}
-                width={darkMapLook.glowOuterWidth}
-                {...reveal}
-                passedColor={darkMapLook.glowOuter}
-                outlineWidth={0}
-                zIndex={1}
-              />
-            ) : null}
-            {!replaySections ? (
-              <NaverMapPathOverlay
-                coords={coords}
-                width={darkMapLook.glowInnerWidth}
-                {...reveal}
-                passedColor={darkMapLook.glowInner}
-                outlineWidth={0}
-                zIndex={2}
-              />
-            ) : null}
-            {!replaySections ? (
-              <NaverMapPathOverlay
-                coords={coords}
-                width={darkMapLook.coreWidth}
-                {...reveal}
-                passedColor={darkMapLook.ink}
-                outlineColor={darkMapLook.unpassed}
-                passedOutlineColor={darkMapLook.ribbon}
-                outlineWidth={darkMapLook.coreEdge}
-                zIndex={3}
-              />
-            ) : null}
-            {replaySections?.parts.map((part, index) => {
-              const progress =
-                part.length > 0
-                  ? Math.max(
-                      0,
-                      Math.min(
-                        1,
-                        (drawn * replaySections.total - part.start) /
-                          part.length,
-                      ),
-                    )
-                  : 0;
-              return (
-                <React.Fragment key={`measured-${index}`}>
-                  {[0, 1].map(layer => (
+              ) : null}
+              {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
+              {!replaySections ? (
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowOuterWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowOuter}
+                  outlineWidth={0}
+                  zIndex={1}
+                />
+              ) : null}
+              {!replaySections ? (
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowInnerWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowInner}
+                  outlineWidth={0}
+                  zIndex={2}
+                />
+              ) : null}
+              {!replaySections ? (
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.coreWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.ink}
+                  outlineColor={darkMapLook.unpassed}
+                  passedOutlineColor={darkMapLook.ribbon}
+                  outlineWidth={darkMapLook.coreEdge}
+                  zIndex={3}
+                />
+              ) : null}
+              {replaySections?.parts.map((part, index) => {
+                const progress =
+                  part.length > 0
+                    ? Math.max(
+                        0,
+                        Math.min(
+                          1,
+                          (drawn * replaySections.total - part.start) /
+                            part.length,
+                        ),
+                      )
+                    : 0;
+                return (
+                  <React.Fragment key={`measured-${index}`}>
+                    {[0, 1].map(layer => (
+                      <NaverMapPathOverlay
+                        key={layer}
+                        coords={part.part}
+                        width={routeStrokeLayers[layer].width}
+                        color={darkMapLook.unpassed}
+                        passedColor={routeStrokeLayers[layer].color}
+                        progress={progress}
+                        outlineWidth={0}
+                        zIndex={layer + 1}
+                      />
+                    ))}
                     <NaverMapPathOverlay
-                      key={layer}
                       coords={part.part}
-                      width={routeStrokeLayers[layer].width}
+                      width={darkMapLook.coreWidth}
                       color={darkMapLook.unpassed}
-                      passedColor={routeStrokeLayers[layer].color}
                       progress={progress}
-                      outlineWidth={0}
-                      zIndex={layer + 1}
+                      passedColor={darkMapLook.ink}
+                      outlineColor={darkMapLook.unpassed}
+                      passedOutlineColor={darkMapLook.ribbon}
+                      outlineWidth={darkMapLook.coreEdge}
+                      zIndex={3}
                     />
-                  ))}
-                  <NaverMapPathOverlay
-                    coords={part.part}
-                    width={darkMapLook.coreWidth}
-                    color={darkMapLook.unpassed}
-                    progress={progress}
-                    passedColor={darkMapLook.ink}
-                    outlineColor={darkMapLook.unpassed}
-                    passedOutlineColor={darkMapLook.ribbon}
-                    outlineWidth={darkMapLook.coreEdge}
-                    zIndex={3}
-                  />
-                </React.Fragment>
-              );
-            })}
-            {markers && runnerOnMap ? (
-              <NaverMapMarkerOverlay
-                latitude={runnerOnMap[1]}
-                longitude={runnerOnMap[0]}
-                width={52}
-                height={76}
-                // The dot under the pin stands on the point.
-                anchor={{ x: 0.5, y: 66 / 76 }}
-                zIndex={4}
-              >
-                <RunnerOnMap run={run} />
-              </NaverMapMarkerOverlay>
-            ) : null}
-          </>
-        ) : null}
-      </NaverMapView>
+                  </React.Fragment>
+                );
+              })}
+              {markers && runnerOnMap ? (
+                <NaverMapMarkerOverlay
+                  latitude={runnerOnMap[1]}
+                  longitude={runnerOnMap[0]}
+                  width={52}
+                  height={76}
+                  // The dot under the pin stands on the point.
+                  anchor={{ x: 0.5, y: 66 / 76 }}
+                  zIndex={4}
+                >
+                  <RunnerOnMap run={run} />
+                </NaverMapMarkerOverlay>
+              ) : null}
+            </>
+          ) : null}
+        </NaverMapView>
+      ) : null}
     </View>
   );
   if (inline) {
     return visible ? (
-      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        {mapLayer}
-        {runnerOnMap || overview ? null : (
-          <ReplayPin
-            nickname={run.runner.nickname}
-            userId={run.runner.userId}
-            photo={run.runner.photo}
-            mine={run.runner.mine}
-            playing={playing}
-            accent={darkMapLook.ink}
-          />
-        )}
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {mapLayer}
+          {runnerOnMap || overview ? null : (
+            <ReplayPin
+              nickname={run.runner.nickname}
+              userId={run.runner.userId}
+              photo={run.runner.photo}
+              mine={run.runner.mine}
+              playing={playing}
+              accent={darkMapLook.ink}
+            />
+          )}
+        </View>
+        {guard.failed ? <MapLoadFailure onRetry={guard.retry} /> : null}
       </View>
     ) : null;
   }
@@ -1195,6 +1222,7 @@ function MapReplay({
             </View>
           </View>
         )}
+        {guard.failed ? <MapLoadFailure onRetry={guard.retry} /> : null}
         <ReplayChrome
           run={run}
           shown={shown}

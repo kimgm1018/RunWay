@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FlatList,
+  Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -62,6 +64,32 @@ export const onboardingScreen = {
   background: <OnboardingBackdrop />,
   contentStyle: { paddingHorizontal: 24, paddingTop: 0, gap: 12 },
 } as const;
+
+// While the keyboard is up, 1.2 로그인 and 1.3 회원가입 drop the runner and draw a plain backdrop, so the fields move
+// up to the top instead of staying under it (S15P31E105-902).
+export function useKeyboardOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const shown = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setOpen(true),
+    );
+    const hidden = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setOpen(false),
+    );
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return open;
+}
+
+// The plain backdrop behind the fields while the keyboard is up.
+export function KeyboardBackdrop() {
+  return <View style={styles.keyboardBackdrop} />;
+}
 
 // Left-aligned bold ink title. `muted` is the rest of the sentence, such as 1.2q's 잊으셨나요?; it is the same
 // ink now (the handoff has one colour), kept apart so the line breaks stay where they were.
@@ -442,6 +470,7 @@ export function IconBadge({ icon }: { icon: IconName; diameter?: number }) {
 const optionHeight = 48;
 
 const styles = StyleSheet.create({
+  keyboardBackdrop: { flex: 1, backgroundColor: '#E9EEF1' },
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
   header: {

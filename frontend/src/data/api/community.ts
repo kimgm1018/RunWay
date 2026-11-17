@@ -19,7 +19,7 @@ import { tokenStore } from './tokenStore';
 
 // CMT01–CMT19 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
 // like, my bookmark and the author's photo; comments carry their author. The server has no handles or the
-// run's place and heart rate yet, so those are filled in below.
+// run's place yet, so those are filled in below. Heart rate and cadence follow the author's health consent.
 
 type AuthorResponse = {
   userId: number;
@@ -31,6 +31,8 @@ type RecordSummaryResponse = {
   distanceM: number | null;
   movingDurationSec: number | null;
   averagePaceSecPerKm: number | null;
+  averageHeartRateBpm?: number | null;
+  averageCadenceSpm?: number | null;
 };
 
 // CMT02 item and CMT03 (which adds updatedAt). U21 lists a runner's posts in the same shape. courseId is
@@ -146,8 +148,7 @@ const sharedCourseOf = (response: PostResponse) =>
 const authorFrom = (author: AuthorResponse) =>
   authorOf(author.userId, author.nickname, author.profileImageUrl);
 
-// Only the distance, moving time and pace come with a post, so the card leaves the rest blank and is
-// dated by the post.
+// A post carries distance, moving time, pace and consented health values; the card is dated by the post.
 export function recordOf(response: PostResponse): PostRecord {
   const distanceM = response.recordSummary?.distanceM ?? 0;
   const durationSec = response.recordSummary?.movingDurationSec ?? 0;
@@ -172,8 +173,8 @@ export function recordOf(response: PostResponse): PostRecord {
     courseRun: response.courseId != null && !response.courseFromFreeRun,
     // The route comes with 7.2 (C03 by the post's course), not with the list.
     route: null,
-    averageHeartRate: null,
-    cadence: null,
+    averageHeartRate: response.recordSummary?.averageHeartRateBpm ?? null,
+    cadence: response.recordSummary?.averageCadenceSpm ?? null,
   };
 }
 

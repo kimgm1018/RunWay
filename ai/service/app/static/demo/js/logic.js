@@ -180,6 +180,25 @@
     SAFETY: '위험 심박'
   };
 
+  // 900: 고른 후보가 탈락(빗금)인데도 고른 이유. 개인은 trace.selectorReason(공용 선택기), 그룹은 decision.reason(AI10)
+  var CHOSEN_REJECT_TEXT = {
+    FLOOR: '통과 후보 없음 → 한 단계 늦춤',
+    WARMUP_CAP: '출발 3분 제한',
+    COOLDOWN: '바꾼 지 2분 유지'
+  };
+
+  function chosenRejectChip(trace) {
+    if (!trace || !trace.decision) return null;
+    var group = trace.group || null;
+    var index = group ? group.chosenIndex : trace.decision.chosenIndex;
+    if (!Number.isInteger(index)) return null;
+    var list = group ? group.candidates : trace.candidates;
+    var chosen = Array.isArray(list) ? list[index] : null;
+    if (!chosen || chosen.passed !== false) return null;
+    var reason = group ? trace.decision.reason : trace.selectorReason;
+    return CHOSEN_REJECT_TEXT[reason] || null;
+  }
+
   function rejectReasonText(reason) {
     if (!reason) return '안전 기준 미통과';
     return REJECT_TEXT[reason] || String(reason);
@@ -397,6 +416,7 @@
     DEFAULT_POLICY_VERSION: DEFAULT_POLICY_VERSION,
     policyVersionOf: policyVersionOf,
     rejectReasonText: rejectReasonText,
+    chosenRejectChip: chosenRejectChip,
     actionKind: actionKind,
     formatElapsed: formatElapsed,
     gaugeRange: gaugeRange

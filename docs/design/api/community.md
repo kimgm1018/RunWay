@@ -250,7 +250,9 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
       "recordSummary": {
         "distanceM": 5000,
         "movingDurationSec": 1800,
-        "averagePaceSecPerKm": 360
+        "averagePaceSecPerKm": 360,
+        "averageHeartRateBpm": 153,
+        "averageCadenceSpm": 171
       }
     }
   ],
@@ -291,7 +293,9 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].author` | object | O | 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함). 비공개 접근 검사 후 제공 |
-| `items[].recordSummary` | object | O | 연결 세션에서 파생한 표시용 요약(거리·이동시간·평균 페이스). 원본 GPS 미포함 |
+| `items[].recordSummary` | object | O | 연결 세션에서 파생한 표시용 요약(거리·이동시간·평균 페이스, 조건부 평균 심박·케이던스). 원본 GPS 미포함 |
+| `items[].recordSummary.averageHeartRateBpm` | integer | X | 평균 심박(bpm, 반올림). 작성자 건강정보 동의 + 값 있음일 때만 포함, 아니면 키 생략(S15P31E105-893) |
+| `items[].recordSummary.averageCadenceSpm` | integer | X | 평균 케이던스(spm, 반올림). 심박과 같은 포함 규칙 |
 | `items[].imageUrl` | string / null | X | **미구현** |
 | `items[].commentCount` | integer | O | 삭제되지 않은(`deleted_at IS NULL`) 댓글 수. 대댓글 포함 |
 | `items[].reactionCount` | integer | O | `post_likes` 행 수 |
@@ -321,6 +325,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - 커서 페이지(S15P31E105-634): 정렬은 최신 게시물 우선(`posts.id` 내림차순)이고 커서는 그 페이지의 마지막 게시물 기준이다. 삭제·접근 불가 작성자(비공개·탈퇴) 글은 DB 조회 단계에서 먼저 제외한 뒤 `limit`개를 자르므로, 가려진 글이 섞여도 각 페이지는 남은 글이 있는 한 `limit`개이고 `hasNext`가 정확하다. 서버는 `limit+1`개를 읽어 다음 페이지 여부를 판단한다.
 - 커서는 Base64URL 불투명 문자열이며 클라이언트가 해석·조립하지 않는다. 조회 회원·`scope`·`authorId`·`regionCode`를 담으므로 조건을 바꾸면 처음(커서 없이)부터 다시 요청한다. 지역 없는 커서는 예전 형식 그대로라 배포 전에 받은 커서도 이어진다.
 - `recordSummary`는 연결 세션에서 파생한다. `commentCount`·`reactionCount`·`myReaction`·`author.profileImageUrl`·`courseShared`는 **구현됨**(S15P31E105-632), `bookmarked`는 **구현됨**(S15P31E105-634). `imageUrl`·경로 그림은 **미구현**.
+- 기록 요약의 평균 심박·케이던스(S15P31E105-893): `recordSummary.averageHeartRateBpm`·`averageCadenceSpm`은 **작성자가 조회 시점에 건강정보(HEALTH_DATA)에 동의**(`users.health_data_access = 'AGREE'`, 활성 회원)하고 세션 값(`running_sessions.average_heart_rate`·`average_cadence`)이 있을 때만 정수(반올림)로 내려준다. 미동의·철회·값 없음이면 두 키를 **생략**한다(null도 넣지 않음). 판정은 게시 시점이 아니라 조회 시점이라 W04 철회 뒤 다음 조회부터 숨겨진다. 케이던스는 심박과 같은 W07 측정 샘플(HEALTH_DATA 동의 필수)에서 계산되므로 같은 동의 범위로 본다. 조회자 본인 글에도 같은 규칙이다. 세션 IN 조회 한 번에 작성자 동의를 함께 읽는다. CMT02·CMT03·CMT18·CMT19와 같은 게시물 항목을 쓰는 U21 러너 프로필 `posts`([users.md](./users.md)) 공통.
 - 작성자·세션·댓글 수·좋아요 수·조회자 좋아요·조회자 스크랩은 게시물마다 따로 조회하지 않고 각각 IN 조회 한 번으로 모은다.
 - 원본 H02 조회 권한을 타인에게 부여하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
@@ -403,7 +408,9 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "recordSummary": {
     "distanceM": 5000,
     "movingDurationSec": 1800,
-    "averagePaceSecPerKm": 360
+    "averagePaceSecPerKm": 360,
+    "averageHeartRateBpm": 153,
+    "averageCadenceSpm": 171
   }
 }
 ```
@@ -438,6 +445,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 |---|---|:---:|---|
 | `author` | object | O | 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함) |
 | `recordSummary` | object | O | 연결 세션에서 파생한 표시요약. 원본 GPS 미포함 |
+| `recordSummary.averageHeartRateBpm` | integer | X | 평균 심박(bpm, 반올림). 작성자 건강정보 동의 + 값 있음일 때만 포함, 아니면 키 생략(S15P31E105-893) |
+| `recordSummary.averageCadenceSpm` | integer | X | 평균 케이던스(spm, 반올림). 심박과 같은 포함 규칙 |
 | `imageUrl` | string / null | X | **미구현** — 게시물 업로드 이미지 표시 참조 |
 
 ### 오류 응답
@@ -460,6 +469,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - `deleted_at`이 설정된 게시물은 `404 POST_NOT_FOUND`.
 - 공개(PUBLIC) 작성자 글은 전체에, 비공개(PRIVATE)는 본인·승인된 정방향 팔로워만 열람한다. 그 외는 `403 ACCOUNT_ACCESS_DENIED`.
 - `recordSummary`는 연결 세션에서 파생한다. `commentCount`·`reactionCount`·`myReaction`·`bookmarked`·`courseShared`·`author.profileImageUrl`은 CMT02와 같은 규칙으로 **구현됨**. `title`·`imageUrl`·`routePreviewImageUrl`은 **미구현**.
+- 평균 심박·케이던스는 CMT02와 같은 규칙(작성자 조회 시점 건강정보 동의 + 값 있음일 때만 포함, 아니면 키 생략)이다(S15P31E105-893).
 - 원본 H02 조회 권한을 타인에게 부여하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 

@@ -759,6 +759,9 @@ export type GroupGoalUpdate =
   | { distanceM: number; input: 'PACE'; paceSecPerKm: number };
 
 // 6.5 출발 준비.
+// 그룹런 기록 기기(G16 recordingDevice, S15P31E105-889). PHONE이면 워치 없이 폰이 GPS로 기록한다.
+export type GroupRecordingDevice = 'WATCH' | 'PHONE';
+
 export type WaitingRoom = {
   groupRunId: string;
   goalPaceSecPerKm: number;
@@ -1555,9 +1558,20 @@ export type Repositories = {
       reference?: [number, number] | null,
     ) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
-    setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
+    // G16. recordingDevice는 준비할 때 고른 기록 기기(S15P31E105-889). 생략하면 서버가 연결 워치가 있으면 WATCH, 없으면 PHONE.
+    setReady: (
+      groupRunId: string,
+      ready: boolean,
+      recordingDevice?: GroupRecordingDevice,
+    ) => Promise<WaitingRoom>;
     // G09는 명령 승인만 수행한다. 실제 기기 실행·결과 보고는 폰·워치 연동에서 처리한다.
     start: (groupRunId: string) => Promise<void>;
+    // G18(S15P31E105-889). 이미 출발한 그룹런에 지금 합류하거나 기록 기기를 바꿔 다시 시작한다. 서버가 START를 승인한
+    // 내 세션 ID를 돌려준다(새로 만들었을 수 있다). 실제 시작은 그 세션에 붙어 기기가 실행해야 확정된다.
+    joinNow?: (
+      groupRunId: string,
+      recordingDevice?: GroupRecordingDevice,
+    ) => Promise<{ sessionId: string }>;
     // 서버 개인 세션의 실제 startedAt이 확인된 경우에만 호출한다.
     watchStart: (
       groupRunId: string,
@@ -1569,6 +1583,8 @@ export type Repositories = {
         comfortRange?: WaitingRoom['comfortRange'],
         counts?: { participantCount: number; readyCount: number },
       ) => void,
+      // 조회한 그룹 상태(S15P31E105-889). 대기방이 출발(RUNNING)을 알고 지금 합류를 보이는 데 쓴다.
+      onStatus?: (status: GroupRunDetail['status']) => void,
     ) => () => void;
     // G10을 주기적으로 조회한다. 구독 해제 후 도착한 응답은 전달하지 않는다.
     watchLive: (
