@@ -95,7 +95,10 @@
     list.forEach(function (route, index) {
       var label = String(route.label || '러너');
       seen[label] = true;
-      var pts = route.points.filter(function (p) { return Array.isArray(p) && isFinite(p[0]) && isFinite(p[1]); });
+      // 890: GPS 튐 점은 거르고, 끊긴 구간은 이어 그리지 않는다. 따라가기·확대·현재 위치 점도 받아들인 점만 쓴다.
+      var filtered = root.RunwayDemoTrackFilter.filterTrack(route.points);
+      var pts = filtered.segments;
+      if (!filtered.last) return;
       var color = colorFor(label, index, list.length);
       var layer = layers[label];
       if (!layer) {
@@ -111,13 +114,14 @@
         layer.dot.bindTooltip(label, {permanent: list.length > 1, direction: below ? 'bottom' : 'top',
           offset: [0, below ? 12 : -12], className: 'route-tip'});
       }
-      var end = pts[pts.length - 1];
-      var key = pts.length + ':' + end[0] + ',' + end[1];
+      var end = filtered.last;
+      var total = pts.reduce(function (n, s) { return n + s.length; }, 0);
+      var key = total + ':' + end[0] + ',' + end[1];
       if (key !== layer.lastKey) { layer.lastKey = key; layer.grewAt = Date.now(); }
-      layer.points = pts;
+      layer.points = pts[pts.length - 1];   // 선두·후미 판정은 마지막 선(현재 기준 위치)만 쓴다
       layer.ribbon.setLatLngs(pts);
       layer.core.setLatLngs(pts);
-      layer.dot.setLatLng(pts[pts.length - 1]);
+      layer.dot.setLatLng(end);
       if (!map.hasLayer(layer.dot)) layer.dot.addTo(map);
     });
     Object.keys(layers).forEach(function (label) { if (!seen[label]) removeLayer(label); });

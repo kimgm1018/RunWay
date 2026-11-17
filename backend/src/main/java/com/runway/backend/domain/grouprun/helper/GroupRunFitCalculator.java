@@ -5,11 +5,20 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
-/** 그룹런 적합도(myFit)·참가자 편한 범위(comfortRange) 파생 계산. 저장 값 없이 최근 완료 세션 페이스만 쓴다. */
+/**
+ * 그룹런 적합도(myFit)·참가자 편한 범위(comfortRange) 파생 계산. 저장 값 없이 최근 유효 완료 세션 페이스를 쓰고, 유효 기록이 없으면 가입 때 입력한 초기 설정
+ * 페이스(user_profiles.average_pace)를 쓴다(S15P31E105-886).
+ */
 public final class GroupRunFitCalculator {
 
     /** 최근 페이스에 쓰는 완료 세션 최대 개수. */
     public static final int RECENT_SESSION_LIMIT = 5;
+
+    /** 최근 페이스에 넣는 세션의 최소 거리(m). AI09 기준 속도와 같은 하한(S15P31E105-785 SPEED_REF_MIN_DISTANCE_M). */
+    public static final int MIN_SESSION_DISTANCE_M = 1000;
+
+    /** 최근 페이스에 넣는 세션의 최소 이동 시간(초). AI09 기준 속도와 같은 하한(S15P31E105-785 SPEED_REF_MIN_MOVING_SEC). */
+    public static final int MIN_SESSION_MOVING_SEC = 600;
 
     /** 참가자 값이 2명 미만일 때 추천 공동 페이스 앞뒤로 두는 폭(sec/km). */
     public static final int FALLBACK_SPREAD_SEC = 20;
@@ -40,6 +49,21 @@ public final class GroupRunFitCalculator {
             return null;
         }
         return sum.divide(BigDecimal.valueOf(count), 0, RoundingMode.HALF_UP).intValueExact();
+    }
+
+    /**
+     * 그 사람의 페이스(sec/km): 최근 유효 기록 평균이 있으면 그것, 없으면 초기 설정 페이스(반올림, 양수만). 둘 다 없으면 null(S15P31E105-886).
+     */
+    public static Integer participantPaceSecPerKm(List<BigDecimal> latestFirstPaces, BigDecimal profilePace) {
+        Integer recent = recentPaceSecPerKm(latestFirstPaces);
+        if (recent != null) {
+            return recent;
+        }
+        if (profilePace == null || profilePace.signum() <= 0) {
+            return null;
+        }
+        int rounded = profilePace.setScale(0, RoundingMode.HALF_UP).intValue();
+        return rounded > 0 ? rounded : null;
     }
 
     /**

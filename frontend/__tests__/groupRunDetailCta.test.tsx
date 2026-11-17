@@ -133,3 +133,42 @@ test('SCHEDULED host detail still shows edit and cancel', async () => {
   expect(() => labelled(screen, '그룹런 결과 보기')).toThrow();
   await act(async () => screen.unmount());
 });
+
+// S15P31E105-891: a start long past that nobody began is a past run, not one to join or get ready for.
+const longPast = '2026-10-10T07:00:00+09:00';
+
+test('SCHEDULED run long past says it is over and offers no join', async () => {
+  const screen = await renderDetail('SCHEDULED', 'gr-today', {
+    scheduledAt: longPast,
+    joined: false,
+    isHost: false,
+  });
+  expect(texts(screen)).toContain('지난 그룹런이에요');
+  expect(texts(screen)).toContain('지남');
+  expect(() => labelled(screen, '참가하기')).toThrow();
+  expect(() => labelled(screen, '참가 취소')).toThrow();
+  await act(async () => screen.unmount());
+});
+
+test('SCHEDULED run long past offers no waiting room even to a joined member', async () => {
+  const screen = await renderDetail('SCHEDULED', 'gr-today', {
+    scheduledAt: longPast,
+    joined: true,
+    isHost: false,
+  });
+  expect(texts(screen)).toContain('지난 그룹런이에요');
+  expect(() => labelled(screen, '대기방 입장')).toThrow();
+  expect(() => labelled(screen, '참가 취소')).toThrow();
+  await act(async () => screen.unmount());
+});
+
+test('SCHEDULED run just past its start still joins while the host may begin', async () => {
+  const screen = await renderDetail('SCHEDULED', 'gr-today', {
+    scheduledAt: '2026-10-19T12:30:00+09:00',
+    joined: false,
+    isHost: false,
+  });
+  expect(texts(screen)).not.toContain('지난 그룹런이에요');
+  expect(() => labelled(screen, '참가하기')).not.toThrow();
+  await act(async () => screen.unmount());
+});

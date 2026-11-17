@@ -14,6 +14,7 @@ import {
   maxCardMaps,
   drawableShape,
   glyphBox,
+  glyphLineScale,
   kmMarks,
   savedCourseCardLayout,
 } from '../SavedCoursesScreen';
@@ -419,6 +420,26 @@ describe('CourseMapThumb', () => {
     expect(glyphs(screen)).toHaveLength(1);
     await act(async () => map.props.onShown());
     expect(glyphs(screen)).toHaveLength(0);
+  });
+
+  // S15P31E105-884: glyphLine draws the map's line at the outline's on-screen width; other cards keep the map's own.
+  test('glyphLine scales the map line to the outline width on this card', async () => {
+    const plain = await render(
+      <CourseMapThumb {...props} route={route} basemap={null} />,
+    );
+    await layOut(plain);
+    expect(runMaps(plain)[0].props.lineScale).toBeUndefined();
+
+    const matched = await render(
+      <CourseMapThumb {...props} route={route} basemap={null} glyphLine />,
+    );
+    await layOut(matched);
+    const [map] = runMaps(matched);
+    // The outline's stroke scale times the glyph box's dp per unit on the 175 × 245 card.
+    expect(map.props.lineScale).toBeCloseTo(
+      glyphLineScale * glyphBox(175, 245, props.area).scale,
+    );
+    expect(map.props.lineScale).toBeLessThan(0.55);
   });
 
   test('grey connectors go to the map, and a server image is not used for them', async () => {

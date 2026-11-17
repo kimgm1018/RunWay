@@ -508,6 +508,8 @@ function CourseTile({
         km={course.distanceM / 1000}
         area={{ top: 0.08, bottom: 0.5 }}
         shadeFrom={0.42}
+        // S15P31E105-884: the map's line as thick as the run cards' outline beside it.
+        glyphLine
       />
       <View style={styles.tileText}>
         <AppText style={styles.tileTitle} numberOfLines={2}>

@@ -261,14 +261,22 @@ function serveJoined(fields61: Record<string, unknown>, fields62 = {}) {
   });
 }
 
-test('6.0 does not pin a run whose start passed long ago and lists it last', async () => {
+test('6.0 hides a run whose start passed long ago and never began (S15P31E105-891)', async () => {
   // 61 was due five days ago and never started; 62 starts in 5 hours.
   serveJoined({ scheduledAt: hoursFromNow(-5 * 24) });
 
   const mine = await api().groupRuns.listMine();
 
   expect(mine.upcoming?.id).toBe('62');
-  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62', '61']);
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62']);
+});
+
+test('6.0 keeps a long-past run that is under way in the list (S15P31E105-891)', async () => {
+  serveJoined({ scheduledAt: hoursFromNow(-30), status: 'RUNNING' });
+
+  const mine = await api().groupRuns.listMine();
+
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['61', '62']);
 });
 
 test('6.0 keeps pinning a run just past its start while the host may still begin', async () => {
@@ -300,7 +308,7 @@ test('6.0 pins nothing when only stale or far-off runs are joined', async () => 
   const mine = await api().groupRuns.listMine();
 
   expect(mine.upcoming).toBeNull();
-  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62', '61']);
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['62']);
 });
 
 test('6.0 skips crews still waiting for approval', async () => {

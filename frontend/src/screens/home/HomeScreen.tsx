@@ -41,12 +41,13 @@ import { fontFamily, homePalette, size } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import { frostCard, recordsFrame, recordsLook } from '../records/look';
 import { StartBackground } from '../onboarding/StartScreen';
-import { addDays, kstDay, kstMonth } from '../records/parts';
+import { addDays, kstDay, kstMonth, shiftMonth } from '../records/parts';
 import {
   CalendarPanel,
   DateLine,
   DayLegend,
   earliestDay,
+  historyMonths,
   WeekStrip,
 } from '../records/DatePicker';
 import { AnalysisPanel } from './AnalysisPanel';
@@ -440,6 +441,9 @@ export function HomeScreen() {
   const [runId, setRunId] = useState<string | null>(null);
   const [calendar, setCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(kstMonth(today));
+  // CalendarPanel이 월을 넘어가 보여주는 범위와 같다(DatePicker.tsx).
+  const latestMonth = kstMonth(today);
+  const earliestMonth = shiftMonth(latestMonth, -historyMonths);
   const choose = (next: string) => {
     setDay(next);
     setRunId(null);
@@ -608,12 +612,25 @@ export function HomeScreen() {
         <>
           <View style={styles.dateRow}>
             <View style={styles.dateControls}>
-              {/* ‹ date › (담당자 피드백, S15P31E105-690): the arrows step a day, the date opens the calendar. Bare
-                text and arrows, no button shapes; no 오늘 button. */}
+              {/* ‹ date › (담당자 피드백, S15P31E105-690): the arrows step a day, the date opens the calendar.
+                Bare text and arrows, no button shapes; no 오늘 button. 달력이 열려 "2026년 11월"처럼
+                월이 보일 때는 같은 화살표가 하루 대신 한 달씩 옮긴다(이전엔 그냥 꺼져 있었다). */}
               <DayArrow
                 direction={-1}
-                disabled={calendar || day <= earliestDay(today)}
-                onPress={() => choose(addDays(day, -1))}
+                disabled={
+                  calendar
+                    ? calendarMonth <= earliestMonth
+                    : day <= earliestDay(today)
+                }
+                onPress={() =>
+                  calendar
+                    ? setCalendarMonth(current =>
+                        shiftMonth(current, -1) < earliestMonth
+                          ? earliestMonth
+                          : shiftMonth(current, -1),
+                      )
+                    : choose(addDays(day, -1))
+                }
               />
               <View style={styles.dateLineSlot}>
                 <DateLine
@@ -628,8 +645,18 @@ export function HomeScreen() {
               </View>
               <DayArrow
                 direction={1}
-                disabled={calendar || day >= today}
-                onPress={() => choose(addDays(day, 1))}
+                disabled={
+                  calendar ? calendarMonth >= latestMonth : day >= today
+                }
+                onPress={() =>
+                  calendar
+                    ? setCalendarMonth(current =>
+                        shiftMonth(current, 1) > latestMonth
+                          ? latestMonth
+                          : shiftMonth(current, 1),
+                      )
+                    : choose(addDays(day, 1))
+                }
               />
             </View>
             {/* Keep the legend below the date controls so digit width cannot change this row's height. */}
@@ -657,6 +684,7 @@ export function HomeScreen() {
                 flat
                 value={day}
                 today={today}
+                month={calendarMonth}
                 onMonthChange={setCalendarMonth}
                 onPick={next => {
                   setCalendar(false);

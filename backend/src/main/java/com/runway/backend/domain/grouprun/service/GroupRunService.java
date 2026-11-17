@@ -220,26 +220,31 @@ public class GroupRunService {
                 participantJdbcRepository.findByGroupRunId(groupRunId);
         int participantCount = participants.size();
 
-        // 참가자와 요청자의 최근 완료 세션 페이스를 한 번에 읽는다(요청자는 참가 전일 수 있다).
+        // 참가자와 요청자의 최근 유효 완료 세션 페이스와 초기 설정 페이스를 한 번에 읽는다(요청자는 참가 전일 수 있다).
+        // 유효 기록이 없으면 초기 설정 페이스를 쓴다(S15P31E105-886).
         Set<Long> fitUserIds = new LinkedHashSet<>();
         participants.forEach(p -> fitUserIds.add(p.userId()));
         fitUserIds.add(userId);
         Map<Long, List<BigDecimal>> recentPaces =
                 fitJdbcRepository.findRecentCompletedPaces(fitUserIds);
+        Map<Long, BigDecimal> profilePaces = fitJdbcRepository.findProfilePaces(fitUserIds);
 
         List<Integer> participantPaces =
                 participants.stream()
                         .map(
                                 p ->
-                                        GroupRunFitCalculator.recentPaceSecPerKm(
-                                                recentPaces.get(p.userId())))
+                                        GroupRunFitCalculator.participantPaceSecPerKm(
+                                                recentPaces.get(p.userId()),
+                                                profilePaces.get(p.userId())))
                         .filter(Objects::nonNull)
                         .toList();
         GroupRunDetailResponse.ComfortRange comfortRange =
                 GroupRunFitCalculator.comfortRange(participantPaces, resolveGroupGuidePace(row));
 
         GroupRunDetailResponse.MyFit myFit = null;
-        Integer myPace = GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(userId));
+        Integer myPace =
+                GroupRunFitCalculator.participantPaceSecPerKm(
+                        recentPaces.get(userId), profilePaces.get(userId));
         if (myPace != null) {
             myFit =
                     new GroupRunDetailResponse.MyFit(

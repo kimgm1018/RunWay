@@ -87,19 +87,62 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
     }
 
     @Test
-    void noCompletedSessions_myFitNull_evenWithProfilePace_andComfortFallsBackToGuidePace()
-            throws Exception {
-        // 프로필 페이스는 myFit·참가자 페이스 근거가 아니다. 추천 공동 페이스(350)로만 폴백한다.
+    void noCompletedSessions_usesProfilePaceForMyFitAndComfortRange() throws Exception {
+        // S15P31E105-886: 유효 기록이 없으면 참가자 초기 설정(user_profiles.average_pace)을 그 사람 페이스로 쓴다.
         insertProfile(hostId, 300);
         insertProfile(memberId, 400);
         long groupRunId = createGroupRun();
         join(groupRunId, memberId);
 
         JsonNode host = detail(groupRunId, hostId);
-        assertThat(host.get("myFit").isNull()).isTrue();
+        assertThat(host.get("myFit").get("recentPaceSecPerKm").asInt()).isEqualTo(300);
         assertThat(host.get("groupGuidePaceSecPerKm").asInt()).isEqualTo(350);
-        assertThat(host.get("comfortRange").get("fastSecPerKm").asInt()).isEqualTo(330);
-        assertThat(host.get("comfortRange").get("slowSecPerKm").asInt()).isEqualTo(370);
+        assertThat(host.get("comfortRange").get("fastSecPerKm").asInt()).isEqualTo(300);
+        assertThat(host.get("comfortRange").get("slowSecPerKm").asInt()).isEqualTo(400);
+    }
+
+    @Test
+    void shortOrWalkSessionsOnly_fallBackToProfilePace() throws Exception {
+        // S15P31E105-886 재현: 짧은 걷기·테스트 기록(1 km 미만 또는 이동 10분 미만)이 범위를 21'54"까지 벌렸다.
+        insertProfile(hostId, 420);
+        insertProfile(memberId, 380);
+        long groupRunId = createGroupRun();
+        join(groupRunId, memberId);
+        insertSession(hostId, "COMPLETED", "1314", 1, false, 500, 657); // 1 km 미만
+        insertSession(hostId, "COMPLETED", "900", 2, false, 2000, 599); // 이동 10분 미만
+        insertCompleted(memberId, "393", 1);
+
+        JsonNode host = detail(groupRunId, hostId);
+        assertThat(host.get("myFit").get("recentPaceSecPerKm").asInt()).isEqualTo(420);
+        assertThat(host.get("comfortRange").get("fastSecPerKm").asInt()).isEqualTo(393);
+        assertThat(host.get("comfortRange").get("slowSecPerKm").asInt()).isEqualTo(420);
+    }
+
+    @Test
+    void validRecordsWin_overProfile_andShortRecordsAreIgnored() throws Exception {
+        insertProfile(hostId, 420);
+        long groupRunId = createGroupRun();
+        insertCompleted(hostId, "360", 2);
+        insertSession(hostId, "COMPLETED", "1314", 1, false, 999, 1800); // 최신이지만 1 km 미만
+        insertSession(hostId, "COMPLETED", "300", 3, false, 1000, 600); // 경계값은 포함
+
+        JsonNode host = detail(groupRunId, hostId);
+        assertThat(host.get("myFit").get("recentPaceSecPerKm").asInt()).isEqualTo(330);
+    }
+
+    @Test
+    void noRecordsAndNoProfile_participantExcluded() throws Exception {
+        insertProfile(hostId, 300);
+        long groupRunId = createGroupRun();
+        join(groupRunId, memberId);
+        insertSession(memberId, "COMPLETED", "1314", 1, false, 500, 657);
+
+        JsonNode member = detail(groupRunId, memberId);
+        assertThat(member.get("myFit").isNull()).isTrue();
+        // 참가자 페이스가 호스트 1명뿐이라 추천 공동 페이스±20 폴백.
+        int guide = member.get("groupGuidePaceSecPerKm").asInt();
+        assertThat(member.get("comfortRange").get("fastSecPerKm").asInt()).isEqualTo(guide - 20);
+        assertThat(member.get("comfortRange").get("slowSecPerKm").asInt()).isEqualTo(guide + 20);
     }
 
     @Test
@@ -264,18 +307,32 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
 
     private void insertSession(
             long userId, String status, String averagePace, int daysAgo, boolean deleted) {
+        insertSession(userId, status, averagePace, daysAgo, deleted, 5000, 1800);
+    }
+
+    private void insertSession(
+            long userId,
+            String status,
+            String averagePace,
+            int daysAgo,
+            boolean deleted,
+            int distanceM,
+            int movingSec) {
         Instant ended = Instant.now().minus(daysAgo, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
         jdbc.update(
                 """
                 INSERT INTO running_sessions(user_id, status, started_at, ended_at,
                     total_distance, moving_duration, elapsed_duration, average_pace, deleted_at)
                 VALUES (?, ?::running_sessions_status_enum, ?::timestamptz, ?::timestamptz,
-                    5000, 1800, 1800, ?::numeric, ?::timestamptz)
+                    ?, ?, ?, ?::numeric, ?::timestamptz)
                 """,
                 userId,
                 status,
-                ended.minusSeconds(1800).toString(),
+                ended.minusSeconds(movingSec).toString(),
                 ended.toString(),
+                distanceM,
+                movingSec,
+                movingSec,
                 averagePace,
                 deleted ? ended.toString() : null);
     }
