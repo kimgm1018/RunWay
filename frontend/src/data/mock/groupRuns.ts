@@ -15,6 +15,7 @@ import type { GroupRunFixture } from './fixtures';
 type Respond = <T>(value: T) => Promise<T>;
 
 type Run = GroupRunFixture & {
+  meetingNote?: string | null;
   cancellation: GroupRunDetail['cancellation'];
   status: GroupRunSummary['status'];
 };
@@ -187,6 +188,7 @@ export function createGroupRunMock({
         ...summary(run),
         route: run.route,
         meetingPosition: run.meetingPosition,
+        meetingNote: run.meetingNote ?? null,
         goalPaceSecPerKm: run.goalPaceSecPerKm,
         crewMemberCount: crewOf(run.crewId).memberCount,
         participants: participants(run),
@@ -231,6 +233,7 @@ export function createGroupRunMock({
           meetingPlaceName: draft.meetingPlaceName,
           meetingAddress: draft.meetingAddress,
           meetingPosition: draft.meetingPosition,
+          meetingNote: draft.meetingNote,
           courseId: draft.courseId,
           courseName,
           route: draft.courseId
@@ -254,6 +257,7 @@ export function createGroupRunMock({
         meetingPlaceName: draft.meetingPlaceName,
         meetingAddress: draft.meetingAddress,
         meetingPosition: draft.meetingPosition,
+        meetingNote: draft.meetingNote,
         courseId: draft.courseId,
         courseName: draft.courseId
           ? fixtures.savedCourses.find(item => item.id === draft.courseId)

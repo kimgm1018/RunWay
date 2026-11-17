@@ -711,6 +711,8 @@ export type GroupRunParticipant = {
 export type GroupRunDetail = GroupRunSummary & {
   route: [number, number][] | null;
   meetingPosition: [number, number];
+  // 찾아오는 법 (6.9b), saved as the run's description (G03); null when none was written (S15P31E105-910).
+  meetingNote: string | null;
   // 예상 공동 페이스: an estimate from the participants so far, not a fixed goal.
   goalPaceSecPerKm: number;
   crewMemberCount: number;

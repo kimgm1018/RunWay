@@ -178,6 +178,7 @@ function InfoRow({
   icon,
   text,
   sub,
+  note,
   right,
   line = true,
   lines = 1,
@@ -185,6 +186,8 @@ function InfoRow({
   icon: IconName;
   text: string;
   sub?: string | null;
+  // A third line, such as 만나는 곳's 찾아오는 법 (S15P31E105-910).
+  note?: string | null;
   right?: React.ReactNode;
   // A thin line under the row (not under the last one before my row).
   line?: boolean;
@@ -199,6 +202,7 @@ function InfoRow({
       <View style={styles.flex}>
         <NumText style={styles.infoText} text={text} numberOfLines={lines} />
         {sub ? <NumText style={styles.infoSub} text={sub} /> : null}
+        {note ? <NumText style={styles.infoNote} text={note} /> : null}
       </View>
       {right}
     </View>
@@ -547,14 +551,10 @@ export function GroupRunDetailScreen() {
               <RunMap
                 muted={cancelled}
                 route={run.route ?? undefined}
-                // The meeting place need not be the course's start, so it stands over the course too, with its
-                // name in a bubble (S15P31E105-696).
+                // The meeting place need not be the course's start, so it stands over the course too: a dot
+                // without the name bubble, whose name is in the 만나는 곳 row below (S15P31E105-910, 사용자 요청).
                 position={run.meetingPosition}
-                placeLabel={
-                  run.route && !cancelled
-                    ? { title: run.meetingPlaceName, sub: '만나는 곳' }
-                    : undefined
-                }
+                placeDot
                 area={
                   run.route
                     ? { top: 0.12, bottom: 0.88 }
@@ -572,14 +572,10 @@ export function GroupRunDetailScreen() {
               <RunMap
                 muted={cancelled}
                 route={run.route ?? undefined}
-                // The meeting place need not be the course's start, so it stands over the course too, with its
-                // name in a bubble (S15P31E105-696).
+                // The meeting place need not be the course's start, so it stands over the course too: a dot
+                // without the name bubble, whose name is in the 만나는 곳 row below (S15P31E105-910, 사용자 요청).
                 position={run.meetingPosition}
-                placeLabel={
-                  run.route && !cancelled
-                    ? { title: run.meetingPlaceName, sub: '만나는 곳' }
-                    : undefined
-                }
+                placeDot
                 area={
                   run.route
                     ? { top: 0.12, bottom: 0.88 }
@@ -625,6 +621,8 @@ export function GroupRunDetailScreen() {
                   icon="mapPin"
                   text={run.meetingPlaceName}
                   sub={cancelled ? null : run.meetingAddress}
+                  // 찾아오는 법 as written, without a label (사용자 요청).
+                  note={cancelled ? null : run.meetingNote}
                 />
                 {cancelled ? null : (
                   <InfoRow
@@ -972,6 +970,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: stand.sub,
+  },
+  infoNote: {
+    marginTop: 4,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: stand.text,
   },
   actions: {
     gap: 8,

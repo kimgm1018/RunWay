@@ -135,6 +135,8 @@ type RunMapProps = {
   // The bubble over me on the run start map (S15P31E105-683): the place and a short note, standing on `position`,
   // which then shows even with a course.
   placeLabel?: { title: string; sub: string };
+  // `position` as a dot over a course without the bubble (6.4 만나는 곳, S15P31E105-910).
+  placeDot?: boolean;
   // A course card's small map (S15P31E105-562): smaller start and finish poles.
   compact?: boolean;
   // Raised by a 현재 위치로 button (S15P31E105-683): the camera goes back to what the map shows even when that has
@@ -619,6 +621,7 @@ const RunMapBody = forwardRef<RunMapRef, RunMapProps & { guard: MapLoadGuard }>(
       view = 'flat',
       look,
       placeLabel,
+      placeDot = false,
       compact = false,
       markers = true,
       poles = true,
@@ -1101,7 +1104,8 @@ const RunMapBody = forwardRef<RunMapRef, RunMapProps & { guard: MapLoadGuard }>(
                   </>
                 ) : null}
                 {running ||
-                (position && (placeLabel || (!hasRoute && !endpoints))) ? (
+                (position &&
+                  (placeLabel || placeDot || (!hasRoute && !endpoints))) ? (
                   <DotMarker
                     at={
                       running ? trail[trail.length - 1] : (position as LngLat)
