@@ -234,7 +234,8 @@ def test_console_trace_shows_a_normal_ahead_card_with_forced_marker(tmp_path):
                               stage="L1A", label="시연", policy_version="p", decided_at=T0, decide_ms=1.0)
     decision = trace["decision"]
     assert (decision["reasonCode"], decision["direction"], decision["recommendedPaceSecPerKm"]) == ("AHEAD", "FAST", 510.0)
-    assert "시연 설정" in decision["reasonText"] and "60초" in decision["reasonText"]
+    # 915 후속: 화면 문구는 일반 여유 가속과 같다. 시연 설정 여부는 trace의 group.ahead.forced에만 남는다.
+    assert "시연 설정" not in decision["reasonText"] and "심박 여유" in decision["reasonText"]
     assert trace["group"]["ahead"]["forced"] is True
 
 
