@@ -534,8 +534,10 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 | 항목 | 규약 |
 | --- | --- |
-| 인증 | `Authorization: Bearer <view token>`. query token 거절 |
-| 이벤트 | `SNAPSHOT`, `MPC_TRACE`, `COURSE_UPDATE`, `HEARTBEAT` |
+| 인증 | `Authorization: Bearer <view token>`. query token 거절. 단 `sessionRef=latest`는 시연 대상 회원 목록(`userAllowlist`)이 비어 있지 않을 때 토큰 없이 열린다(S15P31E105-900, 랜딩 Live). 이때 이전 기록 목록(`sessions`·`SESSIONS`)은 싣지 않는다. 숫자 세션·그룹 키·`h<id>` 지난 기록은 토큰 필요, 틀린 토큰은 401 |
+| 이벤트 | `SNAPSHOT`, `MPC_TRACE`, `COURSE_UPDATE`, `HEARTBEAT`, `SESSION_SWITCH`(latest만) |
+| latest 따라가기 | 진행 중 러닝(마지막 판단이 개인 30초·그룹 90초 이내) 중 그룹런 우선, 다음 가장 최근 시작을 보여 준다. 새 러닝 시작·보던 러닝 종료 때 `SESSION_SWITCH {sessionId\|null}`를 보내고 닫는다(콘솔은 바로 다시 연결). 진행 중인 것이 없으면 `SNAPSHOT {sessionId: null, waiting: true}` 뒤 새 러닝을 기다린다 |
+| 연결 상한 | 세션당 화면 50개(대기 연결도 같은 상한), 넘으면 429 |
 | 코스 표시 | `SNAPSHOT.course`와 `COURSE_UPDATE.course`는 `{lengthM, points}` 형식이다. W07 `GPS_POINT.coordinates`와 `altitudeM`로 만든 메모리 내 경로이며, 각 point는 `[longitude, latitude, altitudeM|null, distanceM]`다. 고도 표본이 2개 미만이면 고도 단면은 비워 둔다. 새 W07 위치가 들어오면 `COURSE_UPDATE`로 열린 콘솔을 갱신한다. |
 | 전송 | SSE, `Cache-Control: no-cache`, Nginx proxy buffering off |
 | trace 전 연결 | 허용된 세션은 trace가 아직 없어도 연결할 수 있다. 이때 `SNAPSHOT.traces`는 빈 배열이며, 코스 데이터가 있으면 snapshot과 이후 `COURSE_UPDATE`로 표시한다. |

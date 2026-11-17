@@ -72,6 +72,8 @@ class PolicyOutput:
     coaching_level: str | None = None
     # 추천 페이스가 요청 후보가 아닐 때(chosen_index=None) 그 페이스의 예측 심박(30/60/120초).
     chosen_pred_hr_bpm: tuple[float, float, float] | None = None
+    # 공용 선택기 이유(HR_LIMIT/RECOVERED/COOLDOWN/WARMUP_CAP/FLOOR/SMALL_CHANGE). 시연 콘솔 표시용, API 응답에는 없음(S15P31E105-900).
+    selector_reason: str | None = None
 
 
 class PacePolicy(Protocol):

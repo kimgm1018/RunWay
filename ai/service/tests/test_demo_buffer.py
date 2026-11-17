@@ -74,10 +74,10 @@ def test_allowlist_and_since():
 
 def test_subscribe_limit_and_release():
     b, _ = make()
-    # 747: 발표 화면·발표자 노트북·확인용 탭까지 한 세션에 5개
+    # 900: 토큰 없는 공개 라이브(청중 화면)까지 한 세션에 50개(747의 5개에서 늘림)
     from app.demo.buffer import MAX_SUBSCRIBERS
-    assert MAX_SUBSCRIBERS == 5
-    assert all(b.subscribe(1) for _ in range(5)) and not b.subscribe(1)
+    assert MAX_SUBSCRIBERS == 50
+    assert all(b.subscribe(1) for _ in range(50)) and not b.subscribe(1)
     b.unsubscribe(1); assert b.subscribe(1)
 
 

@@ -265,10 +265,19 @@
   }
 
   function onEvent(name, data) {
+    if (name === 'SESSION_SWITCH') {        // 900: 새 러닝 시작·보던 러닝 종료 → 비우고 바로 다시 연결
+      state.lastTrace = null; state.view = null; state.routes = []; state.course = null; state.tracker = null;
+      state.standing = null;
+      renderPage();
+      if (state.stream) state.stream.reconnectNow();
+      return;
+    }
     if (name === 'SNAPSHOT') {
+      if (data && data.waiting) { state.lastTrace = null; state.routes = []; state.course = null; state.tracker = null; state.standing = null; }
       onRoutes(data && data.routes, data ? data.course : undefined);
       var traces = data && Array.isArray(data.traces) ? data.traces : [];
       state.view = null;
+      if (!traces.length) state.lastTrace = null;
       if (traces.length) { state.lastTrace = traces[traces.length - 1]; onTrace(state.lastTrace); }
       else renderPage();
     } else if (name === 'MPC_TRACE') {
@@ -340,7 +349,11 @@
       byId('auth').classList.add('hidden');
       go(value);
     });
-    if (token) go(token); else { byId('auth').classList.remove('hidden'); setConn('토큰 입력 대기'); }
+    // 900: 라이브는 토큰 없이 먼저 연결(서버가 401이면 setConn이 토큰창을 띄움). 지난 기록 다시 보기는 토큰이 있어야 한다
+    var replayHistory = history && /^[0-9]+$/.test(history);
+    if (!replayHistory) go(root.RunwayDemoLogic.streamRef(params) === 'latest' ? null : token || null);
+    else if (token) go(token);
+    else { byId('auth').classList.remove('hidden'); setConn('토큰 입력 대기'); }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
