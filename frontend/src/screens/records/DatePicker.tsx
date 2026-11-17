@@ -16,7 +16,12 @@ import {
   type NativeSyntheticEvent,
   type ViewStyle,
 } from 'react-native';
-import { AppText, Icon, useReduceMotion } from '../../components';
+import {
+  AppText,
+  animateNextLayout,
+  Icon,
+  useReduceMotion,
+} from '../../components';
 import { useRepositories } from '../../data';
 import { onRecordsChanged } from '../../data/recordsChanged';
 import { fontFamily } from '../../theme';
@@ -29,7 +34,8 @@ import { addDays, kstDay, kstMonth, mondayOf, shiftMonth } from './parts';
 
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 // How far back the week strip and the calendar go.
-const historyMonths = 36;
+// HomeScreen의 달력 월 화살표가 같은 하한을 쓴다.
+export const historyMonths = 36;
 
 // S15P31E105-776: the first day 2.1 and 5.1 can go back to, the first of the month `historyMonths` before today's.
 // The arrows, the week strip and the calendar all stop here and at today.
@@ -526,6 +532,7 @@ export function CalendarPanel({
   today,
   onPick,
   onMonthChange,
+  month: steppedMonth,
   flat = false,
   style,
 }: {
@@ -534,6 +541,9 @@ export function CalendarPanel({
   onPick: (day: string) => void;
   // The month on show, for a title that follows it.
   onMonthChange?: (month: string) => void;
+  // 바깥의 월 전환 화살표(HomeScreen의 DayArrow, 달력이 열렸을 때)가 바꾼 월. 바뀌면 이 달력도 그 달로
+  // 넘어간다. 칩 탭·스와이프로 바뀐 월은 onMonthChange로 위에 알리므로 되먹임 루프는 생기지 않는다.
+  month?: string;
   // 2.1: laid flat on the light sheet that covers the screen, with taller rows (담당자 레퍼런스); 5.1 keeps the
   // glass panel over its card.
   flat?: boolean;
@@ -547,6 +557,17 @@ export function CalendarPanel({
   const latest = kstMonth(today);
   const earliest = shiftMonth(latest, -historyMonths);
   const [month, setMonth] = useState(kstMonth(value));
+  useEffect(() => {
+    if (steppedMonth && steppedMonth !== month) {
+      // 화살표로 바뀐 월은 스와이프처럼 손가락이 직접 넘기는 동작이 없어 Pager가 month를 key로
+      // 통째로 다시 그리는 순간이 애니메이션 없이 그대로 보여 깜빡이듯 바로 넘어갔다. 레이아웃
+      // 전환에 부드러운 전환을 입힌다(Motion.tsx).
+      animateNextLayout();
+      setMonth(steppedMonth);
+    }
+    // month는 읽지 않는다: steppedMonth가 바뀔 때만 따라가고, 칩 탭·스와이프로 바뀐 월을 되돌리지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steppedMonth]);
   const runDays = useRunDays([
     shiftMonth(month, -1),
     month,
