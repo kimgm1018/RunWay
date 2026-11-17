@@ -517,6 +517,8 @@ export function createGroupRunsApi({
         ...(await summaryOf(loaded, crew.name, course)),
         route: course?.route ?? null,
         meetingPosition: loaded.run.meetingPosition.coordinates,
+        // 찾아오는 법 comes back as the run's description; blank is none.
+        meetingNote: loaded.run.description?.trim() || null,
         goalPaceSecPerKm: pace,
         crewMemberCount: crew.memberCount,
         participants: loaded.participants,
@@ -557,12 +559,11 @@ export function createGroupRunsApi({
       }
       await apiRequest(`/group-runs/${groupRunId}`, {
         method: 'PATCH',
-        // 6.8 does not show the saved 찾아오는 법, so an empty note leaves it as it is.
-        // Free-run minutes are title-only (no duration goal without distance); refresh title on edit.
+        // 6.8 opens with the saved 찾아오는 법 (S15P31E105-910), so the note goes as it is now: cleared, it is null and
+        // G04 clears it. Free-run minutes are title-only (no duration goal without distance); refresh title on edit.
         body: {
           ...placeAndTime(draft),
           title: titleOf(draft),
-          description: draft.meetingNote ?? undefined,
         },
       });
     },

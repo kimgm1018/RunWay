@@ -562,7 +562,8 @@ export function GroupRunCreateScreen() {
       address: edited.meetingAddress,
       position: edited.meetingPosition,
       distanceM: 0,
-      note: null,
+      // The saved 찾아오는 법, so editing keeps it unless it is changed (S15P31E105-910).
+      note: edited.meetingNote,
     });
     setDay(at.toISOString().slice(0, 10));
     setTime(at.getUTCHours() * 60 + at.getUTCMinutes());
@@ -865,6 +866,12 @@ export function GroupRunCreateScreen() {
               style={styles.rowDetail}
               numberOfLines={1}
             />
+            {/* 찾아오는 법 written on 6.9b shows under the address as written (S15P31E105-910). */}
+            {draft.place?.note ? (
+              <AppText style={styles.placeNote} numberOfLines={2}>
+                {draft.place.note}
+              </AppText>
+            ) : null}
           </View>
           <ChangeButton
             label="만나는 곳 변경"
@@ -1162,6 +1169,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     color: stand.sub,
+  },
+  placeNote: {
+    marginTop: 2,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.text,
   },
   // A ruler on its own line (목표 시간, a free run's 거리), with the pace under the finish time.
   rulerCard: {
