@@ -1485,7 +1485,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 | `isFollowing` | boolean / null | O | user_follows.is_approved=true인 관계만 true. 본인 조회 시 null이라는 기존 표현을 유지한다. |
 | `profileAccessible` | boolean | O | 본인·공개 계정·승인된 팔로워이면 true |
 | `followStatus` | string | O | user_follows 행 없음=NONE, is_approved=false=PENDING, true=FOLLOWING. 본인 조회 시 NONE. |
-| `posts` | array | 조건부 | 열람 가능한 경우 기존 CMT02 작성자별 게시물 항목 전체를 반환. 임의 최근 N개 제한 없음. 비공개 제한 응답에서는 생략. |
+| `posts` | array | 조건부 | 열람 가능한 경우 기존 CMT02 작성자별 게시물 항목 전체를 반환. 임의 최근 N개 제한 없음. 비공개 제한 응답에서는 생략. `recordSummary`의 평균 심박·케이던스는 CMT02와 같이 작성자 건강정보 동의 시에만 포함(S15P31E105-893). |
 
 
 **사용 흐름과 응답 판단**
