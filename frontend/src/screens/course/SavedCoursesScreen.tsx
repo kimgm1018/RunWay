@@ -154,6 +154,9 @@ export function labelAt([x, y]: [number, number], ways: [number, number][]) {
 
 const glyphInk = { ink: '#060606', white: palette.white };
 
+// The outline's route stroke is the shared line at this scale of the glyph's 0–100 box.
+export const glyphLineScale = 0.3;
+
 // The shared community stroke, with a dot on each whole km, the start dot and S · F labels (SF for a loop).
 // `tone` keeps the dots and labels legible on light or dark cards; the layered route style stays the same.
 // No drawable point draws nothing; a single point draws only the start dot.
@@ -211,7 +214,7 @@ export function CourseGlyph({
             <RouteStroke
               key={`measured-${index}`}
               points={toPoints(part)}
-              scale={0.3}
+              scale={glyphLineScale}
             />
           ))}
           {sections.connectors.map((part, index) => (
@@ -436,6 +439,7 @@ export function CourseMapThumb({
   emptyLabel,
   imageSource,
   liveMap = true,
+  glyphLine = false,
 }: {
   route?: LngLat[] | null;
   basemap?: CourseBasemap | null;
@@ -451,6 +455,9 @@ export function CourseMapThumb({
   imageSource?: (uri: string) => ImageSourcePropType;
   // false: never a live RunMap under the points (a run card draws the server's OSM picture or the plain outline).
   liveMap?: boolean;
+  // true: the live map's line is as thick on screen as the plain outline's, as on the run cards beside it
+  // (S15P31E105-884, 내 프로필 저장된 코스).
+  glyphLine?: boolean;
 }) {
   const given = route && route.length >= 2 ? route : null;
   const [loaded, setLoaded] = useState<CourseMapData | null>(null);
@@ -556,6 +563,11 @@ export function CourseMapThumb({
           unmeasuredEdges={gaps}
           compact
           mintLine
+          lineScale={
+            glyphLine && size
+              ? glyphLineScale * glyphBox(size.width, size.height, area).scale
+              : undefined
+          }
           interactive={false}
           area={area}
           style={StyleSheet.absoluteFill}

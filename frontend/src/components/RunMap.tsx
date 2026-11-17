@@ -6,7 +6,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import {
+  PixelRatio,
+  StyleProp,
+  StyleSheet,
+  Text,
+  View,
+  ViewStyle,
+} from 'react-native';
 import {
   NaverMapCircleOverlay,
   NaverMapMarkerOverlay,
@@ -139,6 +146,9 @@ type RunMapProps = {
   // All routes use the approved community line (743). 'thin' scales its layers together for a small map.
   // Boolean values remain accepted for existing callers; map brightness still follows `look` and `view`.
   mintLine?: boolean | 'thin';
+  // A card's own scale for all the line's layers (S15P31E105-884: a profile course card matches its run cards'
+  // outline); it wins over 'thin'.
+  lineScale?: number;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -154,6 +164,13 @@ function coordsOf(line: LngLat[]) {
     coordCache.set(line, coords);
   }
   return coords;
+}
+
+// The native map turns a line width into whole pixels by dropping the fraction, so a card's scaled line
+// (S15P31E105-884) would lose its sub-pixel pale edge. Rounded to the nearest whole pixel instead, never below one;
+// the small extra keeps the native conversion from landing just under that pixel.
+export function wholePixelWidth(dp: number, ratio = PixelRatio.get()) {
+  return (Math.max(1, Math.round(dp * ratio)) + 0.01) / ratio;
 }
 
 const ink = routeLook.ink;
@@ -601,6 +618,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     markers = true,
     poles = true,
     mintLine = false,
+    lineScale: givenLineScale,
     textureView = false,
     recenterSignal = 0,
     style,
@@ -642,17 +660,22 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
   // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
   const darkMap = tilted && !mint;
-  const lineScale = mintLine === 'thin' ? 0.55 : 1;
+  const lineScale = givenLineScale ?? (mintLine === 'thin' ? 0.55 : 1);
+  // A card's own scale draws in whole pixels so every layer stays visible (S15P31E105-884).
+  const lineWidth = (dp: number) =>
+    givenLineScale === undefined
+      ? dp * lineScale
+      : wholePixelWidth(dp * lineScale);
   const pathLook = {
     ...baseLook,
     ink: darkMapLook.ink,
     ribbon: darkMapLook.ribbon,
-    centre: darkMapLook.coreWidth * lineScale,
-    edge: darkMapLook.coreEdge * lineScale,
+    centre: lineWidth(darkMapLook.coreWidth),
+    edge: lineWidth(darkMapLook.coreEdge),
     shadow: darkMapLook.glowOuter,
-    shadowWidth: darkMapLook.glowOuterWidth * lineScale,
+    shadowWidth: lineWidth(darkMapLook.glowOuterWidth),
     inner: darkMapLook.glowInner,
-    innerWidth: darkMapLook.glowInnerWidth * lineScale,
+    innerWidth: lineWidth(darkMapLook.glowInnerWidth),
   };
   const me = running ? trail[trail.length - 1] : null;
   const heading = useRef(0);
