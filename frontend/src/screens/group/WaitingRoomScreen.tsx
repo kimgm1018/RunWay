@@ -28,6 +28,7 @@ import {
   useRepositories,
   useResource,
   DataError,
+  isStaleGroupRun,
   type CoursePlan,
   type GroupRunDetail,
   type Repositories,
@@ -400,8 +401,15 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   // Everyone's colour in the run's order, so 6.4 and 6.5 agree.
   const colors = memberColors([...run.participants, ...room.participants]);
   const isReady = me?.readyStatus === 'READY';
+  // A start long past that nobody began takes no new 준비 완료; one already pressed can still be taken back
+  // (S15P31E105-891).
+  const pastRun = isStaleGroupRun(run, now.getTime());
   const toggleReady = async () => {
-    if (readyBusy.current || startRequested || (!isReady && !ensureRunLogin()))
+    if (
+      readyBusy.current ||
+      startRequested ||
+      (!isReady && (pastRun || !ensureRunLogin()))
+    )
       return;
     readyBusy.current = true;
     try {
@@ -583,6 +591,12 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
           <View style={styles.flex}>
             {isReady ? (
               <ReadyCancel onPress={toggleReady} />
+            ) : pastRun ? (
+              <StandButton
+                title="지난 그룹런이에요"
+                disabled
+                onPress={() => undefined}
+              />
             ) : (
               <StandButton
                 title="준비 완료"

@@ -454,17 +454,16 @@ export function createGroupRunsApi({
                 );
               }),
           );
-          // Stale runs (an old start nobody began) go below the ones still ahead (S15P31E105-823).
+          // Stale runs (an old start nobody began) leave the list; the server keeps them
+          // (S15P31E105-823 ranked them last, S15P31E105-891 hides them).
           const listedAt = Date.now();
           const runs = runOutcomes
             .flatMap(result =>
               result.status === 'fulfilled' ? [result.value] : [],
             )
+            .filter(run => !isStaleGroupRun(run, listedAt))
             .sort(
-              (a, b) =>
-                Number(isStaleGroupRun(a, listedAt)) -
-                  Number(isStaleGroupRun(b, listedAt)) ||
-                Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
+              (a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
             );
           return { crew, groupRuns: runs };
         }),
