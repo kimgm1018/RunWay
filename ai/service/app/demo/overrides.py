@@ -9,6 +9,7 @@ DEFAULT_DANGER_GAP_BPM = 15.0
 STEP_CHOICES = (10, 20, 30)          # 후보 페이스 간격(10초/km)에 맞는 값만 가속 후보를 만든다
 CALM_RANGE = (30.0, 300.0)
 MARGIN_RANGE = (0.0, 40.0)
+FORCE_AFTER_RANGE = (0.0, 600.0)     # 915: 출발 후 강제 여유 가속 시각(초)
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,16 @@ def parse_account_settings(raw: dict, user_allowlist) -> dict:
         result["speed_up_calm_sec"] = parse_speed_up_calm(raw["speedUpCalmSec"])
     if "speedUpMarginBpm" in raw:
         result["speed_up_margin_bpm"] = parse_speed_up_margin(raw["speedUpMarginBpm"])
+    if "speedUpForceAfterSec" in raw and raw["speedUpForceAfterSec"] is not None:   # 915: null이면 끈다
+        result["speed_up_force_after_sec"] = parse_speed_up_force_after(raw["speedUpForceAfterSec"])
     return result
+
+
+def parse_speed_up_force_after(value) -> float:
+    number = _number(value, "speedUpForceAfterSec")
+    if not FORCE_AFTER_RANGE[0] <= number <= FORCE_AFTER_RANGE[1]:
+        raise ValueError("speedUpForceAfterSec는 0~600초여야 합니다")
+    return number
 
 
 def parse_speed_up_step(value) -> int:

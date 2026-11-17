@@ -90,6 +90,54 @@ def ahead_for_group(settings: AheadSettings, demo_config, participants) -> Ahead
                    margin_bpm=settings.margin_bpm if margin is None else float(margin))
 
 
+@dataclass(frozen=True)
+class ForceAhead:
+    """S15P31E105-915 시연 그룹 강제 여유 가속 설정: 출발 후 after_sec 이후 출발 페이스 − step_sec로 한 번 올린다."""
+    after_sec: float
+    step_sec: int = MAX_AHEAD_SEC_PER_KM
+
+
+def force_ahead_for_group(demo_config, participants) -> ForceAhead | None:
+    """시연 대상 회원이 낀 그룹이고 demo_config에 speedUpForceAfterSec가 있을 때만 설정을 돌려준다. 아니면 None(꺼짐)."""
+    if not _demo_group(demo_config, participants):
+        return None
+    after = getattr(demo_config, "speed_up_force_after_sec", None)
+    if after is None:
+        return None
+    step = getattr(demo_config, "speed_up_step_sec", None)
+    return ForceAhead(float(after), MAX_AHEAD_SEC_PER_KM if step is None else int(step))
+
+
+def _latest_hr(hr_bpm) -> float | None:
+    return next((v for v in reversed(list(hr_bpm)) if v is not None), None)
+
+
+def try_force_ahead(*, force: ForceAhead, mode: str, current: float, start_pace: float | None, elapsed_sec: float,
+                    now, last_change, histories, dangers) -> tuple[float | None, str | None]:
+    """(올릴 목표 페이스, 막힌 이유). 목표는 항상 출발 페이스 − step이다(출발 직후 감속으로 느려졌어도 같다).
+
+    심박 누락·여유 부족·쿨다운·이전 감속은 보지 않는다. 안전장치는 하나뿐이다: 가장 최근 실측 심박이 그 회원의 위험선
+    이상이면 내지 않는다. 한 번만 내도록, 강제 시각 이후에 이미 페이스가 바뀐 적이 있으면 다시 내지 않는다."""
+    if mode == "GOAL":
+        return None, "GOAL_MODE"
+    if start_pace is None:
+        return None, "NO_START_PACE"
+    if elapsed_sec < force.after_sec:
+        return None, "WAITING"
+    target = start_pace - force.step_sec
+    if current <= target + PACE_EPS:
+        return None, "ALREADY_FAST"
+    if last_change is not None and (now - last_change.changed_at).total_seconds() < elapsed_sec - force.after_sec:
+        return None, "ALREADY_FORCED"   # 강제 시각 뒤에 이미 한 번 바뀌었다(우리 가속이거나 그 뒤의 안전 감속)
+    for history, danger in zip(histories, dangers):
+        latest = _latest_hr(history)
+        if latest is not None and latest >= danger:
+            return None, "DANGER_HR"
+    if abs(current - target) < STEP_SEC_PER_KM:
+        return None, "SMALL_CHANGE"
+    return target, None
+
+
 def _calm_history(hr_bpm, allow: float, margin: float, window_sec: float) -> bool:
     """최근 window_sec 실측 심박이 모두 허용선 − margin 아래이고, 칸의 절반 이상이 측정돼 있는가."""
     cells = max(1, int(round(window_sec / SAMPLE_SEC)))
