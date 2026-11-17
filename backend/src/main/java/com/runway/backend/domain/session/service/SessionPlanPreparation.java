@@ -81,8 +81,15 @@ public class SessionPlanPreparation {
             String profile = goal.courseId() == null ? null : source.courseProfile(goal.courseId());
             result = port.populationPlan(goal, average, profile);
         }
+        // 코스 러닝은 AI09·AI05가 코스 거리(소수 m)로 계획을 돌려준다. 앱은 소수 거리 코스도 정수 목표 거리
+        // (Math.round)로 보내므로, 목표 거리가 코스 거리를 반올림한 값(AI와 같은 1 m 허용)이면 검증 기준은
+        // 코스 거리다(S15P31E105-880). 그 밖의 목표 거리는 예전처럼 그대로 쓴다.
         BigDecimal distance =
-                goal.distanceM() == null ? course.distance() : BigDecimal.valueOf(goal.distanceM());
+                goal.distanceM() == null
+                        ? course.distance()
+                        : roundedCourseDistance(goal.distanceM(), course.distance())
+                                ? course.distance()
+                                : BigDecimal.valueOf(goal.distanceM());
         result = result.filter(r -> valid(r, consent ? userId : null, goal, distance));
         Optional<InitialPacePlanCalculator.PlanDraft> draft;
         if (target != null) {
@@ -127,6 +134,12 @@ public class SessionPlanPreparation {
                                 || !Objects.equals(prepared.userStamp(), snapshot.stamp())))
                 || !Objects.equals(prepared.courseStamp(), course(goal.courseId()).stamp()))
             throw new ApiException(ErrorCode.STALE_STATE);
+    }
+
+    private static boolean roundedCourseDistance(int goalDistanceM, BigDecimal courseDistance) {
+        return courseDistance != null
+                && BigDecimal.valueOf(goalDistanceM).subtract(courseDistance).abs().compareTo(BigDecimal.ONE)
+                        <= 0;
     }
 
     private static boolean positive(BigDecimal v) {
