@@ -20,6 +20,7 @@ import { AppText, EmptyState, Icon, useToast } from '../../components';
 import { errorCode } from '../../data/errors';
 import {
   countComments,
+  threadComments,
   useRepositories,
   useResource,
   type PostComment,
@@ -36,7 +37,12 @@ import { postChanged, postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider } from '../../theme';
-import { CommentSheet } from './comments';
+import {
+  CommentRow,
+  CommentSheet,
+  replyOpen,
+  type CommentSheetStart,
+} from './comments';
 import {
   feedLook,
   MapBackdrop,
@@ -166,8 +172,8 @@ function SaveSharedCourse({ courseId }: { courseId: string }) {
 }
 
 // 7.2 게시물 상세 (S15P31E105-561, 담당자 레퍼런스): the run's map fills the screen behind a white sheet that pulls up
-// over it: the numbers first, then the run's title and time, the post's words, 좋아요, the 댓글 card and 달성.
-// A comment bar stays at the foot; comments open in the same sheet as 7.1's. The post carries no splits, pace
+// over it: the numbers first, then the run's title and time, the post's words, 좋아요, its comments and 달성.
+// A comment bar stays at the foot; writing a comment opens the same sheet as 7.1's. The post carries no splits, pace
 // curve, elevation, calories or steps, so those parts of the reference are left out rather than made up.
 export function PostDetailScreen() {
   const navigation = useNavigation();
@@ -239,6 +245,70 @@ export function PostDetailScreen() {
   const { uncover, coverView } = useMapCover(hasMap, 'post-map-cover');
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // 답글 달기 or ⋮ on a comment in the page's list opens the sheet on that comment (S15P31E105-907).
+  const [commentStart, setCommentStart] = useState<CommentSheetStart | null>(
+    null,
+  );
+  const openComments = (start: CommentSheetStart | null = null) => {
+    setCommentStart(start);
+    setCommentsOpen(true);
+  };
+  // CMT14 · CMT15 from the page's list, as the sheet does it: the heart and count change at once (never below
+  // 0), take the server's count once saved, and go back if it fails; another tap waits for the first.
+  const likingComment = useRef(new Set<string>());
+  const changeComment = (
+    commentId: string,
+    change: (comment: PostComment) => PostComment,
+  ) =>
+    setPost(current =>
+      current
+        ? {
+            ...current,
+            comments: current.comments.map(item =>
+              item.id === commentId ? change(item) : item,
+            ),
+          }
+        : current,
+    );
+  const likeComment = async (comment: PostComment) => {
+    if (likingComment.current.has(comment.id)) {
+      return;
+    }
+    likingComment.current.add(comment.id);
+    const liked = !comment.liked;
+    changeComment(comment.id, item => ({
+      ...item,
+      liked,
+      likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)),
+    }));
+    try {
+      const saved = await community.setCommentLiked(comment.id, liked);
+      changeComment(comment.id, item => ({
+        ...item,
+        liked: saved.liked,
+        likeCount: saved.likeCount ?? item.likeCount,
+      }));
+    } catch {
+      changeComment(comment.id, item => ({
+        ...item,
+        liked: comment.liked,
+        likeCount: comment.likeCount,
+      }));
+    } finally {
+      likingComment.current.delete(comment.id);
+    }
+  };
+  // A comment's author opens their profile; mine opens 내 프로필 (S15P31E105-797).
+  const openCommentAuthor = (comment: PostComment) => {
+    if (!comment.author) {
+      return;
+    }
+    if (comment.isMine) {
+      navigateTo(navigation, 'MyProfile');
+    } else {
+      navigation.navigate('RunnerProfile', { userId: comment.author.userId });
+    }
+  };
   const [mapAtTop, setMapAtTop] = useState(true);
   // Opening the comment Modal can briefly change the reported window height on Android.
   // Keep the map and its play button at their existing position until the sheet closes.
@@ -286,17 +356,6 @@ export function PostDetailScreen() {
     : 0;
   // 거리 없는 기록은 페이스가 없어 0′00″ 대신 – –로 둔다(S15P31E105-837).
   const pace = post ? formatRecordPace(post.record.averagePaceSecPerKm) : null;
-  // The newest comment still there; a deleted root kept for its replies is not one.
-  const latest =
-    post?.comments.reduce<PostComment | null>(
-      (newest, comment) =>
-        comment.deleted || !comment.author
-          ? newest
-          : !newest || comment.createdAt >= newest.createdAt
-          ? comment
-          : newest,
-      null,
-    ) ?? null;
 
   return (
     <View style={styles.root}>
@@ -513,28 +572,46 @@ export function PostDetailScreen() {
                 </Pressable>
               </View>
 
-              {/* 레퍼런스의 Comments 카드: the newest comment, and the sheet with all of them. */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`댓글 ${commentCount}개 열기`}
-                onPress={() => setCommentsOpen(true)}
-                style={({ pressed }) => [
-                  styles.commentCard,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.commentHead}>
-                  <AppText style={styles.commentTitle}>
-                    {`댓글 ${commentCount}`}
-                  </AppText>
-                  <Icon name="forward" color={look.sub} size={16} />
-                </View>
-                <AppText style={styles.commentPreview} numberOfLines={2}>
-                  {latest?.author
-                    ? `${latest.author.handle}  ${latest.body}`
-                    : '아직 댓글이 없어요\n첫 댓글을 남겨 보세요'}
+              {/* 댓글 (S15P31E105-907): every comment and reply right under 좋아요, as the 댓글 sheet lists them, instead
+                  of a card with the newest one. 답글 달기 and ⋮ go on in the sheet. */}
+              <AppText style={styles.section} accessibilityRole="header">
+                {`댓글 ${commentCount}`}
+              </AppText>
+              {post.comments.length === 0 ? (
+                <AppText style={styles.commentEmpty}>
+                  {'아직 댓글이 없어요\n첫 댓글을 남겨 보세요'}
                 </AppText>
-              </Pressable>
+              ) : (
+                threadComments(post.comments).map(({ comment, reply }) => (
+                  <CommentRow
+                    key={comment.id}
+                    comment={comment}
+                    reply={reply}
+                    onReply={
+                      replyOpen(comment, post.comments)
+                        ? () =>
+                            openComments({
+                              kind: 'reply',
+                              commentId: comment.id,
+                            })
+                        : null
+                    }
+                    onMenu={
+                      comment.isMine
+                        ? () =>
+                            openComments({
+                              kind: 'menu',
+                              commentId: comment.id,
+                            })
+                        : null
+                    }
+                    onLike={() => likeComment(comment)}
+                    onProfile={
+                      comment.author ? () => openCommentAuthor(comment) : null
+                    }
+                  />
+                ))
+              )}
 
               {post.record.goalAchieved ? (
                 <>
@@ -642,7 +719,7 @@ export function PostDetailScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="댓글 쓰기"
-              onPress={() => setCommentsOpen(true)}
+              onPress={() => openComments()}
               style={({ pressed }) => [
                 styles.barField,
                 pressed && styles.pressed,
@@ -666,9 +743,10 @@ export function PostDetailScreen() {
       ) : null}
       <CommentSheet
         post={commentsOpen ? post : null}
+        start={commentStart}
         onClose={() => {
           setCommentsOpen(false);
-          // The card shows the newest comment after the sheet changed them.
+          // The page's list shows what the sheet changed.
           reload();
         }}
         onCountChange={(id, count) => {
@@ -872,25 +950,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  commentCard: {
-    marginTop: 14,
-    padding: 18,
-    borderRadius: 22,
-    backgroundColor: look.card,
-  },
-  commentHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  commentTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 22,
-    color: look.ink,
-  },
-  commentPreview: {
-    marginTop: 6,
+  commentEmpty: {
     fontFamily: fontFamily.regular,
     fontSize: 14,
     lineHeight: 20,
