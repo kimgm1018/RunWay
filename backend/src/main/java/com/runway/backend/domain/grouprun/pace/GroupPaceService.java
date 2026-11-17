@@ -233,7 +233,7 @@ public class GroupPaceService {
 
     /**
      * 동의한 후보 본인의 최근 페이스. 대기방 '참가자 편한 범위'(G03 comfortRange)에 들어가는 그 사람의 값과 같은 계산이다
-     * (최근 완료 5회 평균, S15P31E105-785). 비동의 참가자의 기록은 읽지 않는다.
+     * (최근 완료 5회 평균, S15P31E105-785. 1 km·이동 10분 미만 기록 제외, 886). 초기 설정 페이스 대체는 하지 않는다. 비동의 참가자의 기록은 읽지 않는다.
      */
     java.util.Map<Long, Integer> displayedPaces(List<GroupPaceRepository.Candidate> consented) {
         if (consented.isEmpty()) return java.util.Map.of();
@@ -339,6 +339,15 @@ public class GroupPaceService {
         // faster than they actually run. Only in that direction (the basis member's own recent pace is slower than the
         // plan), bring the recommendation down to that member's own recent pace: consented data only, inside the range.
         Integer basisPace = basis == null ? null : input.displayedPaces().get(basis);
+        // S15P31E105-886: a target slower than walking-speed sanity (0.5 m/s, AI09 SPEED_REF_VALID_RANGE_MPS) is not a
+        // running pace (e.g. 185'27"/km in production); keep the AI09 plan instead.
+        if (basisBoundaryHit && basisPace != null && aiPace < basisPace
+                && basisPace > MAX_CLAMP_PACE_SEC_PER_KM) {
+            org.slf4j.LoggerFactory.getLogger(GroupPaceService.class).info(
+                    "GROUP_PACE_START_CLAMP_SKIPPED groupRunId={} basisUserId={} aiPace={} basisRecentPace={}",
+                    groupId, basis, aiPace, basisPace);
+            basisPace = null;
+        }
         if (basisBoundaryHit && basisPace != null && aiPace < basisPace) {
             org.slf4j.LoggerFactory.getLogger(GroupPaceService.class).info(
                     "GROUP_PACE_START_CLAMPED groupRunId={} basisUserId={} aiPace={} basisRecentPace={}",
@@ -393,6 +402,9 @@ public class GroupPaceService {
         }
         return ranges;
     }
+
+    /** Slowest pace the 785 clamp may move to: 0.5 m/s, AI09 SPEED_REF_VALID_RANGE_MPS lower bound (S15P31E105-886). */
+    static final int MAX_CLAMP_PACE_SEC_PER_KM = 2000;
 
     static final BigDecimal MIN_RATIO = new BigDecimal("0.85");
     static final BigDecimal MAX_RATIO = new BigDecimal("1.20");
