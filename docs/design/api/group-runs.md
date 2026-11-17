@@ -1903,7 +1903,7 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 - 연결 세션이 RUNNING/PAUSED이거나 실제 시작 시각이 있으면 409 `INVALID_SESSION_STATE`.
 - 연결 세션이 READY이고 요청 기기와 같으며 START가 PENDING이면 그 명령을 그대로 반환한다(재요청·출발 직후 재전송, 새 행 없음).
 - 연결 세션이 READY이고 요청 기기와 같으며 START가 없으면 그 세션에 START를 승인한다.
-- 그 밖(세션 없음, START UNKNOWN/REJECTED, 기기 다름, 시작 없이 끝난 세션): READY 세션의 미확정 START는 UNKNOWN(`START_UNCONFIRMED_ABORTED`)으로 남기고 세션을 INTERRUPTED로 중단하며, 미확정 START가 없으면 취소(CANCELLED)한다. 그 뒤 요청 기기로 새 READY 세션을 만들어 참가 관계에 연결(ready=true)하고 START를 승인한다. 옛 세션의 늦은 START 결과·batch는 중단 세션 규칙대로 409 `INVALID_SESSION_STATE`로 거절한다. 옛 세션은 참가 관계에서 떨어져 그룹 집계·자동 종료 판단에 들어가지 않는다.
+- 그 밖(세션 없음, START UNKNOWN/REJECTED, 기기 다름, 시작 없이 끝난 세션): READY 세션의 미확정 START는 UNKNOWN(`START_UNCONFIRMED_ABORTED`)으로 남기고 세션을 INTERRUPTED로 중단하며, 미확정 START가 없으면 취소(CANCELLED)한다. 그 뒤 요청 기기로 새 READY 세션을 만들어 참가 관계에 연결(ready=true)하고 START를 승인한다. 옛 세션의 늦은 START 결과·batch는 중단 세션 규칙대로 409 `INVALID_SESSION_STATE`로 거절한다. 늦은 결과가 G18 처리와 겹쳐 세션의 그룹 연결이 바뀐 직후면 409 `STALE_STATE`일 수 있으며 어느 쪽이든 상태는 바뀌지 않는다. 옛 START의 기존 UNKNOWN 사유는 `START_UNCONFIRMED_ABORTED`로 기록한다(G12는 기존 사유 보존). 옛 세션은 참가 관계에서 떨어져 그룹 집계·자동 종료 판단에 들어가지 않는다.
 - 사전 판단 뒤 상태가 바뀌어 새 세션 계획이 없으면 409 `STALE_STATE`(다시 요청).
 - 본인에게 다른 활성 세션이 있으면 409 `ACTIVE_SESSION_EXISTS`, 필요한 기기가 없으면 404 `DEVICE_NOT_FOUND`, 참가자가 아니면 403 `NOT_PARTICIPANT`.
 - 늦게 합류한 참가자의 순위·간격은 실제 시작 시각부터의 기록으로 계산하며 따로 보정하지 않는다.
@@ -1912,7 +1912,7 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 
 - G08 공동 페이스 계산과 G11 페이스·격차 알림은 내부 자동 처리 및 실시간 전달로 이동했다. G15 불참 응답은 제거했다. 제외한 ID는 재사용하지 않는다.
 - 승인된 START가 모두 APPLIED/REJECTED로 확정되거나 S08의 명시 중단으로 정리되고, 실제 시작 참가자 전원이 개인 종료하면 별도 호스트 요청 없이 그룹을 종료한다. START가 PENDING/UNKNOWN인 참가자는 시작 미확인으로 표시한다. 실제 시작한 참가자가 모두 끝났으면 미확인 참가자를 기다리지 않는다(S15P31E105-889). 시작이 거절됐거나 명시 중단한 세션은 운동 종료 대기·분석 집계에서 제외한다. 그룹장은 미확인 참가자가 있어도 G12로 강제 종료할 수 있다.
-- 자동 종료 처리(S15P31E105-734): 개인 END 확정, 그룹 세션 START 거절 확정, S08 시작 미확인 중단이 커밋된 뒤 G09/G12와 같은 그룹 행 잠금에서 다시 판단한다. 실제 시작한 참가자가 1명 이상이고, RUNNING/PAUSED 세션이 없으면 `RUNNING` → `COMPLETED`로 바꾸며 `ended_at`은 처리 시각이다. 이때 남은 미확정 START(PENDING/UNKNOWN)는 같은 트랜잭션에서 G12와 같이 관리상 중단한다(UNKNOWN `START_UNCONFIRMED_ABORTED`, 세션 INTERRUPTED, S15P31E105-889). 이전에는 미확정 START 하나 때문에 그룹이 RUNNING으로 남아 G12로만 닫혔다. 참가했지만 세션이 없거나 START가 없는 참가자는 기다리지 않는다. 아무도 시작하지 않았으면 자동 종료하지 않는다(G12 사용). 동시 처리와 G12는 잠금과 조건부 갱신으로 한 번만 반영되며, 처리 실패는 개인 종료 응답을 바꾸지 않는다.
+- 자동 종료 처리(S15P31E105-734): 개인 END 확정, 그룹 세션 START 거절 확정, S08 시작 미확인 중단이 커밋된 뒤 G09/G12와 같은 그룹 행 잠금에서 다시 판단한다. 실제 시작한 참가자가 1명 이상이고, RUNNING/PAUSED 세션이 없으면 `RUNNING` → `COMPLETED`로 바꾸며 `ended_at`은 처리 시각이다. 이때 남은 미확정 START(PENDING/UNKNOWN)는 같은 트랜잭션에서 G12와 같이 관리상 중단한다(UNKNOWN `START_UNCONFIRMED_ABORTED`, 세션 INTERRUPTED, S15P31E105-889). 단 요청된 지 2분이 안 된 미확정 START(예: G18 지금 합류 직후)가 있으면 자동 종료를 보류하고 그 START의 결과·종료가 다시 판단을 부르게 한다. 끝내 결과가 없으면 그룹장이 G12로 닫는다. 이전에는 미확정 START 하나 때문에 그룹이 RUNNING으로 남아 G12로만 닫혔다. 참가했지만 세션이 없거나 START가 없는 참가자는 기다리지 않는다. 아무도 시작하지 않았으면 자동 종료하지 않는다(G12 사용). 동시 처리와 G12는 잠금과 조건부 갱신으로 한 번만 반영되며, 처리 실패는 개인 종료 응답을 바꾸지 않는다.
 - 공동 페이스·순위·격차·운동 부담·강제 종료는 해당 참가자 앱·워치에 전달한다. 대기방 공동 페이스·준비 상태 변경도 전달 대상으로 설계한다.
 - 인터넷 단절 중 그룹 운동 지속·복구는 온라인 MVP 지원 범위 밖이며 연결 오류를 표시한다.
 - 정상 종료와 강제 종료의 상태·사유 저장 및 지연 데이터 정합성은 ERD에 맞춰 확정한다. 기존 COMPLETED 값만으로 강제 종료 기록 정책을 확정하지 않는다.

@@ -135,7 +135,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 }
 ```
 
-PHONE_ONLY personal sessions use the same registered PHONE ID for `controlDeviceId` and `relayDeviceId`. The server accepts S03 START, S04 PAUSE, S05 RESUME, and S06 END REQUEST/RESULT from this phone without S08 watch preparation. The app blocks start and guides the user when location permission is denied or GPS is unavailable. The server cannot inspect phone permission state. W07 stores phone GPS and S11 returns PHONE route segments. Existing WATCH sessions continue using distinct WATCH and PHONE IDs; PHONE_FALLBACK remains a watch-started session that later transfers control.
+PHONE_ONLY sessions use the same registered PHONE ID for `controlDeviceId` and `relayDeviceId`. Personal runs create them through S01; group runs create them through G16 `recordingDevice=PHONE` or G18 (S15P31E105-889), and the group START approved by G09/G18 is executed and reported by the phone. The server accepts S03 START, S04 PAUSE, S05 RESUME, and S06 END REQUEST/RESULT from this phone without S08 watch preparation. The app blocks start and guides the user when location permission is denied or GPS is unavailable; for a group run the phone does not report the approved START until location permission is granted (S15P31E105-889). The server cannot inspect phone permission state. W07 stores phone GPS and S11 returns PHONE route segments. Existing WATCH sessions continue using distinct WATCH and PHONE IDs; PHONE_FALLBACK remains a watch-started session that later transfers control.
 
 ### Response
 
@@ -393,7 +393,7 @@ READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) /
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어 워치·버전을 결정한다. 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어기기(워치 세션은 WATCH, G16에서 PHONE으로 만든 폰 전용 세션은 PHONE)·버전을 결정한다. 출발 뒤 본인의 합류·기록 기기 변경은 G18이 승인한다(S15P31E105-889). 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
 
 ### Path Parameters
 
@@ -511,7 +511,7 @@ READY → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 상
 
 사용자가 복구를 기다리지 않고 이번 운동을 중단하려면 [S08 시작 미확인 중단](#시작-미확인-운동-중단)을 사용한다. 실제 시작이 확인되면 일반 RUNNING 세션으로 이어가며 폰 인계·종료도 가능하다.
 
-그룹 강제 종료 시 아직 START가 미확정인 세션은 G12가 그룹→세션 순서로 잠그고 관리상 INTERRUPTED로 닫는다. 늦은 START 결과·새 batch는 `409 INVALID_SESSION_STATE`로 거절하고, 그룹을 재개하거나 늦은 시작·미전송 기록을 복구하지 않는다. 재연결한 워치는 새 동작·결과 재보고 전에 최신 S02 상태를 확인하고 `groupEndedAt` 또는 INTERRUPTED를 확인하면 측정·박자를 멈춘다. 이미 실제 시작이 서버에 확인된 세션의 종료·마지막 batch 저장은 기존 G12/S06 절차를 따른다.
+그룹 강제 종료 시 아직 START가 미확정인 세션은 G12가 그룹→세션 순서로 잠그고 관리상 INTERRUPTED로 닫는다. 그룹 자동 종료(실제 시작한 참가자가 모두 끝남)와 G18(옛 세션을 새 세션으로 교체)도 같은 방식으로 미확정 START 세션을 닫는다(S15P31E105-889). 늦은 START 결과·새 batch는 `409 INVALID_SESSION_STATE`로 거절하고, 그룹을 재개하거나 늦은 시작·미전송 기록을 복구하지 않는다. 재연결한 워치는 새 동작·결과 재보고 전에 최신 S02 상태를 확인하고 `groupEndedAt` 또는 INTERRUPTED를 확인하면 측정·박자를 멈춘다. 이미 실제 시작이 서버에 확인된 세션의 종료·마지막 batch 저장은 기존 G12/S06 절차를 따른다.
 
 ## S04 러닝 일시정지
 
@@ -1342,7 +1342,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | --- | --- |
 | CANCELLED | 삭제 허용. 실제 분석 작업이 없는 초기 PENDING을 분석 대기로 간주하지 않음 |
 | COMPLETED | 분석이 READY/FAILED/LEGACY일 때 허용. PENDING/PROCESSING이면 완료 또는 실패 확정 후 다시 요청 |
-| INTERRUPTED | pendingCommand가 없으면 허용. INTERRUPTED는 시작 미확인 관리상 중단(S08 `ABORT_UNCONFIRMED_START`, G12 강제 종료)이 확정될 때만 생기므로 별도 원인 검사는 하지 않는다. 보존된 UNKNOWN 이력은 유지 |
+| INTERRUPTED | pendingCommand가 없으면 허용. INTERRUPTED는 시작 미확인 관리상 중단(S08 `ABORT_UNCONFIRMED_START`, G12 강제 종료, 그룹 자동 종료, G18 세션 교체 — S15P31E105-889)이 확정될 때만 생기므로 별도 원인 검사는 하지 않는다. 보존된 UNKNOWN 이력은 유지(S08·G12는 기존 UNKNOWN 사유를 보존하고, 그룹 자동 종료·G18은 `START_UNCONFIRMED_ABORTED`로 기록) |
 | READY | 삭제 거절. 먼저 S07로 취소하며, 시작 미확인이면 S08 명시 중단 사용 |
 | RUNNING / PAUSED | 삭제 거절. 실제 종료 절차를 먼저 완료 |
 | 그룹 연결 세션 | 위 개인 조건과 함께 그룹 종료 및 G14 분석 상태 READY/FAILED 필요. 진행·종료 처리·분석 중에는 거절. 그룹 분석 상태는 별도 저장하지 않으므로 그룹이 COMPLETED이고 실제 시작한 모든 참가자 세션의 분석이 READY/FAILED/LEGACY이면 READY/FAILED로 판단한다 |
