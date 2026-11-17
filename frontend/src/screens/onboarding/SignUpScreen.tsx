@@ -11,12 +11,14 @@ import { navigateTo } from '../../navigation/navigateTo';
 import {
   FieldChip,
   GoButton,
+  KeyboardBackdrop,
   OnboardingFooter,
   OnboardingHeader,
   onboardingScreen,
   RunnerArt,
   signUpSteps,
   StepTitle,
+  useKeyboardOpen,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 import { PhoneCodeStep } from './PhoneCodeStep';
@@ -164,10 +166,15 @@ export function SignUpScreen() {
     isValidPassword(password, loginId) &&
     confirm === password &&
     verified;
+  // Like 1.2 로그인: with the keyboard up the runner steps aside, so the fields sit near the top (S15P31E105-902).
+  const keyboardOpen = useKeyboardOpen();
 
   return (
     <Screen
       {...onboardingScreen}
+      background={
+        keyboardOpen ? <KeyboardBackdrop /> : onboardingScreen.background
+      }
       header={
         <OnboardingHeader
           onBack={navigation.goBack}
@@ -192,7 +199,7 @@ export function SignUpScreen() {
         </OnboardingFooter>
       }
     >
-      <RunnerArt />
+      {keyboardOpen ? null : <RunnerArt />}
       <StepTitle title="계정을 " muted="만들어요" />
       <TextField
         labelInside
