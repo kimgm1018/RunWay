@@ -81,10 +81,12 @@ export function useSheetDrag({
     }).start();
   const pan = useRef(
     PanResponder.create({
-      // A touch on the card's bare parts (its handle, title, gaps) is the card's from the start, as on the comment
-      // sheet (S15P31E105-812): asked only once the finger moved, the phone never asked it there. A button, a list
-      // or a ruler under the finger still takes the touch first.
-      onStartShouldSetPanResponder: () => true,
+      // Unlike the comment sheet's handle row (S15P31E105-812), this card has no touch-free handle of its own: a
+      // ruler or a button can sit anywhere in it. Claiming on start (S15P31E105-899 first cut) grabbed the touch
+      // before a nested horizontal ScrollView ever saw it move, so a ruler under the finger never scrolled
+      // (S15P31E105-916). Waiting for onMoveShouldSetPanResponder's up-and-down check lets whatever is under the
+      // finger answer the first move itself.
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gesture) =>
         claimsSheetDrag(gesture, latest.current.direction),
       onPanResponderGrant: () => {
