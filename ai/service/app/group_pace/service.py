@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from app.decide.service import _apply_readiness, _user_hr_lookup_full, recent_inputs
+from app.decide.service import _apply_readiness_or_override, _user_hr_lookup_full, recent_inputs
 from app.gru_gb import apply_gb, is_identity, personal_weight
 from app.group_pace.ahead import REASON as AHEAD_REASON, AheadSettings, try_ahead
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
@@ -83,13 +83,16 @@ def _fill_detail(detail: dict, *, paces, baseline, chosen, requests, hr_members,
 def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_lookup=None,
                          hr_threshold_lookup_configured: bool = True, detail: dict | None = None,
                          gru_gb_enabled: bool = False, readiness_lookup=None, ahead: AheadSettings | None = None,
-                         ahead_wait_sec: float | None = None, ahead_demo_wait: bool = False) -> GroupPaceResponse:
+                         ahead_wait_sec: float | None = None, ahead_demo_wait: bool = False,
+                         hr_overrides=None) -> GroupPaceResponse:
     """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다.
 
     gru_gb_enabled=True면 회원마다 자기 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
     readiness_lookup(S15P31E105-676, 기본 None=꺼짐): 회원마다 자기 오늘 준비도·민감도로 자기 허용선만 낮춘다.
     ahead(S15P31E105-728, 기본 None=꺼짐): 여유 가속 설정. 기존 선택이 페이스를 바꾸지 않을 때만 출발 페이스보다 빠르게
     올리는지 본다(app.group_pace.ahead). ahead_wait_sec는 출발 뒤 대기 시간(시연 계정 그룹은 짧게).
+    hr_overrides(S15P31E105-913, 시연 설정 hrThresholdOverrides, 기본 None=꺼짐): {userId: HrOverride}. 그 회원은 학습값·
+    준비도 보정 없이 고정 허용·위험 심박으로 판단한다.
     """
     current = body.current_group_pace_sec_per_km
     paces = candidate_paces(current, DELTAS)
@@ -132,7 +135,8 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         ref, threshold_warnings, gb, row = _user_hr_lookup_full(
             member.user_id, hr_threshold_lookup, cfg, configured=hr_threshold_lookup_configured)
         warnings.extend(threshold_warnings)
-        ref, readiness, readiness_warnings = _apply_readiness(member.user_id, ref, row, readiness_lookup, body.now)
+        ref, readiness, readiness_warnings = _apply_readiness_or_override(
+            member.user_id, ref, row, readiness_lookup, body.now, hr_overrides)
         warnings.extend(readiness_warnings)
         # 백엔드가 계산한 그룹 진행률을 사용하며, 없으면 출발 시점 기준으로 판단한다.
         allow = allow_at(body.progress_ratio or 0.0, ref, cfg)
@@ -237,6 +241,6 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         # 기존 규칙(감속·회복)이 이미 바꿨으면 여유 가속은 보지 않는다.
         detail["ahead"] = {"applied": False, "blockedBy": "OTHER_CHANGE", "waitSec": ahead_wait_sec,
                            "demoWait": ahead_demo_wait, "marginBpm": ahead.margin_bpm,
-                           "steadySec": ahead.streak * 30, "startPace": body.start_recommended_pace_sec_per_km,
+                           "stepSec": ahead.step_sec, "steadySec": ahead.calm_window_sec, "startPace": body.start_recommended_pace_sec_per_km,
                            "fastestPace": None}
     return response(selection.index, selection.reason)
