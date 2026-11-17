@@ -82,6 +82,8 @@ WATCH 모드에서는 폰·워치 모두 서버 승인 후 실제 워치 제어�
 
 PHONE_ONLY 모드는 연결된 워치가 없는 개인 러닝을 S01에서 `controlDeviceId=relayDeviceId=phone`, `recordingMode=PHONE_ONLY`로 생성한다. 폰이 현재 제어기기이자 실행기기이며 S03 START, S04 PAUSE, S05 RESUME, S06 END 모두 폰에서 REQUEST 승인 → 로컬 실행 → RESULT 보고 순서로 처리한다. 워치 메시지·워치 준비 응답을 기다리지 않는다. 승인 전 GPS 기록·타이머를 시작하지 않으며, 위치 권한 거부나 GPS 사용 불가 시 시작 요청을 진행하지 않고 설정을 안내한다. 기존 WATCH 모드와 워치 단절 후 S08 인계 흐름은 유지한다.
 
+그룹런도 PHONE_ONLY로 기록할 수 있다(S15P31E105-889). 대기방 준비 G16에 `recordingDevice=PHONE`을 보내거나(워치가 미등록·미연결이면 앱이 폰을 기본으로 고른다), 출발 뒤 G18 지금 합류로 폰 전용 세션을 만든다. 서버가 승인한 그룹 START(G09/G18)는 S02/S10 스냅샷의 `pendingCommand`로 받아 폰이 직접 실행하고 S03 RESULT를 보고하며, 워치 준비(SESSION_PREPARE)는 하지 않는다. 위치 권한이 없으면 START를 보고하지 않고 권한을 안내한다. 워치 START가 시간 초과·전송 실패로 확인되지 않으면 앱은 '다시 시도'(같은 명령 재전송) 또는 '폰으로 시작'(G18 PHONE: 옛 세션의 미확정 START를 중단하고 새 폰 전용 세션으로 합류)을 고르게 한다. 워치가 결과를 돌려줬는데 서버 저장만 확인하지 못한 경우는 워치가 이미 기록 중일 수 있어 재보고만 한다. 늦은 합류는 폰으로만 한다(새 워치 세션은 준비 없이 START를 받아 거절되기 때문).
+
 ```mermaid
 sequenceDiagram
     participant W as 워치
