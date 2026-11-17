@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Keyboard, Platform, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Screen, TextField } from '../../components';
 import { DataError, errorCode, useRepositories } from '../../data';
@@ -10,12 +10,14 @@ import { LOGIN_ID_MAX } from '../inputLimits';
 import {
   GoButton,
   InlineError,
+  KeyboardBackdrop,
   OnboardingFooter,
   OnboardingHeader,
   onboardingScreen,
   RunnerArt,
   StepTitle,
   TextLink,
+  useKeyboardOpen,
 } from './parts';
 import { useCleanText } from './useCleanText';
 import { cleanLoginId, loginIdCharsNotice } from './validation';
@@ -72,22 +74,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-
-  useEffect(() => {
-    const shown = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setKeyboardOpen(true),
-    );
-    const hidden = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboardOpen(false),
-    );
-    return () => {
-      shown.remove();
-      hidden.remove();
-    };
-  }, []);
+  const keyboardOpen = useKeyboardOpen();
 
   // Session-expired Login is the stack root; goBack is a dead end, so offer Start instead (S15P31E105-638).
   const onBack = loginRequired
@@ -121,7 +108,9 @@ export function LoginScreen() {
   return (
     <Screen
       {...onboardingScreen}
-      background={keyboardOpen ? <View style={styles.keyboardBackdrop} /> : onboardingScreen.background}
+      background={
+        keyboardOpen ? <KeyboardBackdrop /> : onboardingScreen.background
+      }
       header={<OnboardingHeader onBack={onBack} />}
     >
       {/* runway-onboarding-handoff 1.2: the runner and a title in place of the big wordmark. */}
@@ -193,7 +182,6 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  keyboardBackdrop: { flex: 1, backgroundColor: '#E9EEF1' },
   fields: { gap: 12 },
   forgot: { alignSelf: 'flex-end' },
   signUp: {
