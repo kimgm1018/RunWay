@@ -1,6 +1,7 @@
 export * from './AppText';
 export * from './Backdrop';
 export * from './BottomSheet';
+export * from './SheetDrag';
 export * from './Button';
 export * from './Card';
 export * from './DefaultAvatar';
