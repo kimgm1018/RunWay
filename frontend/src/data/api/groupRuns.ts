@@ -27,6 +27,12 @@ type Point = { type: 'Point'; coordinates: [number, number] };
 
 type ListItem = { id: number; status: GroupRunSummary['status'] };
 
+// G18 응답(S15P31E105-889): 서버가 START를 승인한 내 세션.
+type JoinNowResponse = {
+  participant?: { sessionId?: number | string | null } | null;
+  sessionId?: number | string | null;
+};
+
 type DetailResponse = {
   id: number;
   title: string;
@@ -565,15 +571,34 @@ export function createGroupRunsApi({
         ? waitingRoom(groupRunId)
         : mock.getWaitingRoom(groupRunId),
     // G16 records my readiness; the room is read again for everyone's.
-    setReady: async (groupRunId, ready) => {
+    setReady: async (groupRunId, ready, recordingDevice) => {
       if (!isServerId(groupRunId)) {
         return mock.setReady(groupRunId, ready);
       }
       await apiRequest(`/group-runs/${groupRunId}/participants/me/ready`, {
         method: 'POST',
-        body: { ready },
+        body: ready && recordingDevice ? { ready, recordingDevice } : { ready },
       });
       return waitingRoom(groupRunId);
+    },
+    joinNow: async (groupRunId, recordingDevice) => {
+      if (!isServerId(groupRunId)) {
+        return mock.joinNow
+          ? mock.joinNow(groupRunId, recordingDevice)
+          : { sessionId: '' };
+      }
+      const body = await apiRequest<JoinNowResponse>(
+        `/group-runs/${groupRunId}/participants/me/start`,
+        {
+          method: 'POST',
+          body: recordingDevice ? { recordingDevice } : {},
+        },
+      );
+      const sessionId = body?.participant?.sessionId ?? body?.sessionId;
+      if (sessionId == null) {
+        throw new DataError('UNKNOWN', '합류 응답에 세션이 없어요.');
+      }
+      return { sessionId: String(sessionId) };
     },
     start: async groupRunId => {
       if (!isServerId(groupRunId)) return mock.start(groupRunId);
@@ -610,7 +635,7 @@ export function createGroupRunsApi({
           : { cancelReason: reason },
       });
     },
-    watchStart: (groupRunId, onStart, onError, onParticipants) => {
+    watchStart: (groupRunId, onStart, onError, onParticipants, onStatus) => {
       if (!isServerId(groupRunId))
         return mock.watchStart(groupRunId, onStart, onError, onParticipants);
       return poll(
@@ -647,6 +672,7 @@ export function createGroupRunsApi({
           return { loaded, session };
         },
         ({ loaded, session }) => {
+          onStatus?.(loaded.run.status);
           onParticipants?.(
             loaded.participants,
             loaded.run.groupGuidePaceSecPerKm ?? null,

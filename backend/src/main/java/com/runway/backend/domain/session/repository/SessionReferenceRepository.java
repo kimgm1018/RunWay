@@ -96,6 +96,15 @@ public class SessionReferenceRepository {
                 .findFirst();
     }
 
+    /** G18 사전 판단용 비잠금 조회. 실제 생성 시에는 lockLinkedDeviceId로 다시 확인한다. */
+    public Optional<Long> findLinkedDeviceId(long userId, String deviceType) {
+        return jdbc.query("""
+                SELECT id FROM user_devices
+                WHERE user_id = ? AND device_type = ?::user_devices_device_type_enum
+                  AND unlinked_at IS NULL
+                """, (rs, n) -> rs.getLong("id"), userId, deviceType).stream().findFirst();
+    }
+
     /**
      * 회원에게 연결된 해당 유형 기기 ID를 FOR SHARE로 잠가 읽는다. 그룹 준비 세션 생성 등 기기 ID를 요청으로 받지 않는 경로용이다.
      */

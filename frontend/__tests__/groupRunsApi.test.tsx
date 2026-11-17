@@ -379,17 +379,50 @@ test('6.0 pins my run that starts soon and 6.5 marks me ready with G16', async (
   await act(async () => screen.unmount());
 });
 
-test('6.5 does not mark me ready without a linked watch and says so', async () => {
-  // G16은 연결 워치·폰으로 세션을 만든다. 워치가 없으면 서버 오류 대신 연결 안내를 보인다(S15P31E105-420).
+test('6.5 without a linked watch gets ready with the phone', async () => {
+  // S15P31E105-889: 워치가 없으면 기록 기기가 폰으로 정해지고, G16에 PHONE을 보내 폰 전용 세션으로 준비한다.
   watchLinked = false;
+  const screen = await openGroup();
+  await press(screen, '대기방 입장');
+  await settle(50);
+  expect(texts(screen)).toContain(
+    '워치 없이 폰 GPS로 기록해요. 순위·간격·페이스 안내는 그대로 받아요.',
+  );
+  await press(screen, '준비 완료');
+  await settle(50);
+
+  expect(calls('POST')).toEqual(['/group-runs/61/participants/me/ready']);
+  const readyCall = fetchMock.mock.calls.find(
+    ([address, init]) =>
+      init.method === 'POST' && String(address).endsWith('/participants/me/ready'),
+  );
+  expect(JSON.parse(String(readyCall?.[1].body))).toEqual({
+    ready: true,
+    recordingDevice: 'PHONE',
+  });
+  expect(texts(screen)).toContain('2명 준비 완료');
+  await act(async () => screen.unmount());
+});
+
+test('6.5 says why G16 failed and keeps saying it (leftover active session)', async () => {
+  // S15P31E105-889 ②: 남은 활성 세션 때문에 G16이 409 ACTIVE_SESSION_EXISTS면 대기방에 사유를 남긴다.
+  const base = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (address: string, init: RequestInit) =>
+    init.method === 'POST' && String(address).endsWith('/participants/me/ready')
+      ? respond(409, {
+          code: 'ACTIVE_SESSION_EXISTS',
+          message: '진행 중인 세션이 있습니다.',
+          details: { sessionId: 596 },
+        })
+      : base(address, init),
+  );
   const screen = await openGroup();
   await press(screen, '대기방 입장');
   await press(screen, '준비 완료');
   await settle(50);
 
-  expect(calls('POST')).toEqual([]);
   expect(texts(screen)).toContain(
-    '워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요',
+    '끝나지 않은 러닝 기록이 남아 있어 준비하지 못했어요. 러닝 화면에서 남은 기록을 끝내거나 취소한 뒤 다시 준비해 주세요.',
   );
   expect(texts(screen)).toContain('1명 준비 완료');
   await act(async () => screen.unmount());

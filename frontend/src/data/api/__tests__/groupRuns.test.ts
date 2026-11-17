@@ -722,6 +722,47 @@ test('6.5 reads the room from G07 and G16 marks me ready', async () => {
   });
 });
 
+test('889 G16 sends the chosen recording device only when getting ready', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61/participants/me/ready' && init.method === 'POST'
+      ? respond(200, {
+          participantCount: 2,
+          readyStatus: 'READY',
+          readyCount: 2,
+        })
+      : undefined,
+  );
+  const { groupRuns } = api();
+
+  await groupRuns.setReady('61', true, 'PHONE');
+  await groupRuns.setReady('61', false, 'PHONE');
+
+  expect(sent('POST').map(call => call.body)).toEqual([
+    { ready: true, recordingDevice: 'PHONE' },
+    { ready: false },
+  ]);
+});
+
+test('889 G18 joins a started group run with the chosen device and returns my session', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61/participants/me/start' && init.method === 'POST'
+      ? respond(200, {
+          sessionId: 905,
+          commandId: 7001,
+          result: 'PENDING',
+          expectedVersion: 1,
+          startedAt: null,
+        })
+      : undefined,
+  );
+  const { groupRuns } = api();
+
+  const joined = await groupRuns.joinNow!('61', 'PHONE');
+
+  expect(joined).toEqual({ sessionId: '905' });
+  expect(sent('POST')[0].body).toEqual({ recordingDevice: 'PHONE' });
+});
+
 test('511 waiting room uses G07 participantCount and readyCount', async () => {
   serve(path =>
     path.endsWith('/participants')

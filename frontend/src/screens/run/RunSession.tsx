@@ -902,6 +902,11 @@ export function useRunSession() {
   return { run: useContext(RunStateContext), ...useRunActions() };
 }
 
+// 지금 진행 중인 내 러닝만 읽는다(제공자 밖이면 null, S15P31E105-889). 조작이 필요 없는 화면용.
+export function useRunState() {
+  return useContext(RunStateContext);
+}
+
 // 개인 러닝의 요청 중·거절·미확인 표시용.
 export function useRunControlState() {
   return useContext(RunControlContext);

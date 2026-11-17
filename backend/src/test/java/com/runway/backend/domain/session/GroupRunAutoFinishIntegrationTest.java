@@ -104,7 +104,7 @@ class GroupRunAutoFinishIntegrationTest extends RunningSessionIntegrationSupport
     }
 
     @Test
-    void unsettledStart_holdsTheGroupUntilItIsAbortedOrRejected() throws Exception {
+    void unsettledStart_isAbortedAfterEveryoneWhoStartedFinishes() throws Exception {
         long group = insertGroupRun("RUNNING", false);
         long mine = running(userId, watchId, phoneId);
         long waiting = insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
@@ -112,16 +112,63 @@ class GroupRunAutoFinishIntegrationTest extends RunningSessionIntegrationSupport
         joinGroup(group, userId, mine);
         joinGroup(group, otherUserId, waiting);
 
+        ageStart(waiting);
         finish(userId, watchId, mine);
-        assertThat(groupStatus(group)).isEqualTo("RUNNING");
-
-        // S08 시작 미확인 중단과 같은 결과(세션 INTERRUPTED, START는 UNKNOWN으로 남음)면 더는 막지 않는다.
-        jdbc.update(
-                "UPDATE running_sessions SET status='INTERRUPTED' WHERE id=?", waiting);
-        jdbc.update(
-                "UPDATE session_control_events SET result='UNKNOWN' WHERE session_id=?", waiting);
-        assertThat(finisher.tryComplete(group)).isTrue();
         assertThat(groupStatus(group)).isEqualTo("COMPLETED");
+        assertStartAborted(waiting);
+        assertThat(finisher.tryComplete(group)).isFalse();
+    }
+
+    @Test
+    void unknownStart_isAbortedAfterLastEndAppliedWithUploadComplete() throws Exception {
+        long group = insertGroupRun("RUNNING", false);
+        long mine = running(userId, watchId, phoneId);
+        long waiting = insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
+        insertCommand(waiting, otherWatchId, "START", 1, "UNKNOWN");
+        jdbc.update("UPDATE session_control_events SET reason_code='WATCH_DISCONNECTED' WHERE session_id=?",
+                waiting);
+        ageStart(waiting);
+        joinGroup(group, userId, mine);
+        joinGroup(group, otherUserId, waiting);
+
+        finish(userId, watchId, mine);
+
+        assertThat(groupStatus(group)).isEqualTo("COMPLETED");
+        assertStartAborted(waiting);
+    }
+
+    /** START 요청을 3분 전으로 옮긴다. 2분이 안 된 미확정 START는 자동 종료가 기다린다(S15P31E105-889). */
+    private void ageStart(long sessionId) {
+        jdbc.update(
+                "UPDATE session_control_events SET created_at = created_at - interval '3 minutes'"
+                        + " WHERE session_id=? AND action::text='START'",
+                sessionId);
+    }
+
+    @Test
+    void freshUnsettledStart_keepsTheGroupRunningUntilItSettles() throws Exception {
+        // 지금 합류(G18) 직후 아직 기기가 실행하지 않은 START가 있는데 유일한 주자가 끝난 경우(리뷰 B-5).
+        long group = insertGroupRun("RUNNING", false);
+        long mine = running(userId, watchId, phoneId);
+        long joining = insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
+        insertCommand(joining, otherWatchId, "START", 1, "PENDING");
+        joinGroup(group, userId, mine);
+        joinGroup(group, otherUserId, joining);
+
+        finish(userId, watchId, mine);
+
+        assertThat(groupStatus(group)).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT status::text FROM running_sessions WHERE id=?",
+                String.class, joining)).isEqualTo("READY");
+    }
+
+    private void assertStartAborted(long sessionId) {
+        assertThat(jdbc.queryForObject("SELECT status::text FROM running_sessions WHERE id=?",
+                String.class, sessionId)).isEqualTo("INTERRUPTED");
+        assertThat(jdbc.queryForObject("SELECT result::text FROM session_control_events WHERE session_id=?",
+                String.class, sessionId)).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("SELECT reason_code FROM session_control_events WHERE session_id=?",
+                String.class, sessionId)).isEqualTo("START_UNCONFIRMED_ABORTED");
     }
 
     @Test
@@ -212,7 +259,8 @@ class GroupRunAutoFinishIntegrationTest extends RunningSessionIntegrationSupport
         insertCommand(waiting, otherPhoneId, "START", 1, "UNKNOWN");
         joinGroup(group, userId, ended);
         joinGroup(group, otherUserId, waiting);
-        assertThat(finisher.tryComplete(group)).isFalse();
+        // No automatic check has occurred yet; S07 itself is the trigger under test.
+        assertThat(groupStatus(group)).isEqualTo("RUNNING");
 
         mockMvc.perform(cancelRequest(otherUserId, waiting)).andExpect(status().isOk());
 
@@ -261,5 +309,21 @@ class GroupRunAutoFinishIntegrationTest extends RunningSessionIntegrationSupport
 
         assertThat(finisher.tryComplete(group)).isFalse();
         assertThat(groupStatus(group)).isEqualTo("RUNNING");
+    }
+
+    @Test
+    void allStartsUnknown_withoutActualStart_keepsGroupRunning() {
+        long group = insertGroupRun("RUNNING", false);
+        long mine = insertSession(userId, "READY", 1, watchId, phoneId, "PENDING", null);
+        long theirs = insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
+        insertCommand(mine, watchId, "START", 1, "UNKNOWN");
+        insertCommand(theirs, otherWatchId, "START", 1, "UNKNOWN");
+        joinGroup(group, userId, mine);
+        joinGroup(group, otherUserId, theirs);
+
+        assertThat(finisher.tryComplete(group)).isFalse();
+        assertThat(groupStatus(group)).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT status::text FROM running_sessions WHERE id=?",
+                String.class, theirs)).isEqualTo("READY");
     }
 }

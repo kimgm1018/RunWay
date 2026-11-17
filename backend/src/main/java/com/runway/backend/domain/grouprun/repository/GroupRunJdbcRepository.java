@@ -148,7 +148,11 @@ public class GroupRunJdbcRepository {
      * 자동 종료 판단용 참가자 세션 집계(S15P31E105-734). started = 실제 시작한 세션, running = 진행·일시정지 중, unsettled = START가
      * PENDING/UNKNOWN인데 세션이 아직 정리(중단·취소·완료)되지 않은 수.
      */
-    public record CompletionCounts(int started, int running, int unsettled) {}
+    /**
+     * unsettledFresh: 미확정 START 중 요청된 지 2분이 안 된 것(S15P31E105-889). 지금 합류(G18) 직후처럼 기기가 곧 실행할 수 있는 START는
+     * 자동 종료가 중단하지 않고 기다린다.
+     */
+    public record CompletionCounts(int started, int running, int unsettled, int unsettledFresh) {}
 
     public CompletionCounts completionCounts(long groupRunId) {
         return jdbcTemplate.queryForObject(
@@ -159,13 +163,18 @@ public class GroupRunJdbcRepository {
                   COUNT(*) FILTER (WHERE s.status::text NOT IN ('INTERRUPTED', 'CANCELLED', 'COMPLETED')
                     AND EXISTS (SELECT 1 FROM session_control_events e
                                 WHERE e.session_id = s.id AND e.action::text = 'START'
-                                  AND e.result::text IN ('PENDING', 'UNKNOWN'))) AS unsettled
+                                  AND e.result::text IN ('PENDING', 'UNKNOWN'))) AS unsettled,
+                  COUNT(*) FILTER (WHERE s.status::text NOT IN ('INTERRUPTED', 'CANCELLED', 'COMPLETED')
+                    AND EXISTS (SELECT 1 FROM session_control_events e
+                                WHERE e.session_id = s.id AND e.action::text = 'START'
+                                  AND e.result::text IN ('PENDING', 'UNKNOWN')
+                                  AND e.created_at > now() - interval '2 minutes')) AS unsettled_fresh
                 FROM group_run_participants p
                 JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
                 WHERE p.group_run_id = ?
                 """,
                 (rs, n) -> new CompletionCounts(rs.getInt("started"), rs.getInt("running"),
-                        rs.getInt("unsettled")),
+                        rs.getInt("unsettled"), rs.getInt("unsettled_fresh")),
                 groupRunId);
     }
 

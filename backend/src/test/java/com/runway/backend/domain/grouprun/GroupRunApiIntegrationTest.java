@@ -716,6 +716,87 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
     }
 
+    @Test
+    void readyPhone_createsPhoneOnlySession_andPreservesItOnRetry() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        long sessionId = readySession(groupRunId, "{\"recordingDevice\":\"PHONE\"}");
+        long phoneId = jdbc.queryForObject(
+                "SELECT id FROM user_devices WHERE user_id=? AND device_type='PHONE'",
+                Long.class, hostId);
+        assertThat(jdbc.queryForObject(
+                "SELECT phone_only FROM running_sessions WHERE id=?", Boolean.class, sessionId))
+                .isTrue();
+        mockMvc.perform(get("/api/v1/running-sessions/{id}", sessionId)
+                        .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.controlDeviceId").value(phoneId))
+                .andExpect(jsonPath("$.relayDeviceId").value(phoneId))
+                .andExpect(jsonPath("$.recordingMode").value("PHONE_ONLY"));
+        assertThat(readySession(groupRunId, "{\"recordingDevice\":\"PHONE\"}"))
+                .isEqualTo(sessionId);
+        assertThat(readySession(groupRunId, "{}")).isEqualTo(sessionId);
+        readyRequest(groupRunId, "{\"recordingDevice\":\"WATCH\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+    }
+
+    @Test
+    void readyDeviceChange_requiresUnreadyBeforeCreatingNewSession() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        long watchSessionId = readySession(groupRunId, "{\"recordingDevice\":\"WATCH\"}");
+        readyRequest(groupRunId, "{\"recordingDevice\":\"PHONE\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+        assertThat(participantSessionId(groupRunId, hostId)).isEqualTo(watchSessionId);
+        readyRequest(groupRunId, "{\"ready\":false,\"recordingDevice\":\"PHONE\"}")
+                .andExpect(status().isOk());
+        long phoneSessionId = readySession(groupRunId, "{\"recordingDevice\":\"PHONE\"}");
+        assertThat(phoneSessionId).isNotEqualTo(watchSessionId);
+        assertThat(jdbc.queryForObject(
+                "SELECT status::text FROM running_sessions WHERE id=?", String.class, watchSessionId))
+                .isEqualTo("CANCELLED");
+        assertThat(jdbc.queryForObject(
+                "SELECT phone_only FROM running_sessions WHERE id=?", Boolean.class, phoneSessionId))
+                .isTrue();
+    }
+
+    @Test
+    void ready_invalidRecordingDevice_usesValidationError() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        for (String device : new String[] {"INVALID", "phone", ""}) {
+            readyRequest(groupRunId, "{\"recordingDevice\":\"%s\"}".formatted(device))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        assertThat(participantSessionId(groupRunId, hostId)).isNull();
+    }
+
+    @Test
+    void ready_explicitWatchWithoutWatch_andPhoneWithoutPhone_areNotFound() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        jdbc.update("UPDATE user_devices SET unlinked_at=now() WHERE user_id=? AND device_type='WATCH'", hostId);
+        readyRequest(groupRunId, "{\"recordingDevice\":\"WATCH\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DEVICE_NOT_FOUND"));
+        jdbc.update("UPDATE user_devices SET unlinked_at=now() WHERE user_id=? AND device_type='PHONE'", hostId);
+        readyRequest(groupRunId, "{\"recordingDevice\":\"PHONE\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DEVICE_NOT_FOUND"));
+        assertThat(participantSessionId(groupRunId, hostId)).isNull();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions readyRequest(long groupRunId, String body)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private long readySession(long groupRunId, String body) throws Exception {
+        MvcResult result = readyRequest(groupRunId, body).andExpect(status().isOk()).andReturn();
+        return mapper.readTree(result.getResponse().getContentAsString()).get("sessionId").asLong();
+    }
+
     private long createGroupRun(long hostUserId) throws Exception {
         MvcResult created =
                 mockMvc.perform(
