@@ -27,7 +27,7 @@ class GroupPaceServiceTest {
         var plans = mock(PersonalPacePlanPort.class);
         var events = mock(ApplicationEventPublisher.class);
         var transactions = mock(PlatformTransactionManager.class);
-        var service = new GroupPaceService(false, states, groups, participants, coaching, references,
+        var service = new GroupPaceService(false, 0, "", states, groups, participants, coaching, references,
                 ai, plans, events, JsonMapper.builder().build(), transactions, mock(com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository.class), mock(SegmentDifficultyProvider.class));
         service.membershipOrGoalChanged(7);
         service.onBatch(8);
@@ -392,6 +392,81 @@ class GroupPaceServiceTest {
                 new GroupPaceRepository.Start(expected, plannedPace, 10, slower, uniformStartSegments()));
     }
 
+    // S15P31E105-914: 시연용 출발 추천 고정. 9번(시연 회원)과 10번(일반)이 함께 있는 방에서 AI09 계획은 각각 330·410이다.
+    private void demoStart(RunningFixture fixture, String mode) {
+        fixture.scheduled();
+        if (mode != null) {
+            when(fixture.states.find(7)).thenReturn(Optional.of(modeState(mode, fixture.token)));
+        }
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 9L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(330), List.of())));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 10L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(410), List.of())));
+        fixture.service.evaluateStart(7);
+    }
+
+    @Test
+    void demoStart_togetherWithDemoMember_fixesAppliedAndAiPaceToConfiguredValue() {
+        var fixture = new RunningFixture(540, " 9 , 12 ");
+        demoStart(fixture, null);
+        // 적용·AI 추천 모두 540. 기준 회원(10)·느린 회원 수(목표 360보다 느린 계획 1개, 410)는 원래 계산 그대로.
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(540, 540, 10, 1, uniformStartSegments()));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "0,'9'", // 설정값 0 = 끔
+            "540,''", // 시연 회원 목록이 비어 있음
+            "540,'11,12'", // 방에 시연 회원이 없음
+            "100,'9'", // 240 미만은 무시
+            "901,'9'", // 900 초과는 무시
+            "540,'abc'"}) // 숫자가 아닌 항목은 건너뜀
+    void demoStart_offOrNoDemoMemberOrOutOfRange_keepsAiPace(int pace, String ids) {
+        var fixture = new RunningFixture(pace, ids);
+        demoStart(fixture, null);
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(410, 410, 10, 1, uniformStartSegments()));
+    }
+
+    @Test
+    void demoStart_goalMode_keepsGoalAndAiPace() {
+        var fixture = new RunningFixture(540, "9");
+        demoStart(fixture, "GOAL");
+        // GOAL 모드는 방장 목표(5000 m / 1800 s = 360)를 적용하고 AI 추천도 고정하지 않는다.
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(360, 410, 10, 1, uniformStartSegments()));
+    }
+
+    @Test
+    void demoStart_nonConsentingDemoMember_doesNotTrigger() {
+        var fixture = new RunningFixture(540, "11");
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(11, false, null)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 9L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(410), List.of())));
+        fixture.service.evaluateStart(7);
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(410, 410, 9, 1, uniformStartSegments()));
+    }
+
+    @Test
+    void demoStart_parseUserIds_skipsBlankAndInvalidEntries() {
+        assertThat(GroupPaceService.parseUserIds(" 11, ,12,x,13 ")).containsExactlyInAnyOrder(11L, 12L, 13L);
+        assertThat(GroupPaceService.parseUserIds(null)).isEmpty();
+        assertThat(GroupPaceService.parseUserIds("")).isEmpty();
+    }
+
     private static GroupPaceRepository.State modeState(String mode, Instant token) {
         return new GroupPaceRepository.State(375, 380, "SLOW", token, 1, token, mode, null, null,
                 null, null, null, false);
@@ -573,9 +648,13 @@ class GroupPaceServiceTest {
         final GroupPaceService service;
 
         RunningFixture() {
+            this(0, "");
+        }
+
+        RunningFixture(int demoStartPace, String demoUserIds) {
             var manager = mock(PlatformTransactionManager.class);
             when(manager.getTransaction(any())).thenReturn(mock(org.springframework.transaction.TransactionStatus.class));
-            service = new GroupPaceService(true, states, groups, participants, coaching, references,
+            service = new GroupPaceService(true, demoStartPace, demoUserIds, states, groups, participants, coaching, references,
                     ai, plans, mock(ApplicationEventPublisher.class),
                     JsonMapper.builder().build(), manager, fits, difficulty);
             when(groups.findById(7)).thenReturn(Optional.of(new GroupRunRow(7, 1, 9, null,
