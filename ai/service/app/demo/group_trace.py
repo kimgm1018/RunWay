@@ -39,12 +39,10 @@ def _pace(sec: float) -> str:
 
 
 def _reason_text(code: str, response, frm: float, to: float, worst: dict | None, ahead: dict | None = None) -> str:
-    if code == "AHEAD" and ahead and ahead.get("forced"):   # S15P31E105-915
-        return f"시연 설정 · 출발 {round(ahead['waitSec'])}초 뒤 {_pace(frm)}에서 {_pace(to)}로 여유 가속"
     if code == "AHEAD":
-        margin = round(ahead["marginBpm"]) if ahead else 15
-        demo = f" · 시연 설정 · 대기 {round(ahead['waitSec'])}초" if ahead and ahead.get("demoWait") else ""
-        return f"모두 허용선보다 {margin} bpm 이상 여유 → 출발보다 빠르게 {_pace(frm)}에서 {_pace(to)}로 여유 가속{demo}"
+        # 시연 화면에는 시연용 설정(대기 시간·정해진 시각)을 드러내지 않고 같은 AI 판단 문구로 보인다(S15P31E105-915 후속).
+        # 시연 설정 여부는 trace의 group.ahead(demoWait·forced)에만 남긴다.
+        return f"모두 허용선 아래로 심박 여유 → 출발보다 빠르게 {_pace(frm)}에서 {_pace(to)}로 여유 가속"
     if code == "SPEED_UP":
         return f"모두 허용선 아래로 여유 → {_pace(frm)}에서 {_pace(to)}로 가속"
     if code in ("SLOW_DOWN", "WARMUP"):
