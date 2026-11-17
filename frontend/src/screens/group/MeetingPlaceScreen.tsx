@@ -660,12 +660,15 @@ const styles = StyleSheet.create({
     borderColor: stand.glassLine,
     backgroundColor: stand.page,
   },
-  // Without a lineHeight, as in TextField, so the glyphs are not clipped.
+  // lineHeight 없이 두면 안드로이드가 캐럿(커서) 높이를 47 칸 전체로 잡아 글자보다 훨씬 크게
+  // 보인다(S15P31E105-793과 같은 원인). 글자 높이에 맞는 lineHeight를 명시해 캐럿을 작게 만든다.
   searchInput: {
     flex: 1,
     height: 47,
     fontFamily: typography.input.fontFamily,
     fontSize: 16,
+    lineHeight: 22,
+    includeFontPadding: false,
     paddingVertical: 0,
     textAlignVertical: 'center',
     color: stand.text,

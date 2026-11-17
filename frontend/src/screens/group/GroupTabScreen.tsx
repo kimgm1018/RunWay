@@ -110,16 +110,31 @@ export function GroupTabScreen() {
   }, [intro]);
 
   const select = useCallback((target: number) => {
-    pager.current?.setPage(target);
+    // setPage는 실제로 슬라이드 애니메이션을 돌리는데, 그 중간에 양쪽 페이지가 같이 보이며
+    // 깜빡이는 것으로 보인다(프로필 탭 858과 같은 원인). 탭 버튼은 바로 전환한다.
+    pager.current?.setPageWithoutAnimation(target);
     setPage(target);
   }, []);
   // Search: a round button beside the tabs (담당자 요청) that opens the field at the top of the page shown,
   // 내 크루 or 크루 모집; each page keeps its own.
   const [searching, setSearching] = useState([false, false]);
-  const setSearchingOn = (target: number, open: boolean) =>
-    setSearching(current =>
-      current.map((value, index) => (index === target ? open : value)),
-    );
+  const setSearchingOn = useCallback(
+    (target: number, open: boolean) =>
+      setSearching(current =>
+        current.map((value, index) => (index === target ? open : value)),
+      ),
+    [],
+  );
+  // MyCrewsPage·CrewRecruitPage는 React.memo로 감쌌지만(878), 이 콜백을 JSX에서 매번 새로 만들면
+  // props가 매번 달라져 memo가 소용없어진다. 탭을 바꿀 때마다 반대쪽 페이지까지 다시 그려지며
+  // 깜빡인 진짜 원인이 여기 있었다.
+  const closeSearchOn = useCallback(() => setSearchingOn(0, false), [
+    setSearchingOn,
+  ]);
+  const closeSearchOnRecruit = useCallback(
+    () => setSearchingOn(1, false),
+    [setSearchingOn],
+  );
 
   // Android back on 크루 모집 returns to 내 크루 first, as it did when 6.1 was pushed over 6.0.
   useFocusEffect(
@@ -193,15 +208,12 @@ export function GroupTabScreen() {
           onPageSelected={event => setPage(event.nativeEvent.position)}
         >
           <View key="mine" style={styles.root} collapsable={false}>
-            <MyCrewsPage
-              searching={searching[0]}
-              onCloseSearch={() => setSearchingOn(0, false)}
-            />
+            <MyCrewsPage searching={searching[0]} onCloseSearch={closeSearchOn} />
           </View>
           <View key="recruit" style={styles.root} collapsable={false}>
             <CrewRecruitPage
               searching={searching[1]}
-              onCloseSearch={() => setSearchingOn(1, false)}
+              onCloseSearch={closeSearchOnRecruit}
             />
           </View>
         </PagerView>
