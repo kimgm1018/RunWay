@@ -176,3 +176,16 @@ test('SCHEDULED run just past its start still joins while the host may begin', a
   expect(() => labelled(screen, '참가하기')).not.toThrow();
   await act(async () => screen.unmount());
 });
+
+test('expired scheduled detail hides host controls', async () => {
+  const screen = await renderDetail('SCHEDULED', 'gr-wednesday', {
+    scheduledAt: longPast,
+    joined: true,
+    isHost: true,
+  });
+  expect(texts(screen)).toContain('지난 그룹런이에요');
+  for (const label of ['그룹런 수정', '그룹런 취소', '대기방 입장 · 그룹장', '목표 변경']) {
+    expect(() => labelled(screen, label)).toThrow();
+  }
+  await act(async () => screen.unmount());
+});
