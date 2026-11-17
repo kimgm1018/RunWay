@@ -30,6 +30,7 @@ from app.planner import prerun_planner
 from app.population_bundle import EMPTY_MODE_POLICY_VERSION, PopulationBundle
 from app.speed_calibration import SpeedCalibration, load_speed_calibration, resolve_speed_ref, transform_speeds
 from app import runner_baseline
+from app.km_smoothing import km_smoothing_enabled, smooth_km_paces
 from app.planner.prerun_planner import PaceCandidate, PreRunSimulationRequest
 
 _CENT = Decimal("0.01")
@@ -1275,6 +1276,16 @@ def build_personal_plan(
             raise _not_ready("PACE_SELECTION_RESULT_NOT_EXPERIMENTAL_OR_PERSONALIZED")
         if selection.model_version != ode_runtime.info.model_version:
             raise _not_ready("PACE_SELECTION_MODEL_VERSION_MISMATCH")
+        smoothed = False
+        if km_smoothing_enabled():
+            splits = split_distance_1km(goal.distance_m)
+            lengths = [float(end - start) for start, end in splits]
+            grade_index = _CourseGradeIndex(course)
+            grades = [grade_index.grade_over(float(start), float(end)) for start, end in splits]
+            paces = smooth_km_paces(selection.segment_paces_sec_per_km, lengths, grades)
+            smoothed = any(abs(before - after) > 1e-9
+                           for before, after in zip(selection.segment_paces_sec_per_km, paces))
+            selection = replace(selection, segment_paces_sec_per_km=tuple(paces))
         if outside_support:
             segments, ratio_clamped = finalize_personal_segments_with_clamp(
                 goal.distance_m, goal.target_pace_sec_per_km, selection.segment_paces_sec_per_km,
@@ -1294,8 +1305,8 @@ def build_personal_plan(
                   if hasattr(optimizer, "replay") else None)
         mean_plan_pace = sum(segment.length_m * segment.pace_sec_per_km for segment in segments) / float(goal.distance_m)
         selection_warnings = list(selection.warnings)
-        if (baseline_plan is not None or ratio_clamped or outside_support) and replay:
-            # 배율 조정·비율 제한 뒤 계획의 HR band 경고는 최종 계획 재생 기준으로 다시 정한다(막지 않음).
+        if (baseline_plan is not None or ratio_clamped or outside_support or smoothed) and replay:
+            # 배율 조정·비율 제한·km 평활화 뒤 HR band 경고는 최종 계획 재생 기준으로 다시 정한다(막지 않음).
             band_warning = "HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN"
             selection_warnings = [w for w in selection_warnings if w != band_warning]
             if replay.get("hr_reference_band_satisfied") is False:
