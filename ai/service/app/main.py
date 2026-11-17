@@ -30,7 +30,8 @@ from app.decide.policy_port import PacePolicy
 from app.decide.schemas import DecideRequest, DecideResponse
 from app.decide.service import run_decide
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
-from app.group_pace.ahead import ahead_enabled, ahead_for_group, ahead_wait, load_ahead_settings
+from app.group_pace.ahead import (ahead_enabled, ahead_for_group, ahead_wait, force_ahead_for_group,
+                                  load_ahead_settings)
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
@@ -513,7 +514,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 gru_gb_enabled=request.app.state.gru_gb_enabled,
                 readiness_lookup=request.app.state.readiness_lookup,
                 ahead=ahead, ahead_wait_sec=wait_sec, ahead_demo_wait=demo_wait,
-                hr_overrides=demo_config.hr_threshold_overrides if demo_config is not None else None)
+                hr_overrides=demo_config.hr_threshold_overrides if demo_config is not None else None,
+                force_ahead=force_ahead_for_group(demo_config, body.participants))   # S15P31E105-915
             if detail is not None:
                 try:
                     record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,
