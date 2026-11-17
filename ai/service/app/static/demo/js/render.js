@@ -761,6 +761,38 @@
     if (side) side.classList.toggle('over', pred != null && allow != null && pred >= allow);
   }
 
+  // 909: 페이스 변경 카드. 바꾼 판단 뒤 CARD_SEC(재생은 배속 반영) 동안 보이고 흐려지며 사라진다.
+  var paceChangeTimer = null, paceChangeShownId = null;
+  function hidePaceChange(immediate) {
+    if (paceChangeTimer) { clearTimeout(paceChangeTimer); paceChangeTimer = null; }
+    var box = byId('pace-change');
+    if (!box) return;
+    paceChangeShownId = null;
+    if (immediate) { box.classList.add('hidden'); box.classList.remove('is-out'); return; }
+    box.classList.add('is-out');
+    paceChangeTimer = setTimeout(function () { box.classList.add('hidden'); box.classList.remove('is-out'); paceChangeTimer = null; }, 600);
+  }
+  function paceChange(trace, traces, options) {
+    var A = root.RunwayDemoAlerts;
+    var box = byId('pace-change');
+    if (!A || !box) return;
+    var card = A.paceChangeCard(trace, traces);
+    if (!card) { if (!box.classList.contains('hidden')) hidePaceChange(false); return; }
+    if (paceChangeTimer) clearTimeout(paceChangeTimer);
+    box.setAttribute('data-action', card.kind);
+    box.querySelector('.pc-title').textContent = card.title;
+    box.querySelector('.pc-pace').textContent = card.pace;
+    box.querySelector('.pc-reason').textContent = card.reason;
+    box.classList.remove('hidden', 'is-out');
+    if (paceChangeShownId !== card.id) {
+      paceChangeShownId = card.id;
+      if (options.animate) { box.classList.remove('enter'); void box.offsetWidth; box.classList.add('enter'); }
+    }
+    var speed = options.replay ? Math.max(1, Number(options.replaySpeed) || 1) : 1;
+    var leftMs = Math.max(0, (A.CARD_SEC - card.ageSec) * 1000 / speed);
+    paceChangeTimer = setTimeout(function () { paceChangeTimer = null; hidePaceChange(false); }, leftMs);
+  }
+
   // 724: 안내 페이스 옆 '실제' 줄. 개인은 한 값, 그룹은 러너마다(라벨 · 값).
   function actualLine(items) {
     var host = byId('actual-text');
@@ -822,7 +854,7 @@
     setBanner(banner);
     root.__demoMetrics = root.__demoMetrics || {};
     root.__demoMetrics.renderLagMs = Math.max(0, performance.now() - started);
-    if (!animate) { guideBlock(trace, options); reasonLine(trace); return; }
+    if (!animate) { guideBlock(trace, options); reasonLine(trace); paceChange(trace, traces, options); return; }
     animationRunning = true;
     var host = byId('candidate-list');
     timerIds.push(setTimeout(function () {
@@ -832,6 +864,7 @@
       // 후보 판정이 끝난 뒤에 안내를 바꾼다: 예측 → 판정 → 안내 순서가 화면에서 보이게
       guideBlock(trace, options);
       reasonLine(trace);
+      paceChange(trace, traces, options);
       addRecords(traces, true);
       if (options.restartMarker) addRestartMarker();
       var guideCardEl = document.querySelector('.guide-card');
@@ -908,6 +941,7 @@
     var guideEl = document.querySelector('.guide-card');
     if (guideEl) guideEl.classList.remove('has-from');
     setBanner(null);
+    hidePaceChange(true);
     setWaiting(true);
     renderSnapshot(snapshot || {});
   }
