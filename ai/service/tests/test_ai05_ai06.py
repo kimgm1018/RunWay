@@ -100,9 +100,10 @@ def test_ai06_disabled_gru_skips_head_calculation_and_returns_learned_thresholds
     body = {"userId": 73, "sessions": [{
         "sessionId": 101,
         "sessionStartedAt": "2026-10-30T08:00:00Z",
-        "samples": [{"elapsedSec": 5 * i, "hrBpm": 100 + i, "speedMps": 3,
+        # S15P31E105-901: 허용선 계산은 이동 10분·1 km 이상 러닝만 쓰므로 10분(121표본)으로 둔다.
+        "samples": [{"elapsedSec": 5 * i, "hrBpm": 100 + i % 25, "speedMps": 3,
                      "gradePercent": 0, "hrQuality": "GOOD", "speedQuality": "GOOD",
-                     "gradeQuality": "GOOD"} for i in range(25)],
+                     "gradeQuality": "GOOD"} for i in range(121)],
     }]}
 
     with client() as c:
@@ -112,7 +113,7 @@ def test_ai06_disabled_gru_skips_head_calculation_and_returns_learned_thresholds
     assert response.status_code == 503 and payload["code"] == "MODEL_NOT_READY"
     assert payload["gruPersonalization"] is None
     assert "GRU_PERSONALIZATION_DISABLED" in payload["warnings"]
-    assert (payload["hrDangerBpm"], payload["hrSustainBpm"], payload["hrThresholdRunCount"]) == (124, 121, 1)
+    assert (payload["hrDangerBpm"], payload["hrSustainBpm"], payload["hrThresholdRunCount"]) == (124, 120, 1)
 
 
 def test_health_reports_both_model_readiness_states():

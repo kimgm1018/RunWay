@@ -4,13 +4,48 @@ import math
 from collections.abc import Iterable
 
 import numpy as np
-import pandas as pd
 
-from app.models.ode.validation import pv_data
-from app.grade_fill import prepare_with_grade_fallback
 from app.policy.config import PolicyConfig
+from app.speed_calibration import SPEED_REF_MIN_DISTANCE_M, SPEED_REF_MIN_MOVING_SEC
 
 _USABLE_WORKOUT_QUALITY = frozenset({"CLEAN", "USABLE_WITH_FLAGS"})
+
+# S15P31E105-901: 허용·위험선 계산에 넣을 러닝 기준. 걷기·짧은 QA 기록이 개인 기준을 끌어내리지 않게 한다.
+# 거리·이동 시간 하한은 785(AI09 v_ref)와 같은 상수를 쓴다.
+HR_THRESHOLD_MIN_DISTANCE_M = SPEED_REF_MIN_DISTANCE_M
+HR_THRESHOLD_MIN_MOVING_SEC = SPEED_REF_MIN_MOVING_SEC
+# 이동 평균 페이스가 12'00"/km보다 느리면 걷기로 보고 뺀다. V2 Personalized Val(108그룹) 러닝 9,828회 중
+# 12'00"보다 느린 기록은 0.43%(99.5% 분위 11'40"), 경과 시간 기준이라 이동 페이스는 이보다 빠르다.
+HR_THRESHOLD_MAX_PACE_SEC_PER_KM = 720.0
+# 이 속도 미만 표본은 멈춤으로 보고 이동 시간에서 뺀다(걷기 1.3 m/s보다 충분히 낮다).
+_MOVING_SPEED_MPS = 0.5
+_SAMPLE_INTERVAL_SEC = 5.0
+# S15P31E105-901: 개인 기준 바닥. V2 Personalized Val 실제 러너(108그룹, 최근 20회)의 개인 P85 최솟값 127,
+# P98 최솟값 145라 이 값은 정상 러너를 자르지 않는다. 섞기 전 개인 값에만 적용한다.
+HR_THRESHOLD_PERSONAL_SUSTAIN_FLOOR_BPM = 125.0
+HR_THRESHOLD_PERSONAL_DANGER_FLOOR_BPM = 140.0
+
+
+def _is_running_session(samples) -> bool:
+    """5초 표본으로 이동 거리·이동 시간·평균 페이스를 구해 허용선 계산 대상 러닝인지 본다."""
+    distance = 0.0
+    moving_sec = 0.0
+    for sample in samples:
+        speed = getattr(sample, "speed_mps", None)
+        if speed is None or isinstance(speed, bool):
+            continue
+        try:
+            speed = float(speed)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(speed) or speed <= 0.0:
+            continue
+        distance += speed * _SAMPLE_INTERVAL_SEC
+        if speed >= _MOVING_SPEED_MPS:
+            moving_sec += _SAMPLE_INTERVAL_SEC
+    if distance < HR_THRESHOLD_MIN_DISTANCE_M or moving_sec < HR_THRESHOLD_MIN_MOVING_SEC:
+        return False
+    return moving_sec / (distance / 1000.0) <= HR_THRESHOLD_MAX_PACE_SEC_PER_KM
 
 
 @dataclass(frozen=True)
@@ -62,31 +97,24 @@ def nearest_rank_percentile(values: Iterable[float], percentile: int) -> int | N
 
 
 def personal_hr_thresholds(sessions: Iterable[object]) -> PersonalHrThresholds:
-    """ODE가 채택하는 최근 20회에서 GOOD 심박만 모아 P98·P85를 계산한다."""
+    """최근 20회 러닝에서 GOOD 심박만 모아 P98·P85를 계산한다(경사·GPS는 필요 없다).
+
+    S15P31E105-901: 1 km·이동 10분 미만이거나 12'00"/km보다 느린(걷기) 기록은 뺀다. run_count는 뺀 뒤 수다.
+    """
     usable = []
     for session in sessions:
         if getattr(session, "workout_quality", None) not in _USABLE_WORKOUT_QUALITY:
             continue
         samples = getattr(session, "samples", ())
-        frame = pd.DataFrame([{
-            "session_id": getattr(session, "session_id", 0),
-            "segment_id": 0,
-            "elapsed_s": sample.elapsed_sec,
-            "hr_bpm": sample.hr_bpm,
-            "speed_mps": sample.speed_mps,
-            "grade_observed_pct": sample.grade_percent,
-            "hr_quality": sample.hr_quality if sample.hr_bpm is not None else "MISSING",
-            "speed_quality": sample.speed_quality if sample.speed_mps is not None else "MISSING",
-            "grade_quality": sample.grade_quality if sample.grade_percent is not None else "MISSING",
-            "hr_is_filled": sample.hr_is_filled,
-        } for sample in samples], columns=pv_data.TS_COLUMNS)
-        frame = frame.sort_values(["segment_id", "elapsed_s"], kind="stable").reset_index(drop=True)
-        elapsed = frame.elapsed_s.to_numpy(np.float64)
-        if (frame.empty or frame.elapsed_s.duplicated().any() or not np.isclose(elapsed[0], 0.0)
-                or (len(elapsed) > 1 and not np.allclose(np.diff(elapsed), 5.0))):
+        if not _is_running_session(samples):
             continue
-        _frame, prepared, _fill_info = prepare_with_grade_fallback(frame)
-        if isinstance(prepared, str):
+        # 5초 격자(0초부터)만 확인한다. S15P31E105-901: 예전엔 ODE 입력 검사(prepare_with_grade_fallback —
+        # 시작 심박·60초 안 속도+경사)까지 통과해야 했다. 심박 기준에는 경사·시작 심박이 필요 없어,
+        # GPS·경사 없는 실기기 워치 러닝(걸음 기반 거리)도 위 러닝 기준만 통과하면 쓴다. ODE·GRU 적합은 그대로다.
+        elapsed = np.sort(np.asarray([float(getattr(sample, "elapsed_sec", math.nan)) for sample in samples],
+                                     dtype=np.float64))
+        if (elapsed.size == 0 or not np.isfinite(elapsed).all() or not np.isclose(elapsed[0], 0.0)
+                or (elapsed.size > 1 and not np.allclose(np.diff(elapsed), 5.0))):
             continue
         values = []
         for sample in samples:
@@ -130,6 +158,10 @@ def blend_hr_thresholds(cfg: PolicyConfig, *, personal_danger_bpm: float | None 
                        and 35.0 <= sustain_personal <= danger_personal)
     weight = cfg.hr_threshold_blend_weights[min(count, len(cfg.hr_threshold_blend_weights) - 1)] \
         if usable_personal else 0.0
+    if usable_personal:
+        # S15P31E105-901: 이미 저장된 낮은 개인 값(걷기 포함 시절)도 바닥 아래로는 쓰지 않는다.
+        danger_personal = max(danger_personal, HR_THRESHOLD_PERSONAL_DANGER_FLOOR_BPM)
+        sustain_personal = min(max(sustain_personal, HR_THRESHOLD_PERSONAL_SUSTAIN_FLOOR_BPM), danger_personal)
     danger = cfg.hr_threshold_population_danger_bpm
     sustain = cfg.hr_threshold_population_sustain_bpm
     source = "POPULATION"
