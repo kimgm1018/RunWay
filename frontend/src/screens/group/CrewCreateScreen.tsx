@@ -153,7 +153,8 @@ export function AreaPicker({
           accessibilityLabel="지역 검색"
           placeholder="동네나 장소 이름으로 검색"
           placeholderTextColor={groupTone.muted}
-          selectionColor={groupTone.accent}
+          selectionColor="transparent"
+          cursorColor={groupTone.text}
           value={query}
           maxLength={PLACE_SEARCH_MAX}
           onChangeText={text => {
@@ -403,7 +404,8 @@ export function CrewCreateScreen() {
                   accessibilityLabel="크루 이름"
                   placeholder="예: 광안리 주말 러너스"
                   placeholderTextColor={groupTone.muted}
-                  selectionColor={groupTone.accent}
+                  selectionColor="transparent"
+          cursorColor={groupTone.text}
                   value={name}
                   onChangeText={setName}
                   maxLength={30}
@@ -428,7 +430,8 @@ export function CrewCreateScreen() {
                   accessibilityLabel="소개"
                   placeholder="언제, 어디서, 어떤 페이스로 달리는지 적어 주세요"
                   placeholderTextColor={groupTone.muted}
-                  selectionColor={groupTone.accent}
+                  selectionColor="transparent"
+          cursorColor={groupTone.text}
                   value={description}
                   onChangeText={setDescription}
                   maxLength={descriptionLimit}
@@ -475,7 +478,8 @@ export function CrewCreateScreen() {
                     maxLength={3}
                     selectTextOnFocus
                     onFocus={showCapacity}
-                    selectionColor={groupTone.accent}
+                    selectionColor="transparent"
+          cursorColor={groupTone.text}
                     style={[styles.capacity, styles.capacityInput]}
                   />
                   <AppText style={styles.capacity}>명</AppText>
@@ -627,16 +631,25 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingBottom: 10,
   },
-  // No lineHeight: on Android it clips the top of a single-line input.
+  // lineHeight keeps the Android caret to the text (S15P31E105-793 / MeetingPlace search).
+  // includeFontPadding false avoids placeholder clipping when lineHeight is set.
   input: {
     flex: 1,
     height: 48,
     padding: 0,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     color: groupTone.text,
   },
-  multiline: { flex: 0, height: 70, paddingTop: spacing.lg },
+  multiline: {
+    flex: 0,
+    height: 70,
+    paddingTop: spacing.lg,
+    textAlignVertical: 'top',
+  },
   counter: {
     alignSelf: 'flex-end',
     fontFamily: fontFamily.regular,
