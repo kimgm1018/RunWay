@@ -475,9 +475,9 @@ test('7.1 falls back to the drawn map when the shared course cannot be read', as
   ).toContain('예시 경로');
 });
 
-// 7.2 (S15P31E105-561, 담당자 레퍼런스): the map behind a white sheet with the numbers, the run, 좋아요, the 댓글
-// card and 달성, and a comment bar that opens the same comments sheet as 7.1.
-test('7.2 shows the run over its map, likes it and opens the comments from the card and the bar', async () => {
+// 7.2 (S15P31E105-561, 담당자 레퍼런스): the map behind a white sheet with the numbers, the run, 좋아요, its comments
+// (S15P31E105-907: listed on the page, no card) and 달성, and a comment bar that opens the same sheet as 7.1.
+test('7.2 shows the run over its map with its comments listed, and the bar opens the comment sheet', async () => {
   const screen = await openCommunity();
   await press(screen, '탐색');
   await settle(50);
@@ -501,13 +501,39 @@ test('7.2 shows the run over its map, likes it and opens the comments from the c
   ]) {
     expect(words).toContain(label);
   }
-  await press(screen, '댓글 3개 열기');
-  expect(texts(screen)).toContain(
-    '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
-  );
-  await press(screen, '댓글 닫기');
+  // Every comment is on the page itself, and the old card that opened them is gone.
+  expect(words).toContain('축하해요! 3km 구간 페이스 조절 진짜 잘했네요');
+  expect(words).toContain('저도 다음 주에 이 코스 도전해볼게요');
+  expect(words).toContain('코칭 알림 진동으로 오나요?');
+  expect(() => labelled(screen, '댓글 3개 열기')).toThrow();
   await press(screen, '댓글 쓰기');
   expect(labelled(screen, '댓글 입력', 'onChangeText')).toBeTruthy();
+});
+
+// S15P31E105-907: a comment's heart on 7.2 works on the page, and 답글 달기 there opens the sheet replying to it.
+test('7.2 likes a listed comment in place and replies to it in the comment sheet', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const setLiked = jest.spyOn(repositories.community, 'setCommentLiked');
+  const screen = await openCommunity(repositories);
+  await press(screen, '탐색');
+  await settle(50);
+  await press(screen, 'seoyun.run의 5.02km 러닝');
+  await settle(50);
+  const first = '축하해요! 3km 구간 페이스 조절 진짜 잘했네요';
+
+  await pressIn(screen, first, '댓글 좋아요');
+
+  expect(setLiked).toHaveBeenCalledWith('comment-1', true);
+  expect(rowOf(screen, first).props.comment).toEqual(
+    expect.objectContaining({ liked: true, likeCount: 5 }),
+  );
+  expect(() => labelled(screen, '댓글 입력', 'onChangeText')).toThrow();
+
+  await pressIn(screen, first, 'sungyoon.k에게 답글 달기');
+  await settle(400);
+
+  expect(texts(screen)).toContain('sungyoon.k님에게 답글 남기는 중');
+  expect(commentInput(screen)).toBe('@sungyoon.k ');
 });
 
 // S15P31E105-837: a run with no distance comes back with pace 0, which is no pace, not 0′00″. 7.2 shows – – for it
