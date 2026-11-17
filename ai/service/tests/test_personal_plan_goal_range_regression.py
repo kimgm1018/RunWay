@@ -30,6 +30,8 @@ def _goal_responses(monkeypatch):
 
 
 def test_in_range_goals_match_pre498_responses(monkeypatch):
+    # S15P31E105-892: 이 고정 응답은 탐색 결과 그대로를 지킨다. km 평활화 결과는 test_km_smoothing.py에서 본다.
+    monkeypatch.setenv("PLAN_KM_SMOOTHING_ENABLED", "false")
     actual = _goal_responses(monkeypatch)
     assert all(result["status"] == 200 for result in actual.values())
     if os.getenv("AI09_REGRESSION_REGENERATE") == "1":
