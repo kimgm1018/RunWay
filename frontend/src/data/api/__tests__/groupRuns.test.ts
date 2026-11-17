@@ -447,6 +447,8 @@ test('6.4 fills the run from G03, G07, the crew and the course', async () => {
       [129.12, 35.16],
     ],
     meetingPosition: [129.118, 35.153],
+    // No description: no 찾아오는 법.
+    meetingNote: null,
     // G03 has no pace without a goal, so my usual pace stands in.
     goalPaceSecPerKm: 380,
     crewMemberCount: 12,
@@ -464,6 +466,22 @@ test('6.4 fills the run from G03, G07, the crew and the course', async () => {
     ['민준', true, true, 'WAITING'],
     ['하린', false, false, 'READY'],
   ]);
+});
+
+// S15P31E105-910: 찾아오는 법 is saved as the run's description, so 6.4 reads it back from G03; blank is none.
+test('6.4 reads 찾아오는 법 from the G03 description', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'GET'
+      ? respond(200, detail(61, { description: '  공원 입구 안내판 앞 ' }))
+      : path === '/group-runs/62' && init.method === 'GET'
+      ? respond(200, detail(62, { description: '   ' }))
+      : undefined,
+  );
+
+  expect((await api().groupRuns.get('61')).meetingNote).toBe(
+    '공원 입구 안내판 앞',
+  );
+  expect((await api().groupRuns.get('62')).meetingNote).toBeNull();
 });
 
 test('G01 sends place and time with a made-up title and no goals', async () => {
@@ -499,7 +517,9 @@ test('G01 sends place and time with a made-up title and no goals', async () => {
   });
 });
 
-test('G04 sends the edit and keeps the saved note when none is typed', async () => {
+// 6.8 opens with the saved 찾아오는 법 (S15P31E105-910), so G04 sends the note as it is now: a cleared one is null,
+// which G04 clears.
+test('G04 sends the edit with the note as it is now, null when cleared', async () => {
   serve((path, init) =>
     path === '/group-runs/61' && init.method === 'PATCH'
       ? respond(200, { id: 61 })
@@ -526,8 +546,22 @@ test('G04 sends the edit and keeps the saved note when none is typed', async () 
       meetingPosition: { type: 'Point', coordinates: [129.13, 35.157] },
       meetingPlaceName: '민락수변공원',
       meetingAddress: '부산 수영구 민락수변로 7',
+      description: null,
     },
   });
+
+  await api().groupRuns.update('61', {
+    courseId: '301',
+    meetingPlaceName: '민락수변공원',
+    meetingAddress: '부산 수영구 민락수변로 7',
+    meetingPosition: [129.13, 35.157],
+    meetingNote: '편의점 앞',
+    scheduledAt: '2026-11-08T08:30:00+09:00',
+    targetDistanceM: 5000,
+    targetDurationSec: null,
+  });
+
+  expect(sent('PATCH')[1].body).toMatchObject({ description: '편의점 앞' });
 });
 
 test('G04 refresh free-run title minutes without sending a duration-only goal', async () => {
@@ -555,6 +589,7 @@ test('G04 refresh free-run title minutes without sending a duration-only goal', 
     meetingPosition: { type: 'Point', coordinates: [129.118, 35.153] },
     meetingPlaceName: '광안리해수욕장 입구',
     meetingAddress: '부산 수영구 광안해변로 219',
+    description: null,
   });
 });
 
@@ -1111,8 +1146,20 @@ test('G14 result carries my session so sharing opens my own group run record', a
     path === '/group-runs/61/participants'
       ? respond(200, {
           items: [
-            { userId: 9, nickname: '하린', isHost: false, readyStatus: 'READY', sessionId: 31 },
-            { userId: 101, nickname: '민준', isHost: true, readyStatus: 'READY', sessionId: 900 },
+            {
+              userId: 9,
+              nickname: '하린',
+              isHost: false,
+              readyStatus: 'READY',
+              sessionId: 31,
+            },
+            {
+              userId: 101,
+              nickname: '민준',
+              isHost: true,
+              readyStatus: 'READY',
+              sessionId: 900,
+            },
           ],
           participantCount: 2,
           readyCount: 2,

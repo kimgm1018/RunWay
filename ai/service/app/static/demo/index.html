@@ -11,15 +11,16 @@
   <!-- 실시간 경로 지도(722): Leaflet 1.9.4(cdnjs, 버전·SRI 고정) + OpenStreetMap 타일. 못 읽으면 SVG 코스 그림만 보인다 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==" crossorigin="anonymous" referrerpolicy="no-referrer">
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <link rel="stylesheet" href="style.css?v=900">
-  <script defer src="js/logic.js?v=900"></script>
-  <script defer src="js/render.js?v=900"></script>
+  <link rel="stylesheet" href="style.css?v=909">
+  <script defer src="js/logic.js?v=912"></script>
+  <script defer src="js/alerts.js?v=909"></script>
+  <script defer src="js/render.js?v=912"></script>
   <script defer src="js/stream.js?v=900"></script>
   <script defer src="js/standings.js?v=844m"></script>
   <script defer src="js/trackfilter.js?v=890"></script>
-  <script defer src="js/livemap.js?v=890"></script>
+  <script defer src="js/livemap.js?v=909"></script>
   <script defer src="js/zoom.js?v=844m"></script>
-  <script defer src="js/main.js?v=900"></script>
+  <script defer src="js/main.js?v=912"></script>
 </head>
 <body class="is-waiting">
   <main class="console">
@@ -71,6 +72,11 @@
           <div id="guide-side-label" class="guide-side-label">이 페이스의 2분 뒤 예측</div>
           <div class="guide-side-value"><span id="guide-pred">—</span><small>bpm</small></div>
           <div class="guide-side-allow">허용 <b id="guide-allow">—</b></div>
+        </div>
+        <!-- 909: 페이스 변경 카드와 뒤처짐 알림(그룹). 목표 페이스 카드 오른쪽 위 -->
+        <div class="guide-alerts" aria-live="polite">
+          <div id="pace-change" class="pace-change hidden"><div class="pc-title"></div><div class="pc-pace"></div><div class="pc-reason"></div></div>
+          <div id="lag-alert" class="lag-alert hidden"></div>
         </div>
       </div>
       <div class="stat stat-hr">

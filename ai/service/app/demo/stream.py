@@ -1,4 +1,5 @@
 """메모리 버퍼를 SNAPSHOT·MPC_TRACE·COURSE_UPDATE·HEARTBEAT SSE로 보낸다. 실제 경로(722)도 COURSE_UPDATE에 싣는다.
+912: 켜져 있으면 대상 회원의 최신 심박·실제 페이스·거리를 LIVE_METRICS {runners}로 보낸다(판단 주기와 따로).
 
 900: `latest`는 진행 중인 세션(buffer.live_target)을 따라간다. 새 러닝이 시작되거나 보던 러닝이 끝나면
 SESSION_SWITCH {sessionId|null}를 보내고 닫는다(콘솔이 바로 다시 연결). 진행 중인 것이 없으면 대기 SNAPSHOT
@@ -39,8 +40,10 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                        initial_course_version: int | None = None,
                        routes=None, initial_route_version: int = 0,
                        sessions: Callable[[], list] | None = None,
-                       follow: Callable[[], int | None] | None = None) -> AsyncIterator[str]:
+                       follow: Callable[[], int | None] | None = None,
+                       live=None, initial_live_version: int = 0) -> AsyncIterator[str]:
     last_seq = 0
+    last_live_version = initial_live_version
     last_follow_check = monotonic()
     last_course_version = initial_course_version
     if last_course_version is None:
@@ -74,7 +77,7 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                     course_changed, last_course_version = True, course_version
             route_list = None
             if routes is not None:
-                # 722: 구독 중일 때만, 버퍼에 기록이 있는(대상 회원) 세션만 DB에서 새 좌표를 읽는다
+                # 722: 구독 중일 때만, 버퍼에 기록이 있는 세션의 새 좌표를 DB에서 읽는다(대상 회원 확인은 하지 않음: 후속 과제)
                 if routes.due(session_id) and buffer.traces(session_id):
                     await run_in_threadpool(routes.refresh, session_id)
                 route_version, route_list = routes.state(session_id)
@@ -85,6 +88,14 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
                 if route_changed:
                     payload["routes"] = route_list   # 실제 경로가 바뀌었을 때만 싣는다(기존 콘솔은 이 키를 무시)
                 yield sse("COURSE_UPDATE", payload)
+            if live is not None:
+                # 912: 구독 중일 때만, 버퍼에 기록이 있는 세션만 읽는다(개인은 live가 소유 회원이 대상인지 확인). 바뀐 때만 보낸다
+                if live.due(session_id) and buffer.traces(session_id):
+                    await run_in_threadpool(live.refresh, session_id)
+                live_version, runners = live.state(session_id)
+                if live_version > last_live_version:
+                    last_live_version = live_version
+                    yield sse("LIVE_METRICS", {"runners": runners})   # last_send는 건드리지 않는다: HEARTBEAT는 그대로 15초마다
             if sessions is not None and monotonic() - last_sessions_check >= SESSIONS_EVERY_SEC:
                 last_sessions_check = monotonic()
                 rows = sessions()
@@ -246,11 +257,19 @@ def build_stream_router(state: DemoState) -> APIRouter:
             if state.buffer.traces(session_id):
                 await run_in_threadpool(routes.refresh, session_id)
             route_version, route_list = routes.state(session_id)
+        live = state.live_metrics if not history else None
+        live_version, live_list = 0, []
+        if live is not None:
+            if state.buffer.traces(session_id):
+                await run_in_threadpool(live.refresh, session_id)
+            live_version, live_list = live.state(session_id)
         snapshot = {"bootId": state.buffer.boot_id, "serverTime": request.app.state.clock().isoformat(),
                     "stage": stage, "label": profile.label,
                     "course": course, "routes": route_list,
                     "traces": state.buffer.traces(session_id),
                     "sessionId": session_id}
+        if live is not None:                    # 912: 켜져 있을 때만 싣는다(꺼져 있으면 SNAPSHOT은 지금과 같다)
+            snapshot["liveMetrics"] = live_list
         if authed:                              # 900: 이전 기록 목록은 토큰이 있을 때만
             snapshot["sessions"] = session_rows(state)
         if history:
@@ -264,7 +283,8 @@ def build_stream_router(state: DemoState) -> APIRouter:
                             initial_course_version=course_version,
                             routes=routes, initial_route_version=route_version,
                             sessions=(lambda: session_rows(state)) if authed else None,
-                            follow=state.buffer.live_target if latest else None)
+                            follow=state.buffer.live_target if latest else None,
+                            live=live, initial_live_version=live_version)
         return StreamingResponse(body, media_type="text/event-stream", headers=headers)
 
     return router

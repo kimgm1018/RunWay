@@ -13,6 +13,7 @@ class DemoState:
     buffer: DemoBuffer
     rate_per_sec: int = 2
     routes: object | None = None      # 722: 지도용 실제 경로(DemoRoutes). AI DB가 없으면 None
+    live_metrics: object | None = None  # 912: 실시간 측정값(DemoLiveMetrics). 설정이 꺼져 있으면 None
 
     @property
     def config(self):

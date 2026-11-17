@@ -599,6 +599,8 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   await type(screen, '찾아오는 법 · 선택', '공원 입구 안내판 앞');
   await press(screen, '확정');
   expect(texts(screen)).toContain('수영강 APEC나루공원 입구');
+  // 찾아오는 법 shows on 6.8's 만나는 곳 card (S15P31E105-910).
+  expect(texts(screen)).toContain('공원 입구 안내판 앞');
 
   await press(screen, '자유 러닝');
   // 목표 시간 is a ruler now (S15P31E105-696): 40분 → 50분, one minute a step.
@@ -622,6 +624,9 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   expect(page).toContain('토요일, 함께 5km');
   expect(page).toContain('자유 러닝 · 50분');
   expect(page).toContain('내가 만든 그룹런');
+  // …and on the new run's 6.4 under 만나는 곳 (S15P31E105-910).
+  expect(page).toContain('공원 입구 안내판 앞');
+  expect(page).not.toContain('찾아오는 법 ·');
   await act(async () => screen.unmount());
 });
 

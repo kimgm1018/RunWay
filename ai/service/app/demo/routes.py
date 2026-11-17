@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Callable
 
@@ -16,6 +17,8 @@ from app.demo.buffer import is_group_key
 
 log = logging.getLogger("runway.ai")
 
+DEMO_DB_SLOT = threading.Semaphore(1)   # 912: 시연 콘솔 DB 조회(지도·실시간 측정값)는 공유 풀(2칸) 중 연결 1개만 쓴다
+SLOT_WAIT_SEC = 1.0                     # 912: 슬롯을 기다리는 최대 시간. 넘으면 그 주기는 건너뛴다(시연 SSE·스레드를 붙잡지 않는다)
 POLL_SEC = 3.0                 # 같은 시연 키를 DB에서 다시 읽는 최소 간격
 SESSION_CACHE_SEC = 30.0       # 그룹 참가자의 진행 중 세션 ID를 다시 찾는 간격
 MAX_POINTS_PER_ROUTE = 12000   # 선 하나(1초 간격 약 3시간 20분)
@@ -43,6 +46,20 @@ LIMIT %(limit)s
 _EPOCH = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
 
 
+class DbSlotBusy(Exception):
+    """슬롯을 제한 시간 안에 얻지 못했다(DB가 느리거나 걸려 있음). 호출자는 이 주기를 건너뛰고 마지막 값을 둔다."""
+
+
+@contextmanager
+def demo_db_slot(timeout: float | None = None):
+    if not DEMO_DB_SLOT.acquire(timeout=SLOT_WAIT_SEC if timeout is None else timeout):
+        raise DbSlotBusy()
+    try:
+        yield
+    finally:
+        DEMO_DB_SLOT.release()
+
+
 class DbDemoRouteSource:
     """읽기 전용 조회 두 개. 권한: running_sessions SELECT, running_route_points(running_session_id, measured_at, position)."""
 
@@ -51,9 +68,10 @@ class DbDemoRouteSource:
         self._timeout_ms = timeout_ms
 
     def _fetch_all(self, sql: str, params: dict) -> list[dict]:
-        if hasattr(self._db, "fetch_all_with_timeout"):
-            return self._db.fetch_all_with_timeout(sql, params, self._timeout_ms)
-        return self._db.fetch_all(sql, params)
+        with demo_db_slot():
+            if hasattr(self._db, "fetch_all_with_timeout"):
+                return self._db.fetch_all_with_timeout(sql, params, self._timeout_ms)
+            return self._db.fetch_all(sql, params)
 
     def running_session(self, user_id: int) -> int | None:
         rows = self._fetch_all(_RUNNING_SESSION_SQL, {"user_id": int(user_id)})
@@ -111,6 +129,21 @@ class DemoRoutes:
         with self._lock:
             self._state(key).members = list(user_ids)
 
+    def targets(self, key: int) -> list[tuple[str, int | None]]:
+        """선 라벨과 읽을 running session id. 912 실시간 측정값도 같은 라벨·세션을 쓴다.
+
+        개인 키는 그 자체가 세션이다. 버퍼 기록만으로는 대상 회원인지 알 수 없다(AI08 inlet은 회원을 확인하지 않음).
+        측정값(912)은 live_metrics가 소유 회원을 따로 확인하지만 이 지도 조회는 확인하지 않는다(후속 과제). 그룹은 참가자 순서의 '러너 N' 중
+        userAllowlist 회원만, 진행 중 세션을 찾는다(목록 밖 회원은 세션도 찾지 않는다). DB 오류는 호출자에게 올린다."""
+        if not is_group_key(key):
+            return [("러너", key)]
+        with self._lock:
+            state = self._keys.get(key)
+            members = list(state.members) if state is not None else []
+        return [(f"러너 {index + 1}", self._group_session(key, int(user_id)))
+                for index, user_id in enumerate(members)
+                if user_id is not None and int(user_id) in self._allowed]
+
     def due(self, key: int) -> bool:
         with self._lock:
             state = self._keys.get(key)
@@ -123,16 +156,8 @@ class DemoRoutes:
             if self._monotonic() - state.last_poll < self._poll_sec:
                 return
             state.last_poll = self._monotonic()
-            members = list(state.members)
         try:
-            if is_group_key(key):
-                targets = []
-                for index, user_id in enumerate(members):
-                    if user_id is None or int(user_id) not in self._allowed:
-                        continue
-                    targets.append((f"러너 {index + 1}", self._group_session(key, int(user_id))))
-            else:
-                targets = [("러너", key)]
+            targets = self.targets(key)
             changed = False
             for label, session_id in targets:
                 if session_id is None:

@@ -10,7 +10,7 @@
   var PAGE_PARAM = {status: 'status', pace: 'pace', coaching: 'pace', heart: 'heart', position: 'position'};
 
   var state = {view: null, traces: 0, routes: [], course: null, standing: null, tracker: null, page: 'status',
-    pinned: null, rotateAt: 0, noticeUntil: 0, lastNotice: null, mode: null, runner: 0, stream: null};
+    pinned: null, rotateAt: 0, noticeUntil: 0, lastNotice: null, mode: null, runner: 0, stream: null, live: []};
 
   function byId(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
@@ -236,7 +236,7 @@
 
   function onTrace(trace) {
     var prev = state.view;
-    var next = W.view(trace, {runner: state.runner, standing: state.standing});
+    var next = W.view(trace, {runner: state.runner, standing: state.standing, live: state.live});
     if (!next) return;
     state.mode = next.mode;
     state.view = next;
@@ -259,7 +259,7 @@
     if (!state.tracker && root.RunwayDemoStandings) state.tracker = root.RunwayDemoStandings.createTracker();
     if (state.tracker) state.standing = state.tracker.update(state.routes, state.course);
     if (state.view && state.view.mode === 'group' && state.lastTrace) {
-      state.view = W.view(state.lastTrace, {runner: state.runner, standing: state.standing});
+      state.view = W.view(state.lastTrace, {runner: state.runner, standing: state.standing, live: state.live});
       if (state.page === 'position') renderPage();
     }
   }
@@ -267,12 +267,21 @@
   function onEvent(name, data) {
     if (name === 'SESSION_SWITCH') {        // 900: 새 러닝 시작·보던 러닝 종료 → 비우고 바로 다시 연결
       state.lastTrace = null; state.view = null; state.routes = []; state.course = null; state.tracker = null;
-      state.standing = null;
+      state.standing = null; state.live = [];
       renderPage();
       if (state.stream) state.stream.reconnectNow();
       return;
     }
+    if (name === 'LIVE_METRICS') {          // 912: 판단 사이 약 5초마다. 숫자만 갱신하고 쪽·진동·안내는 그대로
+      state.live = data && Array.isArray(data.runners) ? data.runners : [];
+      if (state.lastTrace) {
+        var live = W.view(state.lastTrace, {runner: state.runner, standing: state.standing, live: state.live});
+        if (live) { state.view = live; renderPage(); }
+      }
+      return;
+    }
     if (name === 'SNAPSHOT') {
+      state.live = data && Array.isArray(data.liveMetrics) ? data.liveMetrics : [];
       if (data && data.waiting) { state.lastTrace = null; state.routes = []; state.course = null; state.tracker = null; state.standing = null; }
       onRoutes(data && data.routes, data ? data.course : undefined);
       var traces = data && Array.isArray(data.traces) ? data.traces : [];

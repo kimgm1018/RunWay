@@ -190,6 +190,7 @@
   }
 
   // ── 심박 그래프 ─────────────────────────
+  var liveRunners = [], liveSeries = {};   // 912: LIVE_METRICS 최신 값과 라벨별 심박 5초 점(재생·세션 전환 때 reset이 비운다)
   var PAST_SEC = 180, FUTURE_SEC = 140, HORIZONS = [30, 60, 120];   // 747: −3분 ~ +2분으로 확대
   var AXIS_TICKS = [-180, -120, -60, 0, 60, 120];
   // 747: 러너별 색(빨강은 탈락·위험에만 쓴다)
@@ -211,7 +212,17 @@
     } else {
       tail.forEach(function (v, i) { if (num(v) != null) series.push([-(tail.length - 1 - i) * 5, Number(v)]); });
     }
+    if (now != null) {                      // 912: 판단 뒤 5초 값. 판단 이후의 실제 심박이 예측선 아래로 이어진다
+      var lastT = series.length ? series[series.length - 1][0] : now;
+      var mine = liveSeries[liveLabelOf(trace)];
+      L().liveSeriesPoints(trace, mine, Math.max(lastT, now), now + FUTURE_SEC).forEach(function (p) { series.push(p); });
+    }
     return series;
+  }
+  function liveLabelOf(trace) { return trace && trace.group ? null : '러너'; }
+  function lastAtOrBefore(points, t) {     // 912: 예측선 출발점은 판단 시각(지금) 이전의 마지막 실측
+    for (var i = points.length - 1; i >= 0; i -= 1) if (points[i][0] <= t) return points[i];
+    return null;
   }
 
   function drawChart(trace, traces) {
@@ -229,7 +240,7 @@
     var chosen = Number.isInteger(chosenIndex) ? candidates[chosenIndex] : null;
     var allow = num(trace.reference && trace.reference.allowBpm);
     var hrNow = num(trace.input && trace.input.hrNowBpm);
-    if (hrNow == null && actual.length) hrNow = actual[actual.length - 1][1];
+    if (hrNow == null && actual.length) { var atNow = lastAtOrBefore(actual, now); hrNow = atNow ? atNow[1] : actual[0][1]; }
     var values = actual.map(function (p) { return p[1]; });
     if (hrNow != null) values.push(hrNow);
     candidates.forEach(function (c) { (c.predHrBpm || []).forEach(function (v) { if (num(v) != null) values.push(Number(v)); }); });
@@ -279,6 +290,8 @@
       var aPts = actual.map(function (p) { return [x(p[0]), y(p[1])]; });
       svg('path', {d: pathOf(aPts) + ' L' + aPts[aPts.length - 1][0].toFixed(1) + ' ' + (H - padB) + ' L' + aPts[0][0].toFixed(1) + ' ' + (H - padB) + ' Z', class: 'svg-actual-area'}, chart);
       svg('path', {d: pathOf(aPts), class: 'svg-actual'}, chart);
+      var tip = actual[actual.length - 1];
+      if (tip[0] > now) svg('circle', {cx: x(tip[0]), cy: y(tip[1]), r: 4, class: 'svg-dot'}, chart);   // 912: 가장 최근 5초 값
     }
     var start = hrNow != null ? [x(now), y(hrNow)] : null;
     function predPoints(c) {
@@ -326,6 +339,8 @@
       });
       (m.hrTail || []).forEach(function (v, i, arr) { if (num(v) != null) pts.push([now - (arr.length - 1 - i) * 5, Number(v)]); });
       pts.sort(function (a, b) { return a[0] - b[0]; });
+      var lastMember = pts.length ? pts[pts.length - 1][0] : now;          // 912: 판단 뒤 5초 값(같은 라벨)
+      L().liveSeriesPoints(trace, liveSeries[m.label], Math.max(lastMember, now), now + FUTURE_SEC).forEach(function (p) { pts.push(p); });
       return pts;
     });
     var chosen = g.chosenIndex;
@@ -369,7 +384,7 @@
     svg('line', {x1: x(now), x2: x(now), y1: padT, y2: H - padB, class: 'svg-now'}, chart);
     // 747: 가장 빠듯한 러너의 후보 9개 2분 뒤 예측을 부채꼴로(고른 후보는 아래에서 굵게, 허용 초과는 빨간 점선)
     var worstPts = Number.isInteger(worst) ? series[worst] : null;
-    var worstLast = worstPts && worstPts.length ? worstPts[worstPts.length - 1] : null;
+    var worstLast = worstPts && worstPts.length ? lastAtOrBefore(worstPts, now) : null;
     if (wm && worstLast && Array.isArray(wm.predHrBpm)) {
       wm.predHrBpm.forEach(function (row, j) {
         if (j === chosen || !Array.isArray(row)) return;
@@ -389,7 +404,7 @@
           style: 'stroke:' + (isWorst ? MINT : MINT_SOFT)}, chart);
       }
       var row = m.predHrBpm && m.predHrBpm[chosen];
-      var last = pts.length ? pts[pts.length - 1] : null;
+      var last = pts.length ? lastAtOrBefore(pts, now) : null;
       if (row && last) {
         var pp = [[x(now), y(last[1])]];
         row.forEach(function (v, k) { if (num(v) != null && HORIZONS[k] != null) pp.push([x(now + HORIZONS[k]), y(Number(v))]); });
@@ -400,6 +415,8 @@
           text: m.label.replace('러너 ', 'R') + ' ' + Math.round(Number(row[2]))});
       }
       if (last) svg('circle', {cx: x(now), cy: y(last[1]), r: isWorst ? 6 : 4, class: isWorst ? 'svg-dot' : 'svg-member-dot', style: 'stroke:' + (isWorst ? MINT : MINT_SOFT)}, chart);
+      var tip = pts.length ? pts[pts.length - 1] : null;
+      if (tip && tip[0] > now) svg('circle', {cx: x(tip[0]), cy: y(tip[1]), r: 3, class: 'svg-member-dot', style: 'stroke:' + (isWorst ? MINT : MINT_SOFT)}, chart);   // 912
     });
     members.forEach(function (m, i) {                            // 747: 러너마다 허용선(같은 색 점선)
       var a = num(m.allowBpm);
@@ -694,6 +711,53 @@
     var text = '판단 ' + (latency.decideMs != null ? formatNumber(latency.decideMs, 0) + ' ms' : '—');
     if (stage !== 'L3' && latency.inputLagMs != null) text += ' · 입력 지연 ' + (Number(latency.inputLagMs) / 1000).toFixed(1) + ' s';
     put('metric-latency', text);
+    liveHero(trace);
+  }
+
+  // 912: 판단 사이 5초 값으로 숫자만 덮는다(안내 페이스·후보·예측은 판단 값 그대로). 재생·지난 기록에는 liveRunners가 비어 있다
+  function setHeart(hr, allow) {
+    putBump('metric-hr', hr != null ? Math.round(hr) : '—');
+    var hrCard = document.querySelector('.stat-hr');
+    if (hrCard) {
+      hrCard.classList.toggle('over', hr != null && allow != null && hr >= allow);
+      var heart = hrCard.querySelector('.heart');
+      if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
+    }
+  }
+  function liveHero(trace) {
+    if (!trace || !liveRunners.length) return;
+    if (trace.group) {
+      var g = trace.group, members = g.members || [];
+      var rows = members.map(function (m) { return L().liveFor(trace, liveRunners, m.label); });
+      if (!rows.some(function (r) { return r; })) return;
+      var wi = Number.isInteger(g.worstIndex) ? g.worstIndex : -1;
+      if (wi >= 0 && rows[wi]) setHeart(num(rows[wi].hrBpm), num(members[wi].allowBpm));
+      actualLine(members.map(function (m, i) {
+        var r = rows[i];
+        return {label: m.label || '러너 ' + (i + 1),
+          actual: r ? L().actualPace(r.speedMps, r.paceSecPerKm) : L().actualPace(m.speedNowMps, m.paceNowSecPerKm)};
+      }));
+      return;
+    }
+    var row = L().liveFor(trace, liveRunners, null);
+    if (!row) return;
+    setHeart(num(row.hrBpm), num(trace.reference && trace.reference.allowBpm));
+    var actual = L().actualPace(row.speedMps, row.paceSecPerKm);
+    putBump('metric-pace', actual.text);
+    actualLine([{label: null, actual: actual}]);
+    var distance = num(row.distanceM);
+    if (distance != null) putBump('metric-distance', (distance / 1000).toFixed(2));
+    var remaining = L().liveRemaining(trace, row);
+    if (remaining != null) put('metric-remaining', '남은 거리 ' + (remaining / 1000).toFixed(2) + ' km');
+    var axis = L().liveAxisSec(trace, row);
+    if (axis != null) putBump('metric-elapsed', L().formatElapsed(axis));
+  }
+  function applyLive(runners) {
+    liveRunners = Array.isArray(runners) ? runners : [];
+    liveSeries = L().appendLiveSeries(liveSeries, liveRunners);
+    if (!lastRendered || !lastRendered.trace) return;       // 판단이 한 번도 없으면 그릴 틀이 없다. 값은 다음 판단 때 쓴다
+    liveHero(lastRendered.trace);
+    drawChart(lastRendered.trace, lastRendered.traces);
   }
 
   function groupHero(trace) {
@@ -720,6 +784,7 @@
     putBump('metric-elapsed', L().formatElapsed(trace.elapsedSec));
     var latency = trace.latency || {};
     put('metric-latency', latency.decideMs != null ? '판단 ' + formatNumber(latency.decideMs, 0) + ' ms · 30초마다' : '30초마다 판단');
+    liveHero(trace);
   }
 
   function guideBlock(trace, options) {
@@ -759,6 +824,38 @@
     put('guide-allow', allow != null ? Math.round(allow) : '—');
     var side = byId('guide-side');
     if (side) side.classList.toggle('over', pred != null && allow != null && pred >= allow);
+  }
+
+  // 909: 페이스 변경 카드. 바꾼 판단 뒤 CARD_SEC(재생은 배속 반영) 동안 보이고 흐려지며 사라진다.
+  var paceChangeTimer = null, paceChangeShownId = null;
+  function hidePaceChange(immediate) {
+    if (paceChangeTimer) { clearTimeout(paceChangeTimer); paceChangeTimer = null; }
+    var box = byId('pace-change');
+    if (!box) return;
+    paceChangeShownId = null;
+    if (immediate) { box.classList.add('hidden'); box.classList.remove('is-out'); return; }
+    box.classList.add('is-out');
+    paceChangeTimer = setTimeout(function () { box.classList.add('hidden'); box.classList.remove('is-out'); paceChangeTimer = null; }, 600);
+  }
+  function paceChange(trace, traces, options) {
+    var A = root.RunwayDemoAlerts;
+    var box = byId('pace-change');
+    if (!A || !box) return;
+    var card = A.paceChangeCard(trace, traces);
+    if (!card) { if (!box.classList.contains('hidden')) hidePaceChange(false); return; }
+    if (paceChangeTimer) clearTimeout(paceChangeTimer);
+    box.setAttribute('data-action', card.kind);
+    box.querySelector('.pc-title').textContent = card.title;
+    box.querySelector('.pc-pace').textContent = card.pace;
+    box.querySelector('.pc-reason').textContent = card.reason;
+    box.classList.remove('hidden', 'is-out');
+    if (paceChangeShownId !== card.id) {
+      paceChangeShownId = card.id;
+      if (options.animate) { box.classList.remove('enter'); void box.offsetWidth; box.classList.add('enter'); }
+    }
+    var speed = options.replay ? Math.max(1, Number(options.replaySpeed) || 1) : 1;
+    var leftMs = Math.max(0, (A.CARD_SEC - card.ageSec) * 1000 / speed);
+    paceChangeTimer = setTimeout(function () { paceChangeTimer = null; hidePaceChange(false); }, leftMs);
   }
 
   // 724: 안내 페이스 옆 '실제' 줄. 개인은 한 값, 그룹은 러너마다(라벨 · 값).
@@ -822,7 +919,7 @@
     setBanner(banner);
     root.__demoMetrics = root.__demoMetrics || {};
     root.__demoMetrics.renderLagMs = Math.max(0, performance.now() - started);
-    if (!animate) { guideBlock(trace, options); reasonLine(trace); return; }
+    if (!animate) { guideBlock(trace, options); reasonLine(trace); paceChange(trace, traces, options); return; }
     animationRunning = true;
     var host = byId('candidate-list');
     timerIds.push(setTimeout(function () {
@@ -832,6 +929,7 @@
       // 후보 판정이 끝난 뒤에 안내를 바꾼다: 예측 → 판정 → 안내 순서가 화면에서 보이게
       guideBlock(trace, options);
       reasonLine(trace);
+      paceChange(trace, traces, options);
       addRecords(traces, true);
       if (options.restartMarker) addRestartMarker();
       var guideCardEl = document.querySelector('.guide-card');
@@ -879,6 +977,7 @@
     animationRunning = false;
     lastRendered = null;
     lastTopTraceId = null;
+    liveRunners = []; liveSeries = {};
     ['metric-hr', 'metric-pace', 'metric-distance', 'metric-elapsed'].forEach(function (id) { put(id, '—'); });
     put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —'); gruLine(null);
     put('metric-remaining', '남은 거리 —'); put('metric-latency', '판단 —');
@@ -908,6 +1007,7 @@
     var guideEl = document.querySelector('.guide-card');
     if (guideEl) guideEl.classList.remove('has-from');
     setBanner(null);
+    hidePaceChange(true);
     setWaiting(true);
     renderSnapshot(snapshot || {});
   }
@@ -949,5 +1049,5 @@
 
   root.RunwayDemoRender = {setHeader: setHeader, setStage: setStage, setBanner: setBanner,
     setConnection: setConnection, renderSnapshot: renderSnapshot, renderTrace: renderTrace,
-    updateCourse: updateCourse, reset: reset, setZoom: setZoom, setWaiting: setWaiting};
+    updateCourse: updateCourse, reset: reset, setZoom: setZoom, setWaiting: setWaiting, applyLive: applyLive};
 }(window));

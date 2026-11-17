@@ -230,7 +230,8 @@ test('6.8 takes a recommended course with its finish time locked, keeps the meet
     meetingPlaceName: '광안리해수욕장 입구',
   });
   expect(create.mock.calls[0][0].targetDurationSec).toBeGreaterThan(0);
-  // 6.4 stands the meeting place over the course, named in its bubble.
+  // 6.4 stands the meeting place over the course as a dot, without a name bubble (S15P31E105-910): its name is
+  // in the 만나는 곳 row.
   const meeting = create.mock.calls[0][0].meetingPosition;
   await until(
     () =>
@@ -239,7 +240,8 @@ test('6.8 takes a recommended course with its finish time locked, keeps the meet
         .some(
           map =>
             JSON.stringify(map.props.position) === JSON.stringify(meeting) &&
-            map.props.placeLabel?.title === '광안리해수욕장 입구',
+            map.props.placeDot === true &&
+            map.props.placeLabel === undefined,
         ),
     '6.4 map with the meeting place',
   );
