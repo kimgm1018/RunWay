@@ -17,6 +17,7 @@ import {
 } from '../../components';
 import {
   groupRunLateStartMs,
+  isStaleGroupRun,
   type GroupRunSummary,
   type MeetingPlace,
 } from '../../data';
@@ -84,10 +85,12 @@ export function startsIn(scheduledAt: string, now: Date) {
 
 // The waiting room opens 30 minutes before the start for members who joined (6.4·6.5).
 export const roomOpensMs = 30 * minuteMs;
+// A past run nobody began (S15P31E105-891) opens no room.
 export function canEnterRoom(run: GroupRunSummary, now: Date) {
   return (
     run.joined &&
     run.status === 'SCHEDULED' &&
+    !isStaleGroupRun(run, now.getTime()) &&
     now.getTime() >= Date.parse(run.scheduledAt) - roomOpensMs
   );
 }

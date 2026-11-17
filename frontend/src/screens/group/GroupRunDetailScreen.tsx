@@ -26,6 +26,7 @@ import {
 } from '../../components';
 import {
   errorCode,
+  isStaleGroupRun,
   useRepositories,
   useResource,
   type GroupGoalUpdate,
@@ -321,6 +322,8 @@ export function GroupRunDetailScreen() {
   const now = clock.now();
   const cancelled = run.status === 'CANCELLED';
   const enterable = canEnterRoom(run, now);
+  // A start long past that nobody began: no joining, leaving or room (S15P31E105-891).
+  const pastRun = isStaleGroupRun(run, now.getTime());
   const reason = cancelReasons.find(
     item => item.value === run.cancellation?.reason,
   );
@@ -390,6 +393,9 @@ export function GroupRunDetailScreen() {
   const showPaceCard = !!run.pace && run.status === 'SCHEDULED';
 
   const toggleJoin = async () => {
+    if (pastRun) {
+      return;
+    }
     setBusy(true);
     try {
       if (run.joined) {
@@ -443,6 +449,10 @@ export function GroupRunDetailScreen() {
         navigation.navigate('GroupRunResult', { groupRunId: run.id })
       }
     />
+  ) : pastRun ? (
+    <AppText style={[styles.muted, styles.opens]}>
+      지난 그룹런이에요. 시작 시각이 지나 참가할 수 없어요
+    </AppText>
   ) : enterable ? (
     // A member who joined can still leave under 대기방 입장; the host leads the run.
     <>
