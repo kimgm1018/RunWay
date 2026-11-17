@@ -79,6 +79,41 @@ test('CMT02 missing items is an empty feed, not a load error', async () => {
   });
 });
 
+test('record summary heart rate and cadence map to the post record', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [
+        {
+          ...post,
+          recordSummary: {
+            ...post.recordSummary,
+            averageHeartRateBpm: 153,
+            averageCadenceSpm: 171,
+          },
+        },
+      ],
+    }),
+  );
+
+  const { items } = await community().listFeed('ALL');
+
+  expect(items[0].record).toMatchObject({
+    averageHeartRate: 153,
+    cadence: 171,
+  });
+});
+
+test('record summary without health keys maps heart rate and cadence to null', async () => {
+  fetchMock.mockResolvedValue(respond(200, { items: [post] }));
+
+  const { items } = await community().listFeed('ALL');
+
+  expect(items[0].record).toMatchObject({
+    averageHeartRate: null,
+    cadence: null,
+  });
+});
+
 test('CMT02 lists the feed by scope with the counts the server does not give left out', async () => {
   fetchMock.mockResolvedValue(respond(200, { items: [post, mine] }));
 
