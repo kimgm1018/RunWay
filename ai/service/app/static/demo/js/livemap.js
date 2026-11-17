@@ -52,7 +52,8 @@
     if (host) host.classList.toggle('hidden', !on);
     var button = byId('map-follow');
     if (button) button.classList.toggle('hidden', !on);
-    if (on && map) setTimeout(function () { map.invalidateSize(); }, 0);
+    // 909: 숨겨져 있던(크기 0) 지도에서 맞춘 화면은 세계 지도가 되므로, 크기를 다시 잰 뒤 한 번 더 맞춘다
+    if (on && map) setTimeout(function () { map.invalidateSize(); if (follow) recenter(); }, 0);
   }
 
   function setFollow(on) {
@@ -86,6 +87,8 @@
     });
     if (!list.length) {
       Object.keys(layers).forEach(function (label) { removeLayer(label); });
+      lastStanding = null;
+      drawLag();
       setActive(false);
       return;
     }
@@ -145,6 +148,25 @@
       ? tracker.update(labels.map(function (label) { return {label: label, points: layers[label].points}; }), lastCourse)
       : null;
     drawStandings();
+    drawLag();
+  }
+
+  // 909: 뒤처짐 알림(alerts.js). 판정과 같은 때(새 좌표)만 갱신한다.
+  var lagTracker = null;
+  function drawLag() {
+    var A = root.RunwayDemoAlerts;
+    var box = byId('lag-alert');
+    if (!A || !box) return;
+    if (!lagTracker) lagTracker = A.createLagTracker();
+    var items = lastStanding ? lagTracker.update(lastStanding) : (lagTracker.reset(), []);
+    while (box.firstChild) box.removeChild(box.firstChild);
+    items.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'lag-row';
+      row.textContent = A.lagText(item);
+      box.appendChild(row);
+    });
+    box.classList.toggle('hidden', !items.length);
   }
 
   function drawStandings() {
@@ -212,6 +234,7 @@
     fitted = false;
     if (tracker) tracker.reset();
     lastStanding = null;
+    drawLag();
     setActive(false);
   }
 

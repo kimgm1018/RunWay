@@ -1202,3 +1202,21 @@ html.zoom-open .site-nav { font-size: clamp(12px, .85vw, 14px); }
   white-space: nowrap; vertical-align: middle;
   max-width: 24rem; overflow: hidden; text-overflow: ellipsis; }
 .chosen-why.hidden { display: none; }
+
+/* 909: 페이스 변경 카드·뒤처짐 알림(그룹). 목표 페이스 카드 오른쪽 위에 겹쳐 둔다(후보 표·심박 그래프는 가리지 않음) */
+.guide-alerts { position: absolute; top: .8rem; right: 3rem; z-index: 3; display: flex; flex-direction: column; align-items: flex-end;
+  gap: .5rem; max-width: 48%; pointer-events: none; }
+.pace-change { padding: .6rem 1.1rem .7rem; border-radius: .8rem; background: rgb(2 5 14 / 90%); border: 2px solid #E05A5A;
+  box-shadow: 0 0 1.6rem rgb(224 90 90 / 35%); transition: opacity .6s ease; text-align: left; }
+.pace-change[data-action="up"] { border-color: #4DFFD2; box-shadow: 0 0 1.6rem rgb(77 255 210 / 30%); }
+.pace-change.is-out { opacity: 0; }
+.pace-change.enter { animation: pace-change-in .6s ease-out; }
+@keyframes pace-change-in { from { transform: translateY(-.6rem) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.pc-title { font-weight: 700; font-size: max(13px, 1.05rem); color: #FFFFFF; }
+.pc-pace { font-family: var(--num); font-weight: 700; font-size: 2.3rem; line-height: 1.1; color: #FF8A8A; font-variant-numeric: tabular-nums; }
+.pace-change[data-action="up"] .pc-pace { color: #4DFFD2; }
+.pc-reason { font-weight: 600; font-size: max(13px, 1.05rem); color: #DCE6EB; }
+.lag-alert { display: flex; flex-direction: column; gap: .35rem; align-items: flex-end; }
+.lag-row { padding: .35rem .9rem; border-radius: .6rem; background: #F2B33D; color: #1B1300; font-weight: 800;
+  font-size: max(14px, 1.2rem); white-space: nowrap; box-shadow: 0 0 1.2rem rgb(242 179 61 / 40%); }
+.guide-alerts .hidden { display: none; }

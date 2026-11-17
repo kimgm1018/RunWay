@@ -31,6 +31,8 @@
     if (!trace) return;
     state.traces = root.RunwayDemoLogic.mergeTraces(state.traces, trace);
     var cfg = options || {};
+    // 909: 재생 기록의 판단에 경로(routes, 라이브 ROUTES와 같은 모양)가 있으면 지도·선두 후미·뒤처짐 알림에 넣는다.
+    if (cfg.replay === true && Array.isArray(trace.routes) && root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.setRoutes(trace.routes);
     root.RunwayDemoRender.renderTrace(trace, state.traces, {
       animate: !!animate,
       replay: cfg.replay === true,
@@ -231,6 +233,7 @@
     state.playbackIndex = Math.max(0, Math.min(rows.length - 1, Number(index) || 0));
     state.traces = [];
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
+    if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.reset();
     for (var i = 0; i <= state.playbackIndex; i += 1) processTrace(rows[i], false, replayOptions());
     root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), root.RunwayDemoLogic.policyVersionOf((recording.traces || [])[0], recording));
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
@@ -268,6 +271,7 @@
       state.playbackIndex = -1;
       state.traces = [];
       root.RunwayDemoRender.reset(state.recording.snapshot || {stage: 'L3', label: state.recording.label, course: null});
+      if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.reset();
     }
     state.playing = true;
     var button = byId('play-toggle');
@@ -295,6 +299,7 @@
       return;
     }
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
+    if (root.RunwayDemoLiveMap) root.RunwayDemoLiveMap.reset();
     root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), root.RunwayDemoLogic.policyVersionOf((recording.traces || [])[0], recording));
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
     root.RunwayDemoRender.setConnection('정적 재생 · ' + (recording.label || '녹화 기록'));
