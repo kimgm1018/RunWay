@@ -25,7 +25,8 @@ public class GroupRunFitJdbcRepository {
 
     /**
      * 사용자별 최근 완료(COMPLETED)·미삭제 세션의 평균 페이스를 최신순으로 최대 {@value GroupRunFitCalculator#RECENT_SESSION_LIMIT}개씩 돌려준다.
-     * 평균 페이스가 없는 세션은 제외한다. 세션이 없는 사용자는 키가 없다.
+     * 평균 페이스가 없는 세션과 짧은 세션(거리 {@value GroupRunFitCalculator#MIN_SESSION_DISTANCE_M} m 미만 또는 이동 {@value
+     * GroupRunFitCalculator#MIN_SESSION_MOVING_SEC}초 미만, S15P31E105-886)은 제외한다. 세션이 없는 사용자는 키가 없다.
      */
     public Map<Long, List<BigDecimal>> findRecentCompletedPaces(Collection<Long> userIds) {
         Map<Long, List<BigDecimal>> result = new HashMap<>();
@@ -33,6 +34,8 @@ public class GroupRunFitJdbcRepository {
             return result;
         }
         List<Object> args = new ArrayList<>(userIds);
+        args.add(GroupRunFitCalculator.MIN_SESSION_DISTANCE_M);
+        args.add(GroupRunFitCalculator.MIN_SESSION_MOVING_SEC);
         args.add(GroupRunFitCalculator.RECENT_SESSION_LIMIT);
         jdbcTemplate.query(
                 """
@@ -50,6 +53,8 @@ public class GroupRunFitJdbcRepository {
                       AND s.deleted_at IS NULL
                       AND s.average_pace IS NOT NULL
                       AND s.average_pace > 0
+                      AND s.total_distance >= ?
+                      AND s.moving_duration >= ?
                 ) t
                 WHERE rn <= ?
                 ORDER BY user_id, rn
@@ -60,6 +65,30 @@ public class GroupRunFitJdbcRepository {
                             .add(rs.getBigDecimal("average_pace"));
                 },
                 args.toArray());
+        return result;
+    }
+
+    /**
+     * 사용자별 초기 설정 페이스(user_profiles.average_pace, sec/km). 양수·유한 값만 돌려주며 없으면 키가 없다(S15P31E105-886).
+     */
+    public Map<Long, BigDecimal> findProfilePaces(Collection<Long> userIds) {
+        Map<Long, BigDecimal> result = new HashMap<>();
+        if (userIds == null || userIds.isEmpty()) {
+            return result;
+        }
+        jdbcTemplate.query(
+                """
+                SELECT user_id, average_pace
+                FROM user_profiles
+                WHERE user_id IN (%s)
+                  AND average_pace > 0
+                  AND average_pace NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                """
+                        .formatted(placeholders(userIds.size())),
+                rs -> {
+                    result.put(rs.getLong("user_id"), rs.getBigDecimal("average_pace"));
+                },
+                userIds.toArray());
         return result;
     }
 

@@ -1,5 +1,7 @@
 package com.runway.backend.domain.grouprun.pace;
 
+import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -249,16 +251,22 @@ public class GroupPaceRepository {
                         rs.getBigDecimal("average_pace")), groupId);
     }
 
-    /** Same latest-five selection as myFit, retaining session distances for Riegel conversion. */
+    /**
+     * Same latest-five selection as myFit, retaining session distances for Riegel conversion. Short sessions (under 1 km
+     * or 10 moving minutes, S15P31E105-785/886) are not records, so a runner with only those counts as no-record and
+     * goes to AI09, which plans them from the signup baseline (cold start) like a personal run.
+     */
     public List<BigDecimal> recentPaces(long userId, int distanceM) {
         return jdbc.query("""
                 SELECT average_pace, total_distance FROM running_sessions
                 WHERE user_id = ? AND status = 'COMPLETED' AND deleted_at IS NULL
                     AND average_pace > 0 AND total_distance > 0
+                    AND total_distance >= ? AND moving_duration >= ?
                     AND average_pace NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
                     AND total_distance NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
                 ORDER BY COALESCE(ended_at, started_at) DESC NULLS LAST, id DESC LIMIT 5
                 """, (rs, n) -> BigDecimal.valueOf(rs.getDouble("average_pace")
-                        * Math.pow(distanceM / rs.getDouble("total_distance"), 0.06)), userId);
+                        * Math.pow(distanceM / rs.getDouble("total_distance"), 0.06)), userId,
+                GroupRunFitCalculator.MIN_SESSION_DISTANCE_M, GroupRunFitCalculator.MIN_SESSION_MOVING_SEC);
     }
 }

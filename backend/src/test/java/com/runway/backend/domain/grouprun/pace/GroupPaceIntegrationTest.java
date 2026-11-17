@@ -173,9 +173,9 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
             candidates.add(id);
             jdbc.update("INSERT INTO group_run_participants(group_run_id,user_id) VALUES (?,?)", group, id);
             jdbc.update("""
-                    INSERT INTO running_sessions(user_id,status,started_at,ended_at,average_pace,total_distance)
-                    VALUES (?,'COMPLETED',now()-interval '1 hour',now(),?,?)
-                    """, id, i == 2 ? 390 : 300 + i * 10, i == 2 ? 50000 : 1000);
+                    INSERT INTO running_sessions(user_id,status,started_at,ended_at,average_pace,total_distance,moving_duration)
+                    VALUES (?,'COMPLETED',now()-interval '1 hour',now(),?,?,?)
+                    """, id, i == 2 ? 390 : 300 + i * 10, i == 2 ? 50000 : 1000, i == 2 ? 19500 : 600);
         }
         states.invalidateStart(group);
         when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
@@ -191,6 +191,37 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
                 && g.courseId() == null && g.durationSec() == null && g.paceSecPerKm() == null);
         assertThat(states.find(group).orElseThrow().startPace()).isEqualTo(410);
         assertThat(groups.getDetail(host, group).groupGuidePaceSecPerKm()).isEqualTo(410);
+    }
+
+    @Test
+    void preRun_shortOrWalkRecordsOnly_countAsNoRecordAndGoToAi09ColdStart() {
+        // S15P31E105-886: 1 km 미만·이동 10분 미만 기록만 있는 참가자는 '기록 없음'이라 AI09(userId → 가입 기준 콜드 스타트)에 항상 보낸다.
+        // 예전에는 짧은 빠른 기록(200초/km, 500 m)이 '기록 있음'으로 잡혀 느린 3명 밖으로 밀렸다.
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        jdbc.update("""
+                INSERT INTO running_sessions(user_id,status,started_at,ended_at,average_pace,total_distance,moving_duration)
+                VALUES (?,'COMPLETED',now()-interval '1 hour',now(),300,5000,1500)
+                """, host);
+        var candidates = new ArrayList<Long>();
+        for (int i = 2; i <= 5; i++) {
+            long id = user(i, true);
+            candidates.add(id);
+            jdbc.update("INSERT INTO group_run_participants(group_run_id,user_id) VALUES (?,?)", group, id);
+            boolean shortOnly = i == 2;
+            jdbc.update("""
+                    INSERT INTO running_sessions(user_id,status,started_at,ended_at,average_pace,total_distance,moving_duration)
+                    VALUES (?,'COMPLETED',now()-interval '1 hour',now(),?,?,?)
+                    """, id, shortOnly ? 200 : 300 + i * 10, shortOnly ? 500 : 5000, shortOnly ? 100 : 1800);
+        }
+        states.invalidateStart(group);
+        when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
+                new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
+                        BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+        pace.evaluateStart(group);
+        var selected = ArgumentCaptor.forClass(Long.class);
+        verify(plans, times(4)).plan(selected.capture(), any());
+        assertThat(selected.getAllValues()).containsExactlyInAnyOrder(candidates.get(0),
+                candidates.get(1), candidates.get(2), candidates.get(3));
     }
 
     @Test

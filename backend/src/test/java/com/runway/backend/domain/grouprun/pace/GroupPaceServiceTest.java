@@ -199,6 +199,14 @@ class GroupPaceServiceTest {
         verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(433, 433, 9, 2, uniformStartSegments()));
     }
 
+    // S15P31E105-886 재현: 기준 본인 페이스가 상식 밖(0.5 m/s = 2000초/km보다 느림, 예: 운영 185'27")이면 내리지 않고 AI09 값을 둔다.
+    @Test
+    void preRun_implausibleBasisPace_isNotUsedAsClampTarget() {
+        var fixture = new RunningFixture();
+        clampCase(fixture, true, 11127);
+        verify(fixture.states).saveStart(7, fixture.token, new GroupPaceRepository.Start(433, 433, 9, 2, uniformStartSegments()));
+    }
+
     // 다른 참가자의 더 느린 기록은 clamp 목표가 되지 않는다: 기준(9)이 500이면 10의 900이 아니라 500.
     @Test
     void preRun_slowerOtherMember_doesNotBecomeTheTarget() {
