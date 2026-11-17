@@ -6,6 +6,7 @@ import com.runway.backend.domain.grouprun.dto.response.GroupPaceModeResponse;
 import com.runway.backend.domain.grouprun.dto.request.CreateGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
+import com.runway.backend.domain.grouprun.dto.request.JoinNowGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.response.CancelGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.CreateGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
@@ -183,8 +184,17 @@ public class GroupRunController {
     public ReadyGroupRunResponse ready(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long groupRunId,
-            @RequestBody(required = false) ReadyGroupRunRequest request) {
+            @Valid @RequestBody(required = false) ReadyGroupRunRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return groupRunService.setReady(userId, groupRunId, request);
+    }
+    /** G18. 진행 중인 그룹에 지금 출발하거나 기록 기기를 변경한다. */
+    @PostMapping("/{groupRunId}/participants/me/start")
+    public StartGroupRunResponse.Item joinNow(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long groupRunId,
+            @Valid @RequestBody(required = false) JoinNowGroupRunRequest request) {
+        return groupRunService.joinNow(
+                CurrentUserIdResolver.requireUserId(user), groupRunId, request);
     }
 }

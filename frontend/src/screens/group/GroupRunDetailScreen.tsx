@@ -77,6 +77,7 @@ import {
   runKind,
   type PaceChange,
 } from './GroupPaceCard';
+import { useRunState } from '../run/RunSession';
 import { CourseMapZoom } from './CourseMapZoom';
 import { GroupGoalSheet } from './GroupGoalSheet';
 
@@ -211,6 +212,8 @@ export function GroupRunDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunDetail'>>();
   const groupRunId = route.params?.groupRunId;
   const { groupRuns, clock } = useRepositories();
+  // 이 그룹런으로 진행 중인 내 러닝(S15P31E105-889). 없으면 출발한 그룹런에 대기방에서 지금 합류한다.
+  const localRun = useRunState();
   const { changed } = useGroupRunDraft();
   const toast = useToast();
   const detail = useResource(
@@ -438,10 +441,20 @@ export function GroupRunDetailScreen() {
       />
     </>
   ) : run.status === 'RUNNING' && run.joined ? (
-    <StandButton
-      title="진행 화면으로"
-      onPress={() => navigation.navigate('GroupRunProgress')}
-    />
+    localRun?.config.groupRunId === run.id ? (
+      <StandButton
+        title="진행 화면으로"
+        onPress={() => navigation.navigate('GroupRunProgress')}
+      />
+    ) : (
+      // 출발했지만 이 폰에 내 그룹 러닝이 없다(워치 시작 실패·늦게 들어옴). 대기방에서 지금 합류한다(G18).
+      <StandButton
+        title="지금 합류"
+        onPress={() =>
+          navigation.navigate('WaitingRoom', { groupRunId: run.id })
+        }
+      />
+    )
   ) : run.status === 'COMPLETED' && run.joined ? (
     <StandButton
       title="그룹런 결과 보기"

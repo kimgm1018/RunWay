@@ -31,6 +31,7 @@ import {
   isStaleGroupRun,
   type CoursePlan,
   type GroupRunDetail,
+  type GroupRecordingDevice,
   type Repositories,
   type WaitingRoom,
 } from '../../data';
@@ -59,6 +60,13 @@ import {
   standType,
 } from './stand';
 import { GroupStartStrategy } from './GroupPaceCard';
+import {
+  defaultRecordingDevice,
+  groupStartIssue,
+  joinErrorMessage,
+  readyErrorMessage,
+  recordingDeviceOfMode,
+} from './recordingDevice';
 import { KmPaceToggle, visibleKmPaces } from '../run/KmPacePills';
 import { RunMap } from '../../components/RunMap';
 import { CourseMapZoom } from './CourseMapZoom';
@@ -216,6 +224,50 @@ function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
   );
 }
 
+// 기록 기기 선택(S15P31E105-889): 워치 또는 폰. 고른 쪽이 민트로 채워진다.
+function DeviceChoice({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: GroupRecordingDevice;
+  disabled: boolean;
+  onChange: (next: GroupRecordingDevice) => void;
+}) {
+  const options: { key: GroupRecordingDevice; label: string }[] = [
+    { key: 'WATCH', label: '워치로 기록' },
+    { key: 'PHONE', label: '폰으로 기록' },
+  ];
+  return (
+    <View style={styles.deviceRow} accessibilityRole="radiogroup">
+      {options.map(option => {
+        const selected = option.key === value;
+        return (
+          <PressableScale
+            key={option.key}
+            accessibilityRole="radio"
+            accessibilityState={{ selected, disabled }}
+            accessibilityLabel={option.label}
+            disabled={disabled}
+            style={styles.flex}
+            onPress={() => onChange(option.key)}
+          >
+            <View
+              style={[styles.deviceOption, selected && styles.deviceSelected]}
+            >
+              <AppText
+                style={[styles.deviceText, selected && styles.deviceTextOn]}
+              >
+                {option.label}
+              </AppText>
+            </View>
+          </PressableScale>
+        );
+      })}
+    </View>
+  );
+}
+
 // After 준비 완료 the button turns into an outlined 준비 취소.
 function ReadyCancel({ onPress }: { onPress: () => void }) {
   return <StandButton title="준비 취소" tone="outline" onPress={onPress} />;
@@ -237,7 +289,7 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   const { ensureRunLogin } = useSession();
   const navigation = useNavigation();
   const { groupRuns, clock, watchSession } = useRepositories();
-  const { start, joinGroup, leaveGroup } = useRunActions();
+  const { start, joinGroup, leaveGroup, recheck } = useRunActions();
   const control = useRunControlState();
   const source = useMusicSource();
   const data = useResource(
@@ -251,6 +303,15 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   const [starting, setStarting] = useState(false);
   const [startRequested, setStartRequested] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
+  // 준비 완료(G16) 실패 사유. 다음 성공까지 남긴다(S15P31E105-889 ②).
+  const [readyError, setReadyError] = useState<string | null>(null);
+  // 기록 기기(S15P31E105-889). 처음에는 워치 등록·연결로 정하고(미연결이면 폰), 사용자가 바꿀 수 있다.
+  const [device, setDevice] = useState<GroupRecordingDevice | null>(null);
+  const deviceTouched = useRef(false);
+  const [joining, setJoining] = useState(false);
+  // 그룹 상태(S15P31E105-889). 처음엔 상세(G03) 값, 이후 대기방 조회마다 갱신해 출발(RUNNING)을 알아챈다.
+  const [polledStatus, setPolledStatus] = useState<string | null>(null);
+  const joinBusy = useRef(false);
   const readyBusy = useRef(false);
   const startBusy = useRef(false);
   const [count, setCount] = useState<number | null>(null);
@@ -274,8 +335,31 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
       joinGroup(groupRunConfig(run, goalPace), mySessionId);
     }
   }, [goalPace, joinGroup, mySessionId, run]);
-  const watchProblem =
+  // 이미 준비된 세션이 있으면 그 세션의 기록 모드가 선택을 이긴다(다시 들어온 대기방).
+  const sessionDevice =
     control?.sessionId === mySessionId && mySessionId
+      ? recordingDeviceOfMode(control?.recordingMode)
+      : null;
+  const resolveDevice = useCallback(async () => {
+    const linked = await watchSession.getLinkedDevices().catch(() => null);
+    const connected = watchSession.isWatchConnected
+      ? await watchSession.isWatchConnected().catch(() => false)
+      : null;
+    return defaultRecordingDevice(!!linked, connected);
+  }, [watchSession]);
+  useEffect(() => {
+    let alive = true;
+    resolveDevice().then(found => {
+      if (alive && !deviceTouched.current) {
+        setDevice(found);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [resolveDevice]);
+  const watchProblem =
+    sessionDevice !== 'PHONE' && control?.sessionId === mySessionId && mySessionId
       ? control?.problem?.kind === 'watchRequired'
         ? '워치가 연결되어 있지 않아요. 워치를 연결해야 함께 출발할 수 있어요.'
         : control?.problem?.kind === 'watchNotReady'
@@ -340,6 +424,7 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
           },
           observeError,
           updateParticipants,
+          setPolledStatus,
         ),
       [groupRunId, groupRuns, ensureRunLogin, observeError, updateParticipants],
     ),
@@ -401,6 +486,98 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   // Everyone's colour in the run's order, so 6.4 and 6.5 agree.
   const colors = memberColors([...run.participants, ...room.participants]);
   const isReady = me?.readyStatus === 'READY';
+  const groupStatus = polledStatus ?? run.status;
+  const chosen: GroupRecordingDevice =
+    (isReady ? sessionDevice : null) ?? device ?? 'WATCH';
+  // 출발 뒤 내 기록이 시작되지 않은 상태(S15P31E105-889 2단계). 워치가 START에 답하지 않았거나 거절했으면 폰으로 시작하고,
+  // 이미 출발한 그룹런에 들어왔으면(내 세션 없음·READY) 지금 합류한다. 둘 다 G18(PHONE)으로 같은 그룹 세션에 합류한다.
+  // 늦은 합류는 폰으로만 한다: 새 워치 세션은 워치 준비(SESSION_PREPARE) 없이 START를 받아 거절되기 때문이다.
+  // 기기가 결과를 냈는데 저장만 확인하지 못했거나(retry) 위치 권한이 없으면(location) 같은 명령을 다시 확인만 한다.
+  const mine =
+    control?.sessionId === mySessionId && mySessionId ? control : null;
+  const issue = groupStartIssue(
+    mine?.status,
+    mine?.problem,
+    mine?.recordingMode,
+  );
+  const switchToPhone = issue === 'watchFailed' || issue === 'rejected';
+  const retryOnly = issue === 'retry' || issue === 'location';
+  const myStarted =
+    mine?.status === 'RUNNING' || mine?.status === 'PAUSED';
+  const myStarting = mine?.pending?.action === 'START' && !mine.problem;
+  const lateJoin =
+    (groupStatus === 'RUNNING' || issue !== null) &&
+    !myStarted &&
+    !myStarting &&
+    !!groupRuns.joinNow;
+  const joinMessage =
+    issue === 'watchFailed'
+      ? '워치로 출발하지 못했어요. 다시 시도하거나 폰으로 시작하면 같은 그룹런에 합류해요.'
+      : issue === 'rejected'
+      ? '기기가 출발을 거절했어요. 폰으로 시작하면 같은 그룹런에 합류해요.'
+      : issue === 'retry'
+      ? '출발 결과를 저장하지 못했어요. 다시 시도해 주세요.'
+      : issue === 'location'
+      ? '폰으로 기록하려면 위치 권한이 필요해요. 권한을 허용한 뒤 다시 시도해 주세요.'
+      : '그룹런이 이미 출발했어요. 지금 합류하면 폰으로 내 기록이 바로 시작돼요.';
+  const joinNow = async (target: GroupRecordingDevice) => {
+    if (joinBusy.current || !groupRuns.joinNow || !ensureRunLogin()) {
+      return;
+    }
+    joinBusy.current = true;
+    setJoining(true);
+    try {
+      if (!(await ensureDevice(target))) {
+        return;
+      }
+      const joined = await groupRuns.joinNow(groupRunId, target);
+      deviceTouched.current = true;
+      setDevice(target);
+      setReadyError(null);
+      // 서버가 새 세션을 만들었을 수 있다. 내 세션 ID가 바뀌면 위 효과가 새 세션에 붙고, 승인된 START를 기기가 실행한다.
+      if (joined.sessionId) {
+        setRoom(current =>
+          current ? { ...current, mySessionId: joined.sessionId } : current,
+        );
+      }
+    } catch (error) {
+      const message = joinErrorMessage(error);
+      setReadyError(message);
+      toast(message);
+    } finally {
+      joinBusy.current = false;
+      setJoining(false);
+    }
+  };
+  // 준비할 기기가 서버에 등록돼 있게 한다. G16은 연결된 기기로 세션을 만든다(없으면 DEVICE_NOT_FOUND).
+  // 워치는 연결 워치를 확인하면서 아직 없는 폰 기기를 등록하고(S15P31E105-420), 폰은 폰 기기만 등록한다(S15P31E105-889).
+  // 목업 그룹런은 기기가 필요 없다.
+  const ensureDevice = async (target: GroupRecordingDevice) => {
+    if (!/^\d+$/.test(groupRunId)) {
+      return true;
+    }
+    if (target === 'PHONE') {
+      await watchSession.getPhoneDeviceId?.();
+      return true;
+    }
+    const linked = await watchSession.getLinkedDevices();
+    if (!linked) {
+      const message =
+        '워치가 등록되어 있지 않아요. 기록 기기를 폰으로 바꾸거나 설정 › 워치 연결에서 워치를 연결해 주세요.';
+      setReadyError(message);
+      toast(message);
+      return false;
+    }
+    return true;
+  };
+  const markReady = async (target: GroupRecordingDevice) => {
+    if (!(await ensureDevice(target))) {
+      return;
+    }
+    const next = await groupRuns.setReady(groupRunId, true, target);
+    setRoom(next);
+    setReadyError(null);
+  };
   // A start long past that nobody began takes no new 준비 완료; one already pressed can still be taken back
   // (S15P31E105-891).
   const pastRun = isStaleGroupRun(run, now.getTime());
@@ -413,27 +590,52 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
       return;
     readyBusy.current = true;
     try {
-      // G16은 서버에 연결된 워치·폰 기기로 세션을 만든다(없으면 DEVICE_NOT_FOUND). 준비 전에 연결 워치를 확인하고,
-      // 아직 없는 폰 기기는 이 확인에서 등록한다(S15P31E105-420). 목업 그룹런은 기기가 필요 없다.
-      if (!isReady && /^\d+$/.test(groupRunId)) {
-        const linked = await watchSession.getLinkedDevices();
-        if (!linked) {
-          toast(
-            '워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요',
-          );
-          return;
-        }
-      }
-      const next = await groupRuns.setReady(groupRunId, !isReady);
-      setRoom(next);
       if (isReady) {
+        const next = await groupRuns.setReady(groupRunId, false);
+        setRoom(next);
+        setReadyError(null);
         // 준비 해제: 서버가 취소한 세션 상태를 워치에 알리고 놓는다.
         leaveGroup();
+      } else {
+        // 기본 기기를 아직 정하지 못했으면(화면을 막 열었을 때) 지금 정해서 준비한다.
+        const target =
+          device ?? (/^\d+$/.test(groupRunId) ? await resolveDevice() : chosen);
+        setDevice(target);
+        await markReady(target);
       }
-    } catch {
-      toast(
-        '준비 상태를 변경하지 못했어요. 대기방 상태를 확인한 뒤 다시 시도해 주세요',
-      );
+    } catch (error) {
+      const message = readyErrorMessage(error);
+      setReadyError(message);
+      toast(message);
+    } finally {
+      readyBusy.current = false;
+    }
+  };
+  // 기록 기기를 바꾼다. 이미 준비했으면 준비를 풀고 새 기기로 다시 준비한다(서버는 준비된 세션의 기기를 바꾸지 않는다).
+  const changeDevice = async (next: GroupRecordingDevice) => {
+    if (readyBusy.current || startRequested) {
+      return;
+    }
+    deviceTouched.current = true;
+    setDevice(next);
+    // 출발한 그룹런에서는 준비(G16)를 바꾸지 않는다. 고른 기기로 지금 합류(G18)한다.
+    if (!isReady || next === chosen || lateJoin) {
+      setReadyError(null);
+      return;
+    }
+    if (!ensureRunLogin()) {
+      return;
+    }
+    readyBusy.current = true;
+    try {
+      const released = await groupRuns.setReady(groupRunId, false);
+      setRoom(released);
+      leaveGroup();
+      await markReady(next);
+    } catch (error) {
+      const message = readyErrorMessage(error);
+      setReadyError(message);
+      toast(message);
     } finally {
       readyBusy.current = false;
     }
@@ -483,6 +685,39 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
                 style={styles.noticeText}
               >
                 {watchProblem}
+              </AppText>
+            </View>
+          ) : null}
+          {lateJoin ? (
+            <View style={styles.notice}>
+              <Icon name="alert" color={stand.danger} size={20} />
+              <View style={styles.flex}>
+                <AppText
+                  accessibilityLiveRegion="polite"
+                  style={styles.noticeText}
+                >
+                  {joinMessage}
+                </AppText>
+                {issue === 'watchFailed' ? (
+                  <StandButton
+                    title="다시 시도"
+                    tone="outline"
+                    style={styles.retry}
+                    disabled={joining}
+                    onPress={recheck}
+                  />
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+          {readyError ? (
+            <View style={styles.notice}>
+              <Icon name="alert" color={stand.danger} size={20} />
+              <AppText
+                accessibilityLiveRegion="polite"
+                style={styles.noticeText}
+              >
+                {readyError}
               </AppText>
             </View>
           ) : null}
@@ -570,8 +805,22 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
               );
             })}
           </View>
+          {/* 기록 기기(S15P31E105-889): 워치가 끊겨도 폰으로 함께 뛸 수 있다. 출발 요청 뒤에는 바꾸지 않는다. */}
+          <View style={styles.deviceHead}>
+            <AppText style={styles.membersTitle}>기록 기기</AppText>
+          </View>
+          <DeviceChoice
+            value={chosen}
+            disabled={startRequested}
+            onChange={changeDevice}
+          />
+          {chosen === 'PHONE' ? (
+            <AppText style={styles.deviceNote}>
+              워치 없이 폰 GPS로 기록해요. 순위·간격·페이스 안내는 그대로 받아요.
+            </AppText>
+          ) : null}
           {/* The leader's 그룹런 시작 under the members, the note under it. */}
-          {run.isHost && !startRequested ? (
+          {run.isHost && !startRequested && !lateJoin ? (
             <StandButton
               title={starting ? '출발 요청 중…' : '그룹런 시작'}
               icon="check"
@@ -589,7 +838,22 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <BottomFade />
           <View style={styles.flex}>
-            {isReady ? (
+            {lateJoin ? (
+              <StandButton
+                title={
+                  joining
+                    ? '합류 중…'
+                    : retryOnly
+                    ? '다시 시도'
+                    : switchToPhone
+                    ? '폰으로 시작'
+                    : '지금 합류'
+                }
+                icon="check"
+                disabled={joining}
+                onPress={() => (retryOnly ? recheck() : joinNow('PHONE'))}
+              />
+            ) : isReady ? (
               <ReadyCancel onPress={toggleReady} />
             ) : pastRun ? (
               <StandButton
@@ -777,6 +1041,38 @@ const styles = StyleSheet.create({
     color: stand.muted,
   },
   start: { marginTop: 18 },
+  retry: { marginTop: 10 },
+  deviceHead: {
+    marginTop: 18,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
+  },
+  deviceRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  deviceOption: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: stand.glassLine,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: stand.glass,
+  },
+  deviceSelected: { borderColor: stand.mint, backgroundColor: stand.meFill },
+  deviceText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.sub,
+  },
+  deviceTextOn: { fontFamily: fontFamily.black, color: stand.mint },
+  deviceNote: {
+    marginTop: 8,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
+  },
   noteRow: {
     flexDirection: 'row',
     alignItems: 'center',

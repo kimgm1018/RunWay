@@ -130,21 +130,32 @@ public class RunningSessionService {
     }
 
     /**
-     * 그룹런 준비(G16)용 READY 세션 생성. 호출 전에 그룹 행을 잠근다. 본인 연결 워치·폰을 쓰고, 활성 세션이 있으면 ACTIVE_SESSION_EXISTS다.
+     * 그룹런 준비(G16)용 READY 세션 생성. 호출 전에 그룹 행을 잠근다. 본인 연결 기기를 쓰며, 선택을 생략하면 워치가 있을 때 워치를 우선한다.
+     * 활성 세션이 있으면 ACTIVE_SESSION_EXISTS다.
      * 반환 ID를 참가 관계 session_id에 저장하는 것은 호출자 책임이다.
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public long createReadyForGroupParticipant(
-            long userId, SessionGoal goal, SessionPlanPreparation.Prepared prepared) {
-        long watchId =
-                referenceRepository
-                        .lockLinkedDeviceId(userId, DeviceType.WATCH.name())
-                        .orElseThrow(() -> new ApiException(ErrorCode.DEVICE_NOT_FOUND));
+            long userId,
+            SessionGoal goal,
+            SessionPlanPreparation.Prepared prepared,
+            String recordingDevice) {
+        Long watchId =
+                DeviceType.PHONE.name().equals(recordingDevice)
+                        ? null
+                        : referenceRepository
+                                .lockLinkedDeviceId(userId, DeviceType.WATCH.name())
+                                .orElse(null);
+        if (DeviceType.WATCH.name().equals(recordingDevice) && watchId == null) {
+            throw new ApiException(ErrorCode.DEVICE_NOT_FOUND);
+        }
         long phoneId =
                 referenceRepository
                         .lockLinkedDeviceId(userId, DeviceType.PHONE.name())
                         .orElseThrow(() -> new ApiException(ErrorCode.DEVICE_NOT_FOUND));
-        return createReadySession(userId, watchId, phoneId, goal, prepared).getId();
+        return createReadySession(
+                        userId, watchId == null ? phoneId : watchId, phoneId, goal, prepared)
+                .getId();
     }
 
     private RunningSession createReadySession(

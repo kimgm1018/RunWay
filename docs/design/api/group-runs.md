@@ -1025,7 +1025,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 **시작 대상과 준비 확인**
 
 - 현재 참가 관계에 연결된 미삭제 READY 개인 세션 전체를 새 시작 대상으로 삼는다. session_id가 없는 참가자와 CANCELLED/INTERRUPTED/COMPLETED 세션은 시작 대상에서 제외한다. 기존 참가 관계·기록을 삭제하거나 새 개인 세션을 자동 생성하지 않는다. 대상이 없으면 `409 INVALID_GROUP_STATE`다. 연결된 RUNNING/PAUSED 개인 세션이 있으면 `409 INVALID_SESSION_STATE`로 거절한다.
-- 각 대상의 소유자가 해당 참가자인지, 등록·연결된 현재 제어기기가 본인 WATCH인지, 필요한 동의·ACTIVE 코스·현재 그룹 목표·신규 프로토콜(stateVersion≥1) 조건을 만족하는지 확인한다. READY 대상 중 조건이 맞지 않는 참가자를 조용히 제외하고 나머지만 승인하지 않는다.
+- 각 대상의 소유자가 해당 참가자인지, 등록·연결된 현재 제어기기가 본인 기기인지(일반 세션은 WATCH, G16에서 `recordingDevice=PHONE`으로 만든 폰 전용 세션은 PHONE. S15P31E105-889), 필요한 동의·ACTIVE 코스·현재 그룹 목표·신규 프로토콜(stateVersion≥1) 조건을 만족하는지 확인한다. READY 대상 중 조건이 맞지 않는 참가자를 조용히 제외하고 나머지만 승인하지 않는다.
 - 서버가 잠금 아래 읽은 현재 stateVersion을 각 START의 expected_version으로 저장한다. 다른 제어가 PENDING/UNKNOWN이면 전체 승인을 보류한다. 그룹 목표·참가/취소·세션 연결 변경도 같은 그룹 잠금, 개인 목표·BPM·제어는 같은 세션 잠금으로 직렬화한다. 승인 전 변경이 먼저 확정되면 그 상태를 검사하고, 승인 후 목표 변경은 미확정 START 때문에 거절한다.
 - S08 REPORT_PREPARED는 준비 이력을 저장하지 않는다. G16의 대기방 표시도 특정 세션 버전에 대한 워치 준비 증거를 대신하지 않는다. 각 폰은 현재 목표·버전으로 워치를 준비시키며, 워치는 ready=true로 실제 준비한 버전과 START_AUTHORIZED.expectedVersion이 일치할 때만 실행한다. 준비 실패·버전 불일치는 S03 RESULT/REJECTED로 보고한다. 서버 승인만으로 전원 준비·실제 시작 성공을 보장하지 않는다.
 
@@ -1053,7 +1053,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `403 NOT_HOST` | 그룹런은 존재하지만 요청자가 현재 그룹장이 아님 | 그룹장만 시작할 수 있다는 안내, 시작 요청 중단 |
 | `403 SESSION_FORBIDDEN` | 서버가 확인한 연결 세션의 소유자가 해당 참가자와 다름 | 대기방의 세션 연결을 확인하고 정합성 문제 해결 전 시작하지 않음 |
 | `404 SESSION_NOT_FOUND` | 참가 관계에 session_id가 있으나 해당 세션이 없거나 삭제됨 | 해당 참가자의 개인 세션 연결·준비를 확인한 뒤 출발 재요청 |
-| `403 DEVICE_FORBIDDEN` | 연결 세션의 현재 제어기기가 참가자 소유의 등록·연결된 WATCH가 아님 | 해당 참가자의 워치 등록·연결·제어기기 확인 |
+| `403 DEVICE_FORBIDDEN` | 연결 세션의 현재 제어기기가 참가자 소유의 등록·연결된 WATCH(폰 전용 세션은 PHONE)가 아님 | 해당 참가자의 워치 등록·연결·제어기기 확인 |
 | `403 CONSENT_REQUIRED` | 시작 대상 참가자에게 필요한 건강·위치 수집 동의가 없거나 철회됨 | 해당 참가자에게 동의 확인 안내, 동의 전 시작하지 않음 |
 | `403 COURSE_INACCESSIBLE` | 새 시작 승인에 사용할 코스가 MERGED 또는 BLOCKED | 대표 코스 또는 다른 ACTIVE 코스를 선택해 다시 준비 |
 | `404 COURSE_NOT_FOUND` | 새 시작 승인에 사용할 코스가 존재하지 않음 | 코스 재조회·재선택 후 다시 준비 |
@@ -1753,6 +1753,7 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `ready` | boolean | X | 기본 true. false면 준비 완료 취소 |
+| `recordingDevice` | string (enum) | X | 기록 기기 `WATCH` / `PHONE`(S15P31E105-889). ready=true에서 새 세션을 만들 때만 쓴다. 생략하면 연결 워치가 있으면 WATCH, 없으면 PHONE. 그 밖의 값은 400 VALIDATION_ERROR |
 
 ```json
 {
@@ -1805,6 +1806,8 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 ### 처리 규칙
 
 - '참가'로 응답한 사람만 대기방에 들어갈 수 있다.
+- 기록 기기(S15P31E105-889): ready=true이고 연결 세션이 없으면 `recordingDevice`로 READY 세션을 만든다. WATCH는 본인 연결 WATCH(제어)·PHONE(중계), PHONE은 제어·중계 모두 본인 연결 PHONE인 폰 전용 세션(S02 `recordingMode=PHONE_ONLY`)이다. 필요한 기기가 없으면 404 `DEVICE_NOT_FOUND`. 이미 연결 세션이 있으면 그대로 두며, `recordingDevice`를 명시했는데 그 세션의 기기와 다르면 409 `INVALID_SESSION_STATE`다. 기기를 바꾸려면 ready=false로 해제한 뒤 새 기기로 다시 준비한다. 폰 전용 세션은 G09 START를 폰이 직접 실행·보고한다.
+- 본인에게 끝나지 않은 다른 세션이 있으면 세션을 만들지 못하고 409 `ACTIVE_SESSION_EXISTS`(details.sessionId)다. 앱은 사유를 대기방에 남겨 보인다.
 - 참가자 목록(G07)에는 각자의 준비도 점수와 준비 상태를 함께 내려 준다.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
@@ -1857,11 +1860,59 @@ G14는 분석 중·실패를 포함해 `200 OK`로 현재 결과를 반환한다
 - G09 시작과 같은 그룹 행 잠금 안에서 상태를 확인하고 `group_run_pace_state.pace_mode`를 저장한다. 같은 트랜잭션에서 출발 추천을 무효화하고 커밋 후 G03 규칙대로 비동기 재계산한다.
 - 같은 모드로 다시 보내도 재계산한다. 대기방(`SCHEDULED`)도 같은 API를 쓴다. 그룹 간격 알림(S15P31E105-629)은 모드와 관계없이 그대로다.
 
+## G18 그룹런 지금 합류
+
+`POST` `/api/v1/group-runs/{groupRunId}/participants/me/start`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | GRP-001~004 |
+| 미정 사항 | 없음 |
+| 비고 | S15P31E105-889. 출발 뒤 워치 시작 실패·늦은 입장 참가자의 합류와 기록 기기 변경 |
+
+### 설명
+
+이미 출발(RUNNING)한 그룹런에 본인이 지금 합류하거나, 워치 시작이 확인되지 않은 세션을 폰으로 바꿔 다시 시작한다. 서버는 본인 세션의 START를 승인하며, 실제 시작은 G09와 같이 기기가 실행·보고해야 확정된다. 그룹장도 참가자로서 호출할 수 있다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `groupRunId` | integer (int64) | O | 그룹런 식별자 |
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `recordingDevice` | string (enum) | X | `WATCH` / `PHONE`. 생략하면 연결 워치가 있으면 WATCH, 없으면 PHONE(G16과 같음). 그 밖의 값은 400 VALIDATION_ERROR |
+
+### Response
+
+`200 OK` — G09 `participants[]` 항목 1건.
+
+```json
+{ "sessionId": 905, "commandId": 7001, "result": "PENDING", "expectedVersion": 1, "startedAt": null }
+```
+
+### 처리 규칙
+
+- G16처럼 계획 준비는 트랜잭션 밖에서 하고, 그룹 행 → 참가 연결 세션 순서로 잠근다(G09·G12·G16과 같은 순서).
+- 그룹이 RUNNING이 아니거나 종료 시각이 있으면 409 `INVALID_GROUP_STATE`.
+- 연결 세션이 RUNNING/PAUSED이거나 실제 시작 시각이 있으면 409 `INVALID_SESSION_STATE`.
+- 연결 세션이 READY이고 요청 기기와 같으며 START가 PENDING이면 그 명령을 그대로 반환한다(재요청·출발 직후 재전송, 새 행 없음).
+- 연결 세션이 READY이고 요청 기기와 같으며 START가 없으면 그 세션에 START를 승인한다.
+- 그 밖(세션 없음, START UNKNOWN/REJECTED, 기기 다름, 시작 없이 끝난 세션): READY 세션의 미확정 START는 UNKNOWN(`START_UNCONFIRMED_ABORTED`)으로 남기고 세션을 INTERRUPTED로 중단하며, 미확정 START가 없으면 취소(CANCELLED)한다. 그 뒤 요청 기기로 새 READY 세션을 만들어 참가 관계에 연결(ready=true)하고 START를 승인한다. 옛 세션의 늦은 START 결과·batch는 중단 세션 규칙대로 409 `INVALID_SESSION_STATE`로 거절한다. 옛 세션은 참가 관계에서 떨어져 그룹 집계·자동 종료 판단에 들어가지 않는다.
+- 사전 판단 뒤 상태가 바뀌어 새 세션 계획이 없으면 409 `STALE_STATE`(다시 요청).
+- 본인에게 다른 활성 세션이 있으면 409 `ACTIVE_SESSION_EXISTS`, 필요한 기기가 없으면 404 `DEVICE_NOT_FOUND`, 참가자가 아니면 403 `NOT_PARTICIPANT`.
+- 늦게 합류한 참가자의 순위·간격은 실제 시작 시각부터의 기록으로 계산하며 따로 보정하지 않는다.
+
 ## 그룹 자동 처리와 전달
 
 - G08 공동 페이스 계산과 G11 페이스·격차 알림은 내부 자동 처리 및 실시간 전달로 이동했다. G15 불참 응답은 제거했다. 제외한 ID는 재사용하지 않는다.
-- 승인된 START가 모두 APPLIED/REJECTED로 확정되거나 S08의 명시 중단으로 정리되고, 실제 시작 참가자 전원이 개인 종료하면 별도 호스트 요청 없이 그룹을 종료한다. START가 PENDING/UNKNOWN인 참가자는 시작 미확인으로 표시하고 자동 종료를 보류한다. 시작이 거절됐거나 명시 중단한 세션은 운동 종료 대기·분석 집계에서 제외한다. 그룹장은 미확인 참가자가 있어도 G12로 강제 종료할 수 있다.
-- 자동 종료 처리(S15P31E105-734): 개인 END 확정, 그룹 세션 START 거절 확정, S08 시작 미확인 중단이 커밋된 뒤 G09/G12와 같은 그룹 행 잠금에서 다시 판단한다. 실제 시작한 참가자가 1명 이상이고, RUNNING/PAUSED 세션이 없고, 정리(중단·취소·완료)되지 않은 START(PENDING/UNKNOWN)가 없을 때만 `RUNNING` → `COMPLETED`로 바꾸며 `ended_at`은 처리 시각이다. 참가했지만 세션이 없거나 START가 없는 참가자는 기다리지 않는다. 아무도 시작하지 않았으면 자동 종료하지 않는다(G12 사용). 동시 처리와 G12는 잠금과 조건부 갱신으로 한 번만 반영되며, 처리 실패는 개인 종료 응답을 바꾸지 않는다.
+- 승인된 START가 모두 APPLIED/REJECTED로 확정되거나 S08의 명시 중단으로 정리되고, 실제 시작 참가자 전원이 개인 종료하면 별도 호스트 요청 없이 그룹을 종료한다. START가 PENDING/UNKNOWN인 참가자는 시작 미확인으로 표시한다. 실제 시작한 참가자가 모두 끝났으면 미확인 참가자를 기다리지 않는다(S15P31E105-889). 시작이 거절됐거나 명시 중단한 세션은 운동 종료 대기·분석 집계에서 제외한다. 그룹장은 미확인 참가자가 있어도 G12로 강제 종료할 수 있다.
+- 자동 종료 처리(S15P31E105-734): 개인 END 확정, 그룹 세션 START 거절 확정, S08 시작 미확인 중단이 커밋된 뒤 G09/G12와 같은 그룹 행 잠금에서 다시 판단한다. 실제 시작한 참가자가 1명 이상이고, RUNNING/PAUSED 세션이 없으면 `RUNNING` → `COMPLETED`로 바꾸며 `ended_at`은 처리 시각이다. 이때 남은 미확정 START(PENDING/UNKNOWN)는 같은 트랜잭션에서 G12와 같이 관리상 중단한다(UNKNOWN `START_UNCONFIRMED_ABORTED`, 세션 INTERRUPTED, S15P31E105-889). 이전에는 미확정 START 하나 때문에 그룹이 RUNNING으로 남아 G12로만 닫혔다. 참가했지만 세션이 없거나 START가 없는 참가자는 기다리지 않는다. 아무도 시작하지 않았으면 자동 종료하지 않는다(G12 사용). 동시 처리와 G12는 잠금과 조건부 갱신으로 한 번만 반영되며, 처리 실패는 개인 종료 응답을 바꾸지 않는다.
 - 공동 페이스·순위·격차·운동 부담·강제 종료는 해당 참가자 앱·워치에 전달한다. 대기방 공동 페이스·준비 상태 변경도 전달 대상으로 설계한다.
 - 인터넷 단절 중 그룹 운동 지속·복구는 온라인 MVP 지원 범위 밖이며 연결 오류를 표시한다.
 - 정상 종료와 강제 종료의 상태·사유 저장 및 지연 데이터 정합성은 ERD에 맞춰 확정한다. 기존 COMPLETED 값만으로 강제 종료 기록 정책을 확정하지 않는다.

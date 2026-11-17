@@ -318,6 +318,12 @@ export function createGroupRunMock({
       starters.get(groupRunId)?.(new Date().toISOString());
       return respond(undefined);
     },
+    // 목업에는 서버 세션이 없다. 합류는 출발 확인으로 바로 이어진다.
+    joinNow: async groupRunId => {
+      myReady = true;
+      starters.get(groupRunId)?.(new Date().toISOString());
+      return respond({ sessionId: '' });
+    },
     watchStart: (groupRunId, onStart) => {
       starters.set(groupRunId, onStart);
       return () => {

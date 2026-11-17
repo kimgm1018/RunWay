@@ -100,15 +100,19 @@ async function renderDetail(
   return screen!;
 }
 
-test('RUNNING joined detail opens GroupRunProgress and hides host edit/cancel', async () => {
+test('RUNNING joined detail without my run on this phone offers 지금 합류 and hides host edit/cancel', async () => {
+  // S15P31E105-889: 이 폰에 이 그룹런의 내 러닝이 없으면(워치 시작 실패·늦게 들어옴) 진행 화면 대신 대기방에서 지금 합류한다.
   const screen = await renderDetail('RUNNING', 'gr-wednesday');
   expect(texts(screen)).toContain('내가 만든 그룹런');
   expect(() => labelled(screen, '그룹런 수정')).toThrow();
   expect(() => labelled(screen, '그룹런 취소')).toThrow();
+  expect(() => labelled(screen, '진행 화면으로')).toThrow();
   await act(async () => {
-    labelled(screen, '진행 화면으로').props.onPress();
+    labelled(screen, '지금 합류').props.onPress();
   });
-  expect(mockNavigate).toHaveBeenCalledWith('GroupRunProgress');
+  expect(mockNavigate).toHaveBeenCalledWith('WaitingRoom', {
+    groupRunId: 'gr-wednesday',
+  });
   await act(async () => screen.unmount());
 });
 

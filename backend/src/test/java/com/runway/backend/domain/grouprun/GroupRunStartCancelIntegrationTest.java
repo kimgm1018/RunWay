@@ -285,6 +285,56 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
     }
 
     @Test
+    void start_mixedWatchAndPhone_approvesEachControlDevice_andPhoneReportsApplied()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        mockMvc.perform(post("/api/v1/group-runs/{id}/join", groupRunId)
+                        .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        MvcResult phoneReady = mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"recordingDevice\":\"PHONE\"}"))
+                .andExpect(status().isOk()).andReturn();
+        long phoneSession = body(phoneReady).get("sessionId").asLong();
+        long phoneId = jdbc.queryForObject(
+                "SELECT relay_device_id FROM running_sessions WHERE id=?", Long.class, phoneSession);
+
+        start(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants", hasSize(2)))
+                .andExpect(jsonPath("$.participants[0].result").value("PENDING"))
+                .andExpect(jsonPath("$.participants[1].result").value("PENDING"));
+        assertThat(groupStatus(groupRunId)).isEqualTo("RUNNING");
+        assertThat(startEventDeviceId(hostSession)).isEqualTo(hostWatchId);
+        assertThat(startEventDeviceId(phoneSession)).isEqualTo(phoneId);
+        assertThat(jdbc.queryForObject(
+                "SELECT control_device_id FROM running_sessions WHERE id=?", Long.class, phoneSession))
+                .isEqualTo(phoneId);
+        assertThat(sessionStatus(phoneSession)).isEqualTo("READY");
+        long commandId = jdbc.queryForObject(
+                "SELECT id FROM session_control_events WHERE session_id=?", Long.class, phoneSession);
+        mockMvc.perform(post("/api/v1/running-sessions/{id}/start", phoneSession)
+                        .header("Authorization", SecurityTestSupport.bearer(memberId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phase":"RESULT","deviceId":%d,"commandId":%d,
+                                 "result":"APPLIED","appliedAt":"2026-11-17T01:00:00Z","reasonCode":null}
+                                """.formatted(phoneId, commandId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("APPLIED"))
+                .andExpect(jsonPath("$.state").value("RUNNING"))
+                .andExpect(jsonPath("$.recordingMode").value("PHONE_ONLY"));
+        assertThat(sessionStatus(phoneSession)).isEqualTo("RUNNING");
+        assertThat(startEventResult(phoneSession)).isEqualTo("APPLIED");
+        mockMvc.perform(get("/api/v1/group-runs/{id}/live", groupRunId)
+                        .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void start_nonHost_forbidden_andNothingCreated() throws Exception {
         long groupRunId = createGroupRun();
         long hostSession = readyHost(groupRunId);

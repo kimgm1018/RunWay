@@ -53,6 +53,15 @@ import com.runway.backend.domain.notification.NotificationType;
 import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.domain.session.dto.response.GroupStartCommand;
 import com.runway.backend.domain.session.entity.SessionGoal;
+import com.runway.backend.domain.session.entity.RunningSession;
+import com.runway.backend.domain.session.entity.RunningSessionStatus;
+import com.runway.backend.domain.session.entity.ControlAction;
+import com.runway.backend.domain.session.entity.ControlResult;
+import com.runway.backend.domain.session.entity.SessionControlEvent;
+import com.runway.backend.domain.session.repository.SessionControlEventRepository;
+import com.runway.backend.domain.session.stream.SessionStreamChanged;
+import com.runway.backend.domain.grouprun.dto.request.JoinNowGroupRunRequest;
+import com.runway.backend.domain.session.repository.RunningSessionRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.GroupResultRow;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
@@ -65,6 +74,7 @@ import com.runway.backend.global.geo.GeoJsonPoint;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,6 +113,9 @@ public class GroupRunService {
     private final UserExistsRepository userExistsRepository;
     private final SessionReferenceRepository sessionReferenceRepository;
     private final RunningSessionService runningSessionService;
+    private final RunningSessionRepository runningSessionRepository;
+    private final SessionControlEventRepository controlEventRepository;
+    private final ApplicationEventPublisher events;
     private final RunningSessionControlService runningSessionControlService;
     private final NotificationService notificationService;
     private final JsonMapper jsonMapper;
@@ -475,6 +488,117 @@ public class GroupRunService {
         return tx.execute(status -> setReadyStored(userId, groupRunId, request, prepared));
     }
 
+    /** G18. 계획 계산은 G16과 같이 트랜잭션 밖에서 실행한다. */
+    public StartGroupRunResponse.Item joinNow(
+            long userId, long groupRunId, JoinNowGroupRunRequest request) {
+        var row = requireGroupRun(groupRunId);
+        requireApprovedActiveCrewMember(row.crewId(), userId);
+        var participant = participantJdbcRepository.find(groupRunId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_PARTICIPANT));
+        String requested = request == null ? null : request.recordingDevice();
+        // 사전 판단에는 잠금을 잡지 않는다. 실제 선택과 상태 판단은 그룹 잠금 아래 다시 수행한다.
+        String desired = resolveJoinDevice(userId, requested);
+        RunningSession session = participant.sessionId() == null ? null
+                : runningSessionRepository.findById(participant.sessionId()).orElse(null);
+        var prepared = needsJoinSession(session, desired)
+                ? planPreparation.prepare(userId, goalFromGroup(row)) : null;
+        var tx = new TransactionTemplate(transactionManager);
+        tx.setIsolationLevel(
+                org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return tx.execute(status -> joinNowStored(userId, groupRunId, requested, prepared));
+    }
+
+    private String resolveJoinDevice(long userId, String requested) {
+        if (requested != null) {
+            return requested;
+        }
+        return sessionReferenceRepository.findLinkedDeviceId(userId, "WATCH").isPresent()
+                ? "WATCH" : "PHONE";
+    }
+
+    private boolean needsJoinSession(RunningSession session, String desired) {
+        if (session == null) {
+            return true;
+        }
+        if (session.getStatus() == RunningSessionStatus.RUNNING
+                || session.getStatus() == RunningSessionStatus.PAUSED
+                || session.getStartedAt() != null) {
+            return false;
+        }
+        if (session.getStatus() != RunningSessionStatus.READY
+                || !desired.equals(session.isPhoneOnly() ? "PHONE" : "WATCH")) {
+            return true;
+        }
+        return controlEventRepository.findFirstBySessionIdAndActionOrderByIdAsc(
+                        session.getId(), ControlAction.START)
+                .map(event -> !event.isPending()).orElse(false);
+    }
+
+    private StartGroupRunResponse.Item joinNowStored(
+            long userId, long groupRunId, String requested,
+            SessionPlanPreparation.Prepared prepared) {
+        var groupState = sessionReferenceRepository.lockGroupRun(groupRunId)
+                .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
+        var row = requireGroupRun(groupRunId);
+        if (!GroupRunStatus.RUNNING.name().equals(row.status()) || groupState.endedAt() != null) {
+            throw new ApiException(ErrorCode.INVALID_GROUP_STATE);
+        }
+        var participant = participantJdbcRepository.find(groupRunId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_PARTICIPANT));
+        RunningSession session = participant.sessionId() == null ? null
+                : runningSessionRepository.findByIdForUpdate(participant.sessionId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+        String desired = resolveJoinDevice(userId, requested);
+        SessionGoal goal = goalFromGroup(row);
+        if (session != null) {
+            if (session.getStatus() == RunningSessionStatus.RUNNING
+                    || session.getStatus() == RunningSessionStatus.PAUSED
+                    || session.getStartedAt() != null) {
+                throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+            }
+            var start = controlEventRepository.findFirstBySessionIdAndActionOrderByIdAsc(
+                    session.getId(), ControlAction.START).orElse(null);
+            if (session.getStatus() == RunningSessionStatus.READY) {
+                if (desired.equals(session.isPhoneOnly() ? "PHONE" : "WATCH")) {
+                    if (start != null && start.isPending()) {
+                        return toStartItem(GroupStartCommand.of(start, session));
+                    }
+                    if (start == null) {
+                        return approveJoinStart(userId, session.getId(), goal);
+                    }
+                }
+                Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+                if (start != null && start.isUnconfirmed()) {
+                    start.markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
+                    start.recordResult(ControlResult.UNKNOWN, null,
+                            SessionControlEvent.START_UNCONFIRMED_ABORTED);
+                    session.abortUnconfirmedStart(now);
+                } else {
+                    session.cancel(now);
+                }
+                runningSessionRepository.flush();
+                events.publishEvent(SessionStreamChanged.state(session.getId()));
+            }
+        }
+        if (prepared == null) {
+            throw new ApiException(ErrorCode.STALE_STATE);
+        }
+        long sessionId = runningSessionService.createReadyForGroupParticipant(
+                userId, goal, prepared, desired);
+        participantJdbcRepository.updateSessionAndReady(groupRunId, userId, sessionId, true);
+        return approveJoinStart(userId, sessionId, goal);
+    }
+
+    private StartGroupRunResponse.Item approveJoinStart(long userId, long sessionId, SessionGoal goal) {
+        return toStartItem(runningSessionControlService.approveGroupStart(userId, sessionId, goal)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_SESSION_STATE)));
+    }
+
+    private static StartGroupRunResponse.Item toStartItem(GroupStartCommand command) {
+        return new StartGroupRunResponse.Item(command.sessionId(), command.commandId(),
+                command.result(), command.expectedVersion(), command.startedAt());
+    }
+
     private ReadyGroupRunResponse setReadyStored(
             long userId,
             long groupRunId,
@@ -493,11 +617,21 @@ public class GroupRunService {
                         .orElseThrow(() -> new ApiException(ErrorCode.NOT_PARTICIPANT));
         boolean ready = request == null ? true : request.resolvedReady();
         Long sessionId = participant.sessionId();
+        String recordingDevice = request == null ? null : request.recordingDevice();
         if (ready) {
             if (sessionId == null) {
                 sessionId =
                         runningSessionService.createReadyForGroupParticipant(
-                                userId, goalFromGroup(row), prepared);
+                                userId, goalFromGroup(row), prepared, recordingDevice);
+            } else if (recordingDevice != null) {
+                var session =
+                        runningSessionRepository
+                                .findByIdForUpdate(sessionId)
+                                .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+                String existingDevice = session.isPhoneOnly() ? "PHONE" : "WATCH";
+                if (!recordingDevice.equals(existingDevice)) {
+                    throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+                }
             }
             participantJdbcRepository.updateSessionAndReady(groupRunId, userId, sessionId, true);
         } else {
