@@ -15,9 +15,8 @@ export const communityLook = {
   sub: '#56646C',
   meta: '#8A8A8A',
   like: '#D44A4A',
-  // Android paints selected text with selectionColor. Keep it translucent so
-  // both the light comment ink and the dark composer's white text stay legible.
-  selection: 'rgba(77,255,210,0.38)',
+  // Double-tap selection must not tint the text; caret color is set via cursorColor.
+  selection: 'transparent',
   // Flat mist boxes on white: fields, tags, the follow button, the run tiles (--follow-btn-bg).
   field: '#F3F5F6',
   // A row lights up faintly when pressed.

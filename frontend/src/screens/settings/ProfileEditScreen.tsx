@@ -388,7 +388,8 @@ function Form({
                 maxLength={Math.max(10, savedNickname.length)}
                 placeholder="2-10자"
                 placeholderTextColor="#8A8A8A"
-                selectionColor={settingsLook.ink}
+                selectionColor="transparent"
+                cursorColor={settingsLook.ink}
                 style={styles.input}
               />
             </View>
@@ -692,7 +693,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: settingsLook.ink,
   },
-  // Noto's tall glyphs need more than the 22 line, so the input keeps its own height without padding.
+  // Noto's tall glyphs need more than the 22 line, so the input keeps its own height
+  // without padding. lineHeight keeps the Android caret to the text (S15P31E105-793).
   input: {
     height: 26,
     padding: 0,
@@ -700,6 +702,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontFamily: fontFamily.medium,
     fontSize: 15.5,
+    lineHeight: 20,
     color: settingsLook.ink,
   },
   retry: {

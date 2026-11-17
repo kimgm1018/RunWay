@@ -236,7 +236,8 @@ function MetricInput({
             placeholder={placeholder}
             placeholderTextColor={colors.textDisabled}
             keyboardType={keyboardType}
-            selectionColor={colors.accent}
+            selectionColor="transparent"
+            cursorColor={colors.text}
             style={[
               metricFont,
               styles.metricInput,
@@ -254,8 +255,9 @@ function MetricInput({
   );
 }
 
-// 안드로이드는 한 줄 입력에 lineHeight가 있으면 재렌더링(탭 전환 등) 후 세로 중앙정렬이 틀어진다
-// (TextField.tsx의 inputFont와 같은 이유, 858-3). 글꼴만 남기고 중앙정렬은 스타일에서 따로 준다.
+// 안드로이드는 큰 숫자 입력에 lineHeight가 있으면 재렌더링(탭 전환 등) 후 세로 중앙정렬이
+// 틀어진다(858-3). 페이스·지표 큰 숫자는 글꼴만 두고, 일반 검색/폼 TextField는 캐럿용
+// lineHeight를 쓴다(S15P31E105-793).
 const metricFont = {
   fontFamily: typography.metricLarge.fontFamily,
   fontSize: typography.metricLarge.fontSize,
@@ -296,7 +298,8 @@ function PaceStepper({
           placeholder="6:00"
           placeholderTextColor={onboardingLook.muted}
           keyboardType="number-pad"
-          selectionColor={onboardingLook.ink}
+          selectionColor="transparent"
+          cursorColor={onboardingLook.ink}
           style={styles.paceInput}
         />
         <AppText style={styles.paceUnit}>/km</AppText>
@@ -455,7 +458,8 @@ const styles = StyleSheet.create({
     boxShadow: '0 4px 12px rgba(9,17,26,0.1)',
   },
   paceValue: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  // No lineHeight: on Android it clips the top of a single-line input.
+  // Big pace digits: keep no lineHeight so tab switches do not mis-center the value
+  // (858-3). Search/form fields use lineHeight for caret size instead (S15P31E105-793).
   paceInput: {
     minWidth: 120,
     padding: 0,

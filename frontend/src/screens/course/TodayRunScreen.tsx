@@ -1011,14 +1011,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 20,
   },
-  // No lineHeight: on Android it clips the top of a single-line input.
+  // lineHeight keeps the Android caret to the text (S15P31E105-793 / MeetingPlace search).
   searchInput: {
     flex: 1,
     height: 52,
     padding: 0,
     fontFamily: fontFamily.regular,
     fontSize: 15,
+    lineHeight: 20,
     includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   placeList: { gap: 8 },
   placeIcon: {
