@@ -1709,6 +1709,20 @@ test('7.4b shows 기록 · 스크랩 · 저장된 코스 tabs and a course opens
   expect(texts(screen)).toContain('민락수변 왕복 5.4km');
 });
 
+// S15P31E105-884: a saved course card's map line is as thick as the run cards' outline; the run cards keep theirs.
+test('7.4b saved course cards ask their map for the run cards line width', async () => {
+  const screen = await openCommunity();
+  await press(screen, '프로필');
+  await settle(50);
+  const [runTile] = runTiles(screen);
+  expect(runTile.findByType(CourseMapThumb).props.glyphLine).toBeFalsy();
+
+  await press(screen, '저장된 코스');
+  await settle(50);
+  const courseTile = labelled(screen, '민락수변 왕복, 5.4km · 33분');
+  expect(courseTile.findByType(CourseMapThumb).props.glyphLine).toBe(true);
+});
+
 test('7.4b 저장된 코스 lists every saved course without 더보기', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const pending = repositories.courses.getSaved();

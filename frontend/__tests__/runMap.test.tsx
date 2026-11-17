@@ -4,6 +4,7 @@ import {
   headingOf,
   lowerToLogo,
   RunMap,
+  wholePixelWidth,
   zoomFor,
 } from '../src/components/RunMap';
 import { darkMapLook } from '../src/components/mapRoute';
@@ -158,9 +159,30 @@ test('mint callers use the same community line; thin scales it and cancelled sta
   expect(thinCourse.width).toBeCloseTo(3.795);
   expect(thinCourse.outlineWidth).toBeCloseTo(0.66);
   expect(thinCourse.outlineWidth).toBeLessThan(course.outlineWidth);
+  // S15P31E105-884: a card's own lineScale scales the same layers, wins over 'thin', and keeps whole pixels.
+  const scaled = render(
+    <RunMap route={route} mintLine="thin" lineScale={0.25} />,
+  );
+  const [scaledCourse] = overlays(scaled, 'naver-map-multipath');
+  expect(scaledCourse.pathParts[0].color).toBe('#4DFFD2');
+  expect(scaledCourse.width).toBeCloseTo(wholePixelWidth(6.9 * 0.25));
+  expect(scaledCourse.outlineWidth).toBeCloseTo(wholePixelWidth(1.2 * 0.25));
   const muted = render(<RunMap route={route} mintLine muted />);
   const [grey] = overlays(muted, 'naver-map-multipath');
   expect(grey.pathParts[0].color).not.toBe('#4DFFD2');
+});
+
+// S15P31E105-884: the native map drops a width's fraction of a pixel, so a card's line is kept on whole pixels.
+test('wholePixelWidth rounds to the nearest whole pixel, at least one', () => {
+  const ratio = 2.625;
+  const pixels = (dp: number) => Math.trunc(wholePixelWidth(dp, ratio) * ratio);
+  // 0.3 dp is 0.79 px: one pixel instead of none.
+  expect(pixels(0.3)).toBe(1);
+  // 1.725 dp is 4.53 px: five pixels instead of four.
+  expect(pixels(1.725)).toBe(5);
+  // 4.6 dp is 12.08 px: twelve.
+  expect(pixels(4.6)).toBe(12);
+  expect(pixels(0.01)).toBe(1);
 });
 
 // S15P31E105-691: the dark map's course line is the designated neon mint, as on the feed, not the 672 lime.
