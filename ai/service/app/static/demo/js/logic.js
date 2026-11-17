@@ -393,7 +393,60 @@
     return 'latest';
   }
 
+  // 912: LIVE_METRICS(약 5초)는 판단(MPC_TRACE) 사이의 최신 측정값이다. AI 판단 값(후보·목표 페이스·예측)은 건드리지 않고
+  // 지금 심박·실제 페이스·거리·경과 시간 숫자와 심박 실제선만 이 값으로 덮는다. 판단보다 오래된 값은 쓰지 않는다.
+  var LIVE_SERIES_MAX = 240;      // 심박 실제선에 이어 그릴 5초 값 상한(약 20분)
+  function parseMs(value) {
+    var ms = Date.parse(value || '');
+    return Number.isFinite(ms) ? ms : null;
+  }
+  function liveFor(trace, runners, label) {
+    var list = Array.isArray(runners) ? runners : [];
+    var row = label == null ? list[0] : list.filter(function (r) { return r && r.label === label; })[0];
+    if (!row) return null;
+    var at = parseMs(row.measuredAt), base = parseMs(trace && trace.inputAsOf);
+    if (at != null && base != null && at < base) return null;
+    return row;
+  }
+  // 판단 시간축(trace.elapsedSec)에서 이 값의 위치(초). 일시정지 등으로 경과 시간 정의가 달라도 벽시계 차이로 맞춘다
+  function liveAxisSec(trace, row) {
+    var at = parseMs(row && row.measuredAt), base = parseMs(trace && trace.inputAsOf), now = Number(trace && trace.elapsedSec);
+    if (at == null || base == null || !Number.isFinite(now)) return null;
+    return now + (at - base) / 1000;
+  }
+  // 라벨별 [측정 시각(ms), 심박] 누적. 같은 시각·거꾸로 간 시각은 무시하고 상한을 넘으면 오래된 것부터 버린다
+  function appendLiveSeries(series, runners) {
+    var next = {};
+    Object.keys(series || {}).forEach(function (k) { next[k] = series[k].slice(); });
+    (Array.isArray(runners) ? runners : []).forEach(function (row) {
+      if (!row || row.label == null) return;
+      var at = parseMs(row.measuredAt), hr = Number(row.hrBpm);
+      if (at == null || row.hrBpm == null || !Number.isFinite(hr)) return;
+      var list = next[row.label] = next[row.label] || [];
+      if (list.length && at <= list[list.length - 1][0]) return;
+      list.push([at, hr]);
+      if (list.length > LIVE_SERIES_MAX) list.shift();
+    });
+    return next;
+  }
+  // 심박 실제선에 이을 점: 판단 시간축 위치(초)로 바꿔 afterSec 뒤, maxSec 이내만
+  function liveSeriesPoints(trace, list, afterSec, maxSec) {
+    var base = parseMs(trace && trace.inputAsOf), now = Number(trace && trace.elapsedSec);
+    if (base == null || !Number.isFinite(now)) return [];
+    var after = Number.isFinite(afterSec) ? afterSec : -Infinity, max = Number.isFinite(maxSec) ? maxSec : Infinity;
+    return (list || []).map(function (p) { return [now + (p[0] - base) / 1000, p[1]]; })
+      .filter(function (p) { return p[0] > after && p[0] <= max; });
+  }
+  function liveRemaining(trace, row) {
+    var input = trace && trace.input || {};
+    var remaining = Number(input.remainingM), at = Number(input.distanceM), now = row && row.distanceM != null ? Number(row.distanceM) : NaN;
+    if (input.remainingM == null || input.distanceM == null || !Number.isFinite(remaining) || !Number.isFinite(at) || !Number.isFinite(now)) return null;
+    return Math.max(0, remaining - (now - at));
+  }
+
   var RunwayDemoLogic = {
+    liveFor: liveFor, liveAxisSec: liveAxisSec, appendLiveSeries: appendLiveSeries, liveSeriesPoints: liveSeriesPoints,
+    liveRemaining: liveRemaining, LIVE_SERIES_MAX: LIVE_SERIES_MAX,
     lastDecisionText: lastDecisionText, GROUP_STALE_MS: GROUP_STALE_MS,
     actualPace: actualPace, ACTUAL_WINDOW_TEXT: ACTUAL_WINDOW_TEXT,
     GROUP_KEY_OFFSET: GROUP_KEY_OFFSET,

@@ -34,6 +34,7 @@ from app.group_pace.ahead import ahead_enabled, ahead_for_group, ahead_wait, loa
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
+from app.demo.live_metrics import DbDemoMetricSource, DemoLiveMetrics
 from app.demo.routes import DbDemoRouteSource, DemoRoutes
 from app.demo.recorder import decide_allowed, group_allowed, new_demo_state, record_group_trace, record_trace
 from app.demo.stream import build_stream_router
@@ -171,6 +172,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                demo_loader: Callable[[], DemoSettings] = load_demo_settings,
                demo_rate_per_sec: int = 2,
                demo_route_source=None,
+               demo_metric_source=None,
                ode_loader: Callable[[], object | None] = default_ode_loader,
                personal_plan_course_lookup=None,
                personal_plan_user_lookup=None,
@@ -278,6 +280,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             demo_route_source = DbDemoRouteSource(ai_db)
         demo_state.routes = (DemoRoutes(demo_route_source, allowed_users=user_allow)
                              if demo_route_source is not None and user_allow is not None else None)
+        # 912: 실시간 측정값. liveMetricsSec가 있고 지도(=대상 회원 목록과 AI DB)가 켜졌을 때만. 기본 꺼짐
+        live_sec = demo_settings.config.live_metrics_sec if demo_settings.config else None
+        if live_sec is not None and demo_state.routes is not None:
+            if demo_metric_source is None and ai_db is not None:
+                demo_metric_source = DbDemoMetricSource(ai_db)
+            if demo_metric_source is not None:
+                demo_state.live_metrics = DemoLiveMetrics(demo_metric_source, targets=demo_state.routes.targets,
+                                                          every_sec=live_sec, allowed_users=user_allow)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

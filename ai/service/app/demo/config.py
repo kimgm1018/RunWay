@@ -11,6 +11,7 @@ from app.demo.overrides import HrOverride, parse_account_settings
 log = logging.getLogger("runway.ai")
 VALID_LIVE_STAGES = ("L1A", "L1B", "L2", "L2B")
 MIN_TOKEN_LEN = 32
+LIVE_METRICS_SEC_RANGE = (3, 30)   # 912: 실시간 측정값 주기 허용 범위(초)
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ class DemoConfig:
     speed_up_step_sec: int | None = None
     speed_up_calm_sec: float | None = None
     speed_up_margin_bpm: float | None = None
+    # 912: 대상 회원의 최신 심박·실제 페이스·거리를 콘솔에 보내는 주기(초). null이면 끈다(기본). 3~30초
+    live_metrics_sec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,11 @@ def load_demo_config(path: Path) -> DemoConfig:
     if user_allow is not None and (not isinstance(user_allow, list)
                                    or any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in user_allow)):
         raise ValueError("userAllowlist는 양의 정수 userId 목록이어야 합니다")
+    live_sec = raw.get("liveMetricsSec")                       # 912
+    low, high = LIVE_METRICS_SEC_RANGE
+    if live_sec is not None and (isinstance(live_sec, bool) or not isinstance(live_sec, (int, float))
+                                 or not low <= live_sec <= high):
+        raise ValueError("liveMetricsSec는 null 또는 3~30초여야 합니다")
     account = parse_account_settings(raw, frozenset(user_allow) if user_allow else frozenset())
     # 키워드 인자로 넘긴다: 다른 작업(예: 912 live_metrics_sec)과 합칠 때 위치 인자가 밀려 엉뚱한 필드로 들어가지 않게 한다
     return DemoConfig(
@@ -97,7 +105,8 @@ def load_demo_config(path: Path) -> DemoConfig:
         group_allowlist=frozenset(map(int, group_allow)) if group_allow is not None else None,
         group_label=str(group_label) if group_label else None,
         user_allowlist=frozenset(user_allow) if user_allow is not None else None,
-        speed_up_warmup_sec=float(warmup), **account)
+        speed_up_warmup_sec=float(warmup),
+        live_metrics_sec=float(live_sec) if live_sec is not None else None, **account)
 
 
 def account_settings_summary(config: DemoConfig) -> str:

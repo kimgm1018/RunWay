@@ -225,3 +225,63 @@ test('900 고른 후보가 탈락일 때만 이유 칩(개인 selectorReason, �
   assert.equal(m.chosenRejectChip({decision: {chosenIndex: null}}), null);
   assert.equal(m.chosenRejectChip(null), null);
 });
+
+// ── 912: 판단 사이 5초 값(LIVE_METRICS) ─────────────────────────────
+const LIVE_TRACE = {inputAsOf: '2026-11-05T05:00:00Z', elapsedSec: 600};
+function liveRow(label, sec, extra) {
+  return Object.assign({label: label, hrBpm: 150, speedMps: 3, paceSecPerKm: 333.3, distanceM: 1800, elapsedSec: 600 + sec,
+    measuredAt: new Date(Date.parse('2026-11-05T05:00:00Z') + sec * 1000).toISOString()}, extra || {});
+}
+
+test('912 판단보다 오래된 5초 값은 쓰지 않고, 같거나 새 값만 쓴다', () => {
+  assert.equal(m.liveFor(LIVE_TRACE, [liveRow('러너', -5)], null), null);
+  assert.equal(m.liveFor(LIVE_TRACE, [liveRow('러너', 0)], null).hrBpm, 150);
+  assert.equal(m.liveFor(LIVE_TRACE, [liveRow('러너', 5)], null).hrBpm, 150);
+  assert.equal(m.liveFor(LIVE_TRACE, [], null), null);
+  assert.equal(m.liveFor(LIVE_TRACE, undefined, null), null);
+});
+
+test('912 그룹은 같은 라벨의 값만 고른다', () => {
+  const rows = [liveRow('러너 1', 5, {hrBpm: 140}), liveRow('러너 2', 5, {hrBpm: 170})];
+  assert.equal(m.liveFor(LIVE_TRACE, rows, '러너 2').hrBpm, 170);
+  assert.equal(m.liveFor(LIVE_TRACE, rows, '러너 3'), null);
+});
+
+test('912 시간 정보가 없는 값은 판단 시각과 비교하지 않고 그대로 쓴다', () => {
+  assert.equal(m.liveFor({elapsedSec: 600}, [liveRow('러너', -50, {measuredAt: null})], null).hrBpm, 150);
+});
+
+test('912 판단 시간축 위치는 벽시계 차이로 맞춘다', () => {
+  assert.equal(m.liveAxisSec(LIVE_TRACE, liveRow('러너', 25)), 625);
+  assert.equal(m.liveAxisSec({elapsedSec: 600}, liveRow('러너', 25)), null);
+});
+
+test('912 심박 점은 라벨별로 쌓고 같은 시각·거꾸로 간 시각·심박 없음은 무시하며 상한을 넘으면 오래된 것부터 버린다', () => {
+  let series = m.appendLiveSeries({}, [liveRow('러너', 5), liveRow('러너 2', 5, {hrBpm: 160})]);
+  series = m.appendLiveSeries(series, [liveRow('러너', 5, {hrBpm: 199})]);      // 같은 시각
+  series = m.appendLiveSeries(series, [liveRow('러너', 0, {hrBpm: 199})]);      // 거꾸로
+  series = m.appendLiveSeries(series, [liveRow('러너', 10, {hrBpm: null})]);    // 심박 없음
+  series = m.appendLiveSeries(series, [liveRow('러너', 10)]);
+  assert.deepEqual(series['러너'].map(p => p[1]), [150, 150]);
+  assert.equal(series['러너 2'].length, 1);
+  let long = {};
+  for (let i = 0; i < m.LIVE_SERIES_MAX + 10; i += 1) long = m.appendLiveSeries(long, [liveRow('러너', i * 5)]);
+  assert.equal(long['러너'].length, m.LIVE_SERIES_MAX);
+  assert.equal(long['러너'][0][0], Date.parse('2026-11-05T05:00:00Z') + 10 * 5 * 1000);
+});
+
+test('912 심박 실제선에 이을 점은 판단 시간축으로 바꿔 지난 점 뒤·최대 범위 안만 고른다', () => {
+  const series = m.appendLiveSeries({}, [liveRow('러너', 5, {hrBpm: 151}), liveRow('러너', 10, {hrBpm: 152})]);
+  const more = m.appendLiveSeries(series, [liveRow('러너', 200, {hrBpm: 160})]);
+  assert.deepEqual(m.liveSeriesPoints(LIVE_TRACE, more['러너'], 600, 740), [[605, 151], [610, 152]]);   // 200초 값은 범위 밖
+  assert.deepEqual(m.liveSeriesPoints(LIVE_TRACE, more['러너'], 605, 740), [[610, 152]]);
+  assert.deepEqual(m.liveSeriesPoints({elapsedSec: 600}, more['러너'], 600, 740), []);
+});
+
+test('912 남은 거리는 판단 뒤 달린 만큼 줄이고 0 아래로 내려가지 않는다', () => {
+  const trace = {input: {distanceM: 1800, remainingM: 3200}};
+  assert.equal(m.liveRemaining(trace, {distanceM: 1850}), 3150);
+  assert.equal(m.liveRemaining(trace, {distanceM: 9000}), 0);
+  assert.equal(m.liveRemaining(trace, {distanceM: null}), null);
+  assert.equal(m.liveRemaining({input: {}}, {distanceM: 1850}), null);
+});

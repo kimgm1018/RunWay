@@ -88,6 +88,7 @@
     state.serverOffsetMs = snapshot.serverTime ? Date.parse(snapshot.serverTime) - Date.now() : state.serverOffsetMs;
     state.traces = root.RunwayDemoLogic.mergeTraces(previousTraces, snapshot.traces || []);
     root.RunwayDemoRender.reset(snapshot);
+    if (Array.isArray(snapshot.liveMetrics)) root.RunwayDemoRender.applyLive(snapshot.liveMetrics);   // 912: 켜져 있을 때만 키가 온다
     if (root.RunwayDemoLiveMap) {          // 722: 실시간 경로 지도
       root.RunwayDemoLiveMap.setCourse(snapshot.course || null);   // 727: 코스를 먼저 알려야 첫 판정이 코스 기준
       root.RunwayDemoLiveMap.setRoutes(snapshot.routes || []);
@@ -129,6 +130,10 @@
         root.RunwayDemoLiveMap.setRoutes(data.routes);
         root.RunwayDemoLiveMap.setCourse(state.snapshot && state.snapshot.course || null);
       }
+      return;
+    }
+    if (name === 'LIVE_METRICS') {            // 912: 판단 사이 약 5초마다. 숫자·심박 실제선만 갱신한다
+      if (data && Array.isArray(data.runners)) root.RunwayDemoRender.applyLive(data.runners);
       return;
     }
     if (name === 'MPC_TRACE') {
