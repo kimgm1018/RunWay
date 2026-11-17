@@ -183,6 +183,9 @@ def build_trace(outcome, *, boot_id: str, seq: int, stage: str, replay_speed: in
         # 676: 준비도 민감도 표시(기능이 켜져 있을 때만 키가 생긴다)
         trace["readiness"] = {"score": pacing.readiness_score, "adjustBpm": pacing.readiness_adjust_bpm,
                               "weight": pacing.readiness_weight}
+    if policy is not None and policy.selector_reason is not None:
+        # 900: 고른 후보가 탈락(빗금)일 때 콘솔이 이유 칩(FLOOR·WARMUP_CAP·COOLDOWN)을 띄운다(선택기를 거친 판단만 키가 생긴다)
+        trace["selectorReason"] = policy.selector_reason
     if outcome.status in {"INPUT_INSUFFICIENT", "PAUSED"}:
         trace["reference"] = None
         trace["gate"] = None

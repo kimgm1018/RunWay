@@ -55,10 +55,13 @@ def test_route_errors(tmp_path):
     with demo_client(tmp_path) as c:
         assert c.get("/v1/demo/sessions/201/events").status_code == 401
         assert c.get("/v1/demo/sessions/201/events?token=x", headers=VIEW).status_code == 400
-        assert c.get("/v1/demo/sessions/latest/events", headers=VIEW).json()["code"] == "SESSION_NOT_FOUND"
+        assert c.get("/v1/demo/sessions/abc/events", headers=VIEW).json()["code"] == "SESSION_NOT_FOUND"
+        c.app.state.demo_stream_max_loops = 1                    # 900: latest는 진행 중 러닝이 없으면 대기 SNAPSHOT
+        waiting = c.get("/v1/demo/sessions/latest/events", headers=VIEW)
+        assert waiting.status_code == 200 and '"waiting":true' in waiting.text and '"sessionId":null' in waiting.text
         c.post("/v1/pace/decide", json=decide_body())
         buf = c.app.state.demo.buffer
-        for _ in range(5): buf.subscribe(201)                    # 747: 화면 연결 상한 5
+        for _ in range(50): buf.subscribe(201)                   # 900: 화면 연결 상한 50(747의 5에서 늘림)
         assert c.get("/v1/demo/sessions/201/events", headers=VIEW).status_code == 429
 
 

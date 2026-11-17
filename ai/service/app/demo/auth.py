@@ -11,6 +11,14 @@ def reject_query_token(request: Request) -> None:
         raise ApiError(400, "VALIDATION_ERROR", "토큰은 URL에 넣을 수 없습니다.")
 
 
+def bearer_present(request: Request, expected: str | None) -> bool:
+    """900: Authorization 헤더가 없으면 False(공개 경로 판단은 호출한 쪽). 헤더가 있으면 맞을 때만 True, 틀리면 401."""
+    if not request.headers.get("authorization", "").strip():
+        return False
+    require_bearer(request, expected)
+    return True
+
+
 def require_bearer(request: Request, expected: str | None) -> None:
     value = request.headers.get("authorization", "")
     prefix = "Bearer "

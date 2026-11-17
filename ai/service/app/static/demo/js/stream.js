@@ -1,6 +1,13 @@
 (function (root) {
   'use strict';
 
+  // 900: 토큰이 없으면 Authorization을 아예 보내지 않는다(공개 latest). 서버가 401이면 콘솔이 토큰을 묻는다
+  function authHeaders(token) {
+    var headers = {Accept: 'text/event-stream'};
+    if (token) headers.Authorization = 'Bearer ' + token;
+    return headers;
+  }
+
   function connect(options) {
     var stopped = false;
     var controller = null;
@@ -16,7 +23,7 @@
       var path = '/v1/demo/sessions/' + encodeURIComponent(options.session || 'latest') + '/events';
       try {
         var response = await fetch(path, {
-          headers: {Authorization: 'Bearer ' + options.token, Accept: 'text/event-stream'},
+          headers: authHeaders(options.token),
           cache: 'no-store', signal: requestController.signal
         });
         if (stopped || runGeneration !== generation) return;
@@ -80,7 +87,7 @@
   // 738: '이전 기록' 다시 보기. 'h<id>' 스트림에서 첫 SNAPSHOT만 받고 닫는다.
   async function fetchSnapshot(options) {
     var response = await fetch('/v1/demo/sessions/' + encodeURIComponent(options.session) + '/events', {
-      headers: {Authorization: 'Bearer ' + options.token, Accept: 'text/event-stream'}, cache: 'no-store'
+      headers: authHeaders(options.token), cache: 'no-store'
     });
     if (!response.ok || !response.body) throw new Error('history ' + response.status);
     var reader = response.body.getReader();
@@ -102,5 +109,5 @@
     throw new Error('history empty');
   }
 
-  root.RunwayDemoStream = {connect: connect, fetchSnapshot: fetchSnapshot};
+  root.RunwayDemoStream = {connect: connect, fetchSnapshot: fetchSnapshot, authHeaders: authHeaders};
 }(typeof window !== 'undefined' ? window : globalThis));
