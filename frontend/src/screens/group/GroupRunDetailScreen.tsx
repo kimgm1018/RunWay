@@ -339,8 +339,14 @@ export function GroupRunDetailScreen() {
     (canceller && colors.get(canceller.userId)) ??
     (run.isHost ? stand.mint : stand.sub);
 
+  const hostBeforeRun = run.isHost && run.status === 'SCHEDULED' && !pastRun;
+
   const changeMode = async (mode: GroupPaceMode) => {
-    if (!groupRuns.setPaceMode) {
+    if (
+      !hostBeforeRun ||
+      isStaleGroupRun(run, clock.now().getTime()) ||
+      !groupRuns.setPaceMode
+    ) {
       return;
     }
     setBusy(true);
@@ -360,7 +366,11 @@ export function GroupRunDetailScreen() {
 
   // S15P31E105-702: the host saves a new goal with G04; the card then shows 계산 중 until the new pace.
   const saveGoal = async (goal: GroupGoalUpdate) => {
-    if (!groupRuns.updateGoal) {
+    if (
+      !hostBeforeRun ||
+      isStaleGroupRun(run, clock.now().getTime()) ||
+      !groupRuns.updateGoal
+    ) {
       return;
     }
     setBusy(true);
@@ -391,7 +401,6 @@ export function GroupRunDetailScreen() {
       setBusy(false);
     }
   };
-  const hostBeforeRun = run.isHost && run.status === 'SCHEDULED';
   // The card explains the start pace, so only before the run (review A-3).
   const showPaceCard = !!run.pace && run.status === 'SCHEDULED';
 
@@ -739,9 +748,7 @@ export function GroupRunDetailScreen() {
                       showKmPaces={!run.route?.length}
                       change={change}
                       canChangeMode={
-                        run.isHost &&
-                        run.status === 'SCHEDULED' &&
-                        !!groupRuns.setPaceMode
+                        hostBeforeRun && !!groupRuns.setPaceMode
                       }
                       busy={busy}
                       onChangeMode={changeMode}
@@ -767,7 +774,7 @@ export function GroupRunDetailScreen() {
                       <AppText style={[styles.muted, styles.flex]}>
                         내가 만든 그룹런
                       </AppText>
-                      {run.status === 'SCHEDULED' ? (
+                      {hostBeforeRun ? (
                         <>
                           <Pressable
                             accessibilityRole="button"
