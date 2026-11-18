@@ -2,11 +2,10 @@
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.demo.course import CourseProfile, load_course
-from app.demo.overrides import HrOverride, parse_account_settings
 
 log = logging.getLogger("runway.ai")
 VALID_LIVE_STAGES = ("L1A", "L1B", "L2", "L2B")
@@ -40,17 +39,8 @@ class DemoConfig:
     user_allowlist: frozenset[int] | None = None
     # AI10 여유 가속 대기 시간(초). 위 회원이 낀 그룹런만 이 값을 쓴다(S15P31E105-728). 나머지는 기본 180초
     speed_up_warmup_sec: float = 60.0
-    # S15P31E105-913 시연 계정 전용 설정(모두 선택, 없으면 기존 동작). userAllowlist 회원만 해당한다
-    # 회원별 허용·위험 심박 고정(AI04·AI10·시연 trace): DB 학습값·섞기·준비도 보정을 모두 무시한다
-    hr_threshold_overrides: dict[int, HrOverride] = field(default_factory=dict)
-    # AI10 여유 가속 시연 값. 위 회원이 낀 그룹런만 쓴다. None이면 기본(10초/km·60초·환경변수 여유 기준)
-    speed_up_step_sec: int | None = None
-    speed_up_calm_sec: float | None = None
-    speed_up_margin_bpm: float | None = None
     # 912: 대상 회원의 최신 심박·실제 페이스·거리를 콘솔에 보내는 주기(초). null이면 끈다(기본). 3~30초
     live_metrics_sec: float | None = None
-    # S15P31E105-915: 시연 회원이 낀 TOGETHER 그룹은 출발 후 이 시각(초)에 여유 가속을 강제로 한 번 낸다. None이면 끈다(기본)
-    speed_up_force_after_sec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -98,8 +88,6 @@ def load_demo_config(path: Path) -> DemoConfig:
     if live_sec is not None and (isinstance(live_sec, bool) or not isinstance(live_sec, (int, float))
                                  or not low <= live_sec <= high):
         raise ValueError("liveMetricsSec는 null 또는 3~30초여야 합니다")
-    account = parse_account_settings(raw, frozenset(user_allow) if user_allow else frozenset())
-    # 키워드 인자로 넘긴다: 다른 작업(예: 912 live_metrics_sec)과 합칠 때 위치 인자가 밀려 엉뚱한 필드로 들어가지 않게 한다
     return DemoConfig(
         live_stage=stage, live=live, replay=replay,
         session_allowlist=frozenset(map(int, allow)) if allow is not None else None,
@@ -108,17 +96,7 @@ def load_demo_config(path: Path) -> DemoConfig:
         group_label=str(group_label) if group_label else None,
         user_allowlist=frozenset(user_allow) if user_allow is not None else None,
         speed_up_warmup_sec=float(warmup),
-        live_metrics_sec=float(live_sec) if live_sec is not None else None, **account)
-
-
-def account_settings_summary(config: DemoConfig) -> str:
-    """시작 로그용 한 줄. 회원 ID·심박 값은 싣지 않고 적용 여부와 개수만 남긴다(S15P31E105-913)."""
-    def shown(value):
-        return "기본" if value is None else f"{value:g}"
-    return (f"시연 계정 설정: 고정 {len(config.hr_threshold_overrides)}명, 가속 폭 {shown(config.speed_up_step_sec)}"
-            f"·확인 {shown(config.speed_up_calm_sec)}·여유 {shown(config.speed_up_margin_bpm)}"
-            f"·대기 {config.speed_up_warmup_sec:g}"
-            + ("" if config.speed_up_force_after_sec is None else f"·강제 {config.speed_up_force_after_sec:g}"))
+        live_metrics_sec=float(live_sec) if live_sec is not None else None)
 
 
 def load_demo_settings() -> DemoSettings:
@@ -142,5 +120,4 @@ def load_demo_settings() -> DemoSettings:
     except Exception as exc:
         log.warning("시연 기능을 끕니다: DEMO_CONFIG_PATH (%s)", type(exc).__name__)
         return DemoSettings(False, view_token, ingest_token, None)
-    log.info("%s", account_settings_summary(config))
     return DemoSettings(True, view_token, ingest_token, config)

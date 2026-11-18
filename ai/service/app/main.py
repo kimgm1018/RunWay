@@ -30,8 +30,7 @@ from app.decide.policy_port import PacePolicy
 from app.decide.schemas import DecideRequest, DecideResponse
 from app.decide.service import run_decide
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
-from app.group_pace.ahead import (ahead_enabled, ahead_for_group, ahead_wait, force_ahead_for_group,
-                                  load_ahead_settings)
+from app.group_pace.ahead import ahead_enabled, ahead_wait, load_ahead_settings
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
@@ -501,21 +500,15 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             detail = {} if demo is not None and group_allowed(demo, body.group_run_id, body.participants) else None
             # S15P31E105-728 여유 가속(기본 꺼짐). 시연 대상 회원(userAllowlist)이 낀 그룹만 짧은 대기 시간을 쓴다.
             ahead = load_ahead_settings() if ahead_enabled() else None
-            demo_config = demo.config if demo is not None else None
-            wait_sec, demo_wait = (ahead_wait(ahead, demo_config, body.participants)
+            wait_sec, demo_wait = (ahead_wait(ahead, demo.config if demo is not None else None, body.participants)
                                    if ahead is not None else (None, False))
-            if ahead is not None:
-                # S15P31E105-913 시연 회원이 낀 그룹만 1회 가속 폭·여유 확인 기간·여유 기준을 시연 값으로 바꾼다
-                ahead = ahead_for_group(ahead, demo_config, body.participants)
             began = time.perf_counter()
             response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
                 hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail,
                 gru_gb_enabled=request.app.state.gru_gb_enabled,
                 readiness_lookup=request.app.state.readiness_lookup,
-                ahead=ahead, ahead_wait_sec=wait_sec, ahead_demo_wait=demo_wait,
-                hr_overrides=demo_config.hr_threshold_overrides if demo_config is not None else None,
-                force_ahead=force_ahead_for_group(demo_config, body.participants))   # S15P31E105-915
+                ahead=ahead, ahead_wait_sec=wait_sec, ahead_demo_wait=demo_wait)
             if detail is not None:
                 try:
                     record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,
@@ -545,9 +538,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                              hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc,
                              bpm_lookup=request.app.state.bpm_lookup,
                              gru_gb_enabled=request.app.state.gru_gb_enabled,
-                             readiness_lookup=request.app.state.readiness_lookup,
-                             hr_overrides=(request.app.state.demo.config.hr_threshold_overrides
-                                           if request.app.state.demo is not None else None))
+                             readiness_lookup=request.app.state.readiness_lookup)
         demo = request.app.state.demo
         if demo is not None and decide_allowed(demo, body):
             stage, _ = demo.profile_for(body.context.session_id)

@@ -47,9 +47,6 @@ runway:
     backfill-on-startup: ${BACKEND_GROUP_PACE_BACKFILL_ON_STARTUP:true}
     backfill-limit: ${BACKEND_GROUP_PACE_BACKFILL_LIMIT:100}
     backfill-start-delay: ${BACKEND_GROUP_PACE_BACKFILL_START_DELAY:PT30S}
-    # S15P31E105-914(시연용, 시연 후 제거): 0보다 크면(240~900 초/km) GOAL이 아닌 그룹런의 출발 추천을 이 값으로 고정한다. 단 demo-user-ids(쉼표 구분 회원 ID)에 든 회원이 선택된 후보일 때만. 0이거나 비우면 끔.
-    demo-start-pace-sec-per-km: ${BACKEND_GROUP_PACE_DEMO_START_PACE:0}
-    demo-user-ids: ${BACKEND_GROUP_PACE_DEMO_USER_IDS:}
   places:
     enabled: ${BACKEND_PLACE_SEARCH_ENABLED:false}
     search-client-id: ${BACKEND_NAVER_SEARCH_CLIENT_ID:}
