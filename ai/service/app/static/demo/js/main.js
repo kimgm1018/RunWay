@@ -372,7 +372,7 @@
     var session = root.RunwayDemoLogic.streamRef(params);
     function saveAndConnect() {
       var value = input ? input.value.trim() : '';
-      if (!value) { setBanner('stale', '보기 토큰을 입력해 주세요.'); return; }
+      if (!value) { setBanner('stale', '시연 보기 토큰을 입력해 주세요.'); return; }
       try { sessionStorage.setItem('runwayDemoToken', value); } catch (error) { /* 이 탭에서만 */ }
       show(byId('auth-panel'), false);
       show(byId('auth-error'), false);

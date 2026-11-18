@@ -458,22 +458,24 @@ def test_busy_db_slot_gives_up_within_the_wait_limit_and_keeps_last_values(monke
     assert len(db.calls) == 1
 
 
-def test_full_ops_file_reads_913_keys_and_live_metrics_sec_together(tmp_path):
-    # 913(시연 계정 설정)과 912(liveMetricsSec)를 합친 운영 demo_config 전체 모양: 두 묶음이 모두, 제 자리에 들어간다
-    from test_demo_account_settings_913 import BASE, OPS_EXAMPLE, OVERRIDES
-    raw = {**BASE, **OPS_EXAMPLE, "speedUpWarmupSec": 60, "liveMetricsSec": 5}
+# 운영 demo_config 모양(917: 913 시연 계정 설정을 되돌린 뒤). 예전 913 키가 파일에 남아 있어도 읽지 않고 무시한다
+OPS_BASE = {"live": {"label": "live", "mode": "FREE", "goal": {}}, "userAllowlist": [2, 11, 12]}
+LEFTOVER_913_KEYS = {"hrThresholdOverrides": {"11": {"sustainBpm": 163, "dangerBpm": 178}},
+                     "speedUpStepSec": 30, "speedUpCalmSec": 30, "speedUpMarginBpm": 10}
+
+
+def test_full_ops_file_reads_live_metrics_sec(tmp_path):
+    raw = {**OPS_BASE, **LEFTOVER_913_KEYS, "speedUpWarmupSec": 60, "liveMetricsSec": 5}
     path = tmp_path / "ops.json"
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     config = load_demo_config(path)
     assert config.live_metrics_sec == 5.0
-    assert config.hr_threshold_overrides == OVERRIDES
-    assert (config.speed_up_step_sec, config.speed_up_calm_sec, config.speed_up_margin_bpm) == (30, 30.0, 10.0)
     assert config.speed_up_warmup_sec == 60.0 and config.user_allowlist == frozenset({2, 11, 12})
-    # liveMetricsSec가 없으면 꺼짐이고 913 값은 그대로
+    assert not hasattr(config, "hr_threshold_overrides")             # 917: 시연 고정 심박은 더 이상 읽지 않는다
+    # liveMetricsSec가 없으면 꺼짐
     path.write_text(json.dumps({k: v for k, v in raw.items() if k != "liveMetricsSec"}), encoding="utf-8")
-    off = load_demo_config(path)
-    assert off.live_metrics_sec is None and off.hr_threshold_overrides == OVERRIDES
-    # 잘못된 liveMetricsSec는 913 키가 있어도 설정 전체를 거부한다(문서에 적은 동작)
+    assert load_demo_config(path).live_metrics_sec is None
+    # 잘못된 liveMetricsSec는 설정 전체를 거부한다(문서에 적은 동작)
     path.write_text(json.dumps({**raw, "liveMetricsSec": 2}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_demo_config(path)
@@ -481,10 +483,9 @@ def test_full_ops_file_reads_913_keys_and_live_metrics_sec_together(tmp_path):
 
 def test_app_wires_live_metrics_from_full_ops_file(tmp_path, monkeypatch):
     # 설정 파일에서 읽은 값으로 앱이 실시간 측정값을 켜는지(DemoSettings 경유)
-    from test_demo_account_settings_913 import BASE, OPS_EXAMPLE
     from app.demo.config import DemoSettings
     path = tmp_path / "ops.json"
-    path.write_text(json.dumps({**BASE, **OPS_EXAMPLE, "liveMetricsSec": 5}), encoding="utf-8")
+    path.write_text(json.dumps({**OPS_BASE, "liveMetricsSec": 5}), encoding="utf-8")
     settings = DemoSettings(True, "v" * 32, "i" * 32, load_demo_config(path))
     app = create_app(lambda: FakeModel5(), lambda: FakePolicy(), clock=fixed_clock(3.0), demo_loader=lambda: settings,
                      demo_rate_per_sec=1000, demo_route_source=FakeRouteSource(), demo_metric_source=FakeMetricSource())
