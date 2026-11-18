@@ -129,7 +129,5 @@ def test_console_trace_names_the_ahead_step_and_the_demo_wait():
                               stage="L1A", label="시연", policy_version="p", decided_at=T0, decide_ms=1.0)
     assert trace["decision"]["reasonCode"] == "AHEAD"
     assert trace["decision"]["reasonLabel"] == "여유 가속"
-    assert "시연 설정" not in trace["decision"]["reasonText"]      # 915 후속: 화면 문구에 시연 설정을 드러내지 않는다
-    assert "심박 여유" in trace["decision"]["reasonText"]
-    assert trace["group"]["ahead"]["demoWait"] is True               # 시연 설정 여부는 trace에만 남는다
+    assert "시연 설정 · 대기 60초" in trace["decision"]["reasonText"]
     assert trace["group"]["ahead"]["applied"] is True

@@ -32,16 +32,7 @@ import java.util.Optional;
 
 @Service
 public class GroupPaceService {
-    /** 시연용 출발 페이스로 허용하는 범위(초/km). 이 밖의 설정값은 무시한다. */
-    static final int DEMO_START_PACE_MIN = 240;
-    static final int DEMO_START_PACE_MAX = 900;
-
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GroupPaceService.class);
-
     private final boolean enabled;
-    /** 0이면 끔. 시연 회원이 낀 TOGETHER 그룹런의 출발 추천을 이 값(초/km)으로 고정한다(S15P31E105-914). */
-    private final int demoStartPace;
-    private final java.util.Set<Long> demoUserIds;
     private final GroupPaceRepository states;
     private final GroupRunJdbcRepository groups;
     private final GroupRunParticipantJdbcRepository participants;
@@ -56,21 +47,12 @@ public class GroupPaceService {
     private final GroupRunFitJdbcRepository fits;
 
     public GroupPaceService(@Value("${runway.group-pace.enabled:false}") boolean enabled,
-            @Value("${runway.group-pace.demo-start-pace-sec-per-km:0}") int demoStartPace,
-            @Value("${runway.group-pace.demo-user-ids:}") String demoUserIds,
             GroupPaceRepository states, GroupRunJdbcRepository groups,
             GroupRunParticipantJdbcRepository participants, SessionCoachingRepository coaching,
             SessionReferenceRepository references, GroupPacePort ai, PersonalPacePlanPort plans,
             ApplicationEventPublisher events, JsonMapper mapper, PlatformTransactionManager manager,
             GroupRunFitJdbcRepository fits, SegmentDifficultyProvider difficulty) {
         this.enabled = enabled;
-        this.demoUserIds = parseUserIds(demoUserIds);
-        if (demoStartPace != 0 && (demoStartPace < DEMO_START_PACE_MIN || demoStartPace > DEMO_START_PACE_MAX)) {
-            log.warn("GROUP_PACE_DEMO_START_PACE_IGNORED value={} allowed={}~{}", demoStartPace,
-                    DEMO_START_PACE_MIN, DEMO_START_PACE_MAX);
-            demoStartPace = 0;
-        }
-        this.demoStartPace = demoStartPace;
         this.states = states;
         this.groups = groups;
         this.participants = participants;
@@ -86,22 +68,6 @@ public class GroupPaceService {
     }
 
     public boolean isEnabled() { return enabled; }
-
-    /** 쉼표로 나눈 회원 ID 목록. 비어 있거나 숫자가 아닌 항목은 건너뛴다(경고 로그). */
-    static java.util.Set<Long> parseUserIds(String csv) {
-        var ids = new java.util.HashSet<Long>();
-        if (csv == null) return ids;
-        for (String token : csv.split(",")) {
-            String trimmed = token.trim();
-            if (trimmed.isEmpty()) continue;
-            try {
-                ids.add(Long.parseLong(trimmed));
-            } catch (NumberFormatException e) {
-                log.warn("GROUP_PACE_DEMO_USER_ID_IGNORED value={}", trimmed);
-            }
-        }
-        return java.util.Set.copyOf(ids);
-    }
 
     /** Read only. OFF does not even query the new table. */
     public Optional<GroupPaceRepository.State> stored(long groupId) {
@@ -387,14 +353,6 @@ public class GroupPaceService {
                     "GROUP_PACE_START_CLAMPED groupRunId={} basisUserId={} aiPace={} basisRecentPace={}",
                     groupId, basis, aiPace, basisPace);
             aiPace = basisPace;
-        }
-        // S15P31E105-914: 시연용. GOAL이 아닌 모드에서 시연 회원이 선택된 후보에 있으면 AI 추천 자체를 설정값으로 고정한다.
-        // 앱 'AI 추천' 카드(aiPace)·적용 페이스·저장되는 출발 추천(start_recommended_pace)이 모두 같은 값이 된다.
-        if (demoStartPace > 0 && !input.goalMode() && input.selected().stream()
-                .anyMatch(r -> demoUserIds.contains(r.candidate().userId()))) {
-            log.info("GROUP_PACE_START_DEMO_FIXED groupRunId={} aiPace={} fixedPace={}", groupId, aiPace,
-                    demoStartPace);
-            aiPace = demoStartPace;
         }
         // Each mode applies its own value (S15P31E105-702): TOGETHER ('AI 추천') the AI recommendation as it is,
         // without max(goal, AI); GOAL the host's goal.

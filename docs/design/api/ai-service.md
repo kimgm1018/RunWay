@@ -544,59 +544,6 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | trace 전 연결 | 허용된 세션은 trace가 아직 없어도 연결할 수 있다. 이때 `SNAPSHOT.traces`는 빈 배열이며, 코스 데이터가 있으면 snapshot과 이후 `COURSE_UPDATE`로 표시한다. |
 | 오류 | 공통 오류 body. 비활성화 503 `DEMO_DISABLED`, 인증 실패 401, 허용되지 않은/없는 세션 404, 429 연결 제한 |
 
-### 시연 설정 파일의 계정 전용 키 (S15P31E105-913)
-
-`DEMO_CONFIG_PATH`가 가리키는 `demo_config.json` 최상위의 **선택** 키다. 모두 없으면 이전과 동작이 완전히 같다. 대상은 `userAllowlist` 회원뿐이다. 운영 서버의 파일 수정과 AI 재시작은 사람이 한다(코드·AI 에이전트가 하지 않는다).
-
-| 키 | 형식·기본값 | 효과 |
-| --- | --- | --- |
-| `hrThresholdOverrides` | 객체, 기본 없음. 키는 **userId 문자열**(`"11"`, 양의 정수, `"011"`·공백 불가). 값은 `{"sustainBpm": 163, "dangerBpm": 178}`; `dangerBpm` 생략 시 `sustainBpm + 15`. 둘 다 35~220 bpm이고 `sustainBpm < dangerBpm`. 키는 반드시 `userAllowlist`에 있어야 한다(없거나 목록이 null이면 거부) | 그 회원은 DB 학습값·모집단 섞기·위험 오프셋(+3)·준비도 보정(`READINESS_ADJUST_ENABLED`)을 모두 쓰지 않고 이 값을 허용선(진행률 0)·위험선으로 쓴다. 개인 러닝(AI04 decide, 1칸 PLAN_HOLD 포함)·그룹런(AI10)·시연 콘솔 trace가 같은 값을 보인다. AI10의 허용선은 진행률에 따라 `sustainBpm`에서 `dangerBpm`까지 오른다. 응답 `hrThresholdSource`는 `PERSONAL`, 비중 1.0이며 준비도 필드(`readiness*`)는 null이다. GRU 개인 g·b 예측 보정은 이 키와 무관하다 |
-| `speedUpStepSec` | 10 / 20 / 30, 기본 10 | 시연 회원이 낀 그룹의 여유 가속 1회 폭(초/km). 10의 배수만 허용한다(후보 페이스 간격) |
-| `speedUpCalmSec` | 30~300초, 기본 60(`GROUP_PACE_AHEAD_STREAK`×30) | 여유 확인 기간. 각 회원의 최근 이 시간 실측 심박이 모두 허용선 − 여유 기준 아래여야 한다 |
-| `speedUpMarginBpm` | 0~40 bpm, 기본 `GROUP_PACE_AHEAD_MARGIN_BPM`(15) | 여유 기준 |
-| `speedUpWarmupSec` | 0~3600초, 기본 60 (기존 S15P31E105-728) | 출발 뒤 여유 가속 대기 시간 |
-| `speedUpForceAfterSec` | 0~600초, 기본 없음(끔). `null`도 끔 (S15P31E105-915) | 시연 회원이 낀 `TOGETHER` 그룹은 출발 후 이 시간이 지난 첫 판단에서 **여유 가속을 강제로 한 번** 낸다(아래) |
-
-**강제 여유 가속(`speedUpForceAfterSec`).** 시연 회원(`userAllowlist`)이 한 명이라도 낀 `TOGETHER` 그룹이 `elapsedSec ≥ speedUpForceAfterSec`이고 현재 공동 페이스가 출발 추천 페이스 − `speedUpStepSec`(미설정 시 30)보다 느리면, 기존 선택(감속·유지·여유 가속 막힘)과 관계없이 **출발 추천 페이스 − `speedUpStepSec`**(예: 540 → 510)로 한 번 올린다. 심박 누락(`NOT_ALL_HR`)·여유 부족(`NO_MARGIN`·`NOT_STEADY`)·쿨다운·대기·이전 `HR_LIMIT` 감속은 보지 않으며, 출발 직후 감속으로 현재 페이스가 출발보다 느려진 경우에도 목표는 같다. `reason`은 기존 `AHEAD`, 응답 필드는 바뀌지 않는다(콘솔 trace의 `group.ahead.forced=true`와 `forceAhead`가 이 경우를 표시하고, 콘솔 카드는 일반 여유 가속(▲ 페이스 올림)으로 뜬다). `GROUP_PACE_AHEAD_ENABLED`와 무관하게 동작한다.
-
-- **안전장치**: 참가자 중 한 명이라도 **가장 최근 실측 심박이 그 회원의 위험선(`hrThresholdOverrides`의 `dangerBpm` 포함) 이상**이면 내지 않는다(`forceAhead.blockedBy=DANGER_HR`). 위험선은 AI10 판단에 쓰인 회원별 값이다.
-- **한 번만**: 이미 `현재 ≤ 출발 − step`이면 내지 않고, 강제 시각 이후 페이스가 한 번이라도 바뀌었으면(우리 가속이거나 그 뒤 안전 감속) 다시 내지 않아 감속과 싸우지 않는다. 판단이 약 30초 간격이므로 `speedUpWarmupSec`와 같은 시각(권장 60)을 넣으면 출발 후 약 69초 판단에서 난다.
-- 막힌 이유는 trace `forceAhead.blockedBy`(`WAITING`·`DANGER_HR`·`ALREADY_FAST`·`ALREADY_FORCED`·`GOAL_MODE`·`NO_START_PACE`)로 본다. 설정이 없거나 시연 회원이 없으면 `forceAhead` 항목도 없고 기존과 같다.
-- **시연 뒤 삭제**: 시연이 끝나면 `speedUpForceAfterSec`를 지우고 AI를 재시작한다. 남겨 두면 시연 회원이 낀 모든 그룹런이 출발 후 그 시각에 강제 가속된다.
-
-여유 가속 시연 값 3종은 `speedUpWarmupSec`와 같이 `userAllowlist` 회원이 한 명이라도 낀 그룹에만 적용하고, 다른 그룹은 환경변수 기본값(10초/km·60초·15 bpm·대기 180초)을 쓴다. 출발 페이스보다 최대 30초/km 한도와 쿨다운 120초는 바꾸지 않는다.
-
-잘못된 값(범위 밖·형식 오류·`hrThresholdOverrides` 회원 값 객체의 알 수 없는 필드·`userAllowlist` 밖 회원)은 `ValueError`로 거부한다. 단 **파일 최상위의 알 수 없는 키(키 이름 오타 포함)는 거부되지 않고 무시**되어 기본 동작(DB 학습값·10초/km)으로 남는다. 키 이름은 아래 표·JSON과 글자 단위로 맞춰 쓰고, 적용 여부는 시작 로그 `시연 계정 설정: 고정 n명, 가속 폭 …·확인 …·여유 …·대기 …`(회원 ID·bpm 값은 싣지 않음)와 아래 사전 검증 출력으로 확인한다.
-
-**이 거부는 시연 기능 전체를 끈다.** 설정 파일 읽기가 실패하면 기존 구조대로 AI 로그에 `시연 기능을 끕니다: DEMO_CONFIG_PATH (ValueError)`만 남기고 시연 콘솔·기록이 모두 꺼진다. 이때 AI04·AI10 판단 자체는 계속 동작하지만 고정 기준(`hrThresholdOverrides`)은 적용되지 않는다. 같은 파일의 **다른 시연 키(`liveMetricsSec`·`speedUpWarmupSec` 등)의 오류도 고정 기준을 함께 끈다.**
-
-운영 적용 예(kkm=11, anjjong000=12) — `/models/ode/demo/demo_config.json`에 다음 키를 **합친다. 이 조각으로 파일 전체를 바꾸면 안 된다**(필수 키 `live`가 없어 `KeyError`로 시연 전체가 꺼진다). 조각의 `userAllowlist`는 기존 값 그대로다.
-
-```json
-{
-  "userAllowlist": [2, 11, 12],
-  "hrThresholdOverrides": {
-    "11": {"sustainBpm": 163, "dangerBpm": 178},
-    "12": {"sustainBpm": 168, "dangerBpm": 183}
-  },
-  "speedUpStepSec": 30,
-  "speedUpCalmSec": 30,
-  "speedUpMarginBpm": 10
-}
-```
-
-`userAllowlist`에 있는 회원이 낀 그룹은 모두 시연 가속 값을 받는다(userId 2가 낀 그룹 포함). 고정 기준이 없는 회원은 DB 학습 허용선 기준으로 판단하되 시연 가속 값(한 번에 30초/km·여유 10 bpm)이 적용된다.
-
-적용 순서와 사전 검증(설정은 AI 시작 시 한 번만 읽으므로 파일 수정만으로는 반영되지 않는다).
-
-1. 운영 파일을 백업한다(예: `demo_config.json.bak-<날짜>`).
-2. 키를 합친다. 새 키를 모르는 이전 이미지는 거부 없이 무시하므로 이미지 배포보다 먼저 넣어도 시연이 꺼지지 않는다.
-3. 새 이미지로 배포·재시작하기 전에 같은 이미지에서 파일을 읽어 본다: `python -c "from pathlib import Path; from app.demo.config import load_demo_config; c=load_demo_config(Path('/models/ode/demo/demo_config.json')); print(sorted(c.hr_threshold_overrides), c.speed_up_step_sec, c.speed_up_calm_sec, c.speed_up_margin_bpm, c.speed_up_warmup_sec)"` → 기대 출력 `[11, 12] 30 30.0 10.0 60.0`. 예외가 나면 재시작하지 않는다.
-4. 재시작 후 로그에 `시연 기능을 끕니다`가 없고 `시연 계정 설정: 고정 2명, 가속 폭 30·확인 30·여유 10·대기 60`이 있는지 확인한다.
-5. 운영 env에 `GROUP_PACE_ENABLED=true`, `GROUP_PACE_AHEAD_ENABLED=true`가 켜져 있는지 확인한다(compose 기본은 false). 리허설에서 trace `reference.hrSustainBpm`이 163/168, 그룹 trace `ahead.stepSec`가 30인지 본다. 실제 모델에서 AHEAD가 안 나오면 `ahead.blockedBy`로 이유를 본다.
-
-**시연 뒤 되돌리기.** 고정 기준이 남아 있으면 시연 회원 두 명의 실제 러닝에서도 DB 학습값과 준비도 보정(낮은 날 최대 6 bpm)이 계속 꺼진 상태다. 시연이 끝나면(2026-11-18 발표 직후) 운영 담당자가 `hrThresholdOverrides`와 `speedUpStepSec`·`speedUpCalmSec`·`speedUpMarginBpm`·`speedUpForceAfterSec` 키를 지우거나 백업 파일로 복원하고 AI를 재시작한 뒤, 시작 로그가 `고정 0명, 가속 폭 기본·확인 기본·여유 기본`(강제 항목 없음)인지 확인한다.
-
 ## AI08 — W07 시연 batch 입구
 
 `POST /v1/demo/sessions/{sessionId}/batches` — 시연 전용이며 기본 OFF. 운영 W07 저장 API를 대체하지 않는다.
@@ -803,7 +750,7 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 
 ### 여유 가속 (`reason=AHEAD`)
 
-S15P31E105-728. 기존 회복은 목표 또는 출발 추천 페이스까지만 올린다. `GROUP_PACE_AHEAD_ENABLED=true`(코드 기본 false, 끄면 출력이 이전과 같음)이면 위 규칙이 페이스를 바꾸지 않은 판정에서만 다음을 모두 만족할 때 한 번에 10초/km 빠르게 올린다. 시연 회원이 낀 그룹은 시연 설정으로 1회 폭·여유 확인 기간·여유 기준을 바꿀 수 있다(S15P31E105-913, [시연 설정 파일의 계정 전용 키](#시연-설정-파일의-계정-전용-키-s15p31e105-913)). 아래 3·4번의 기본값이 그 값으로 바뀐다.
+S15P31E105-728. 기존 회복은 목표 또는 출발 추천 페이스까지만 올린다. `GROUP_PACE_AHEAD_ENABLED=true`(코드 기본 false, 끄면 출력이 이전과 같음)이면 위 규칙이 페이스를 바꾸지 않은 판정에서만 다음을 모두 만족할 때 한 번에 10초/km 빠르게 올린다.
 
 1. `paceMode`가 `GOAL`이 아니다(목표 페이스 모드는 목표가 상한).
 2. 전달된 참가자 전원이 심박으로 판단된다(`excludedCount`·`paceOnlyCount` 0).
@@ -813,8 +760,6 @@ S15P31E105-728. 기존 회복은 목표 또는 출발 추천 페이스까지만 
 6. 마지막 변경 뒤 120초가 지났고 위험 심박이 아니다. `startRecommendedPaceSecPerKm`이 있어야 하며, 결과는 그보다 최대 30초/km 빠르게까지다.
 
 백엔드는 `reason`을 문자열로만 검사하고 저장하지 않으므로 새 값으로 바뀌는 동작은 없다.
-
-시연 설정 `speedUpForceAfterSec`가 있으면 시연 회원이 낀 `TOGETHER` 그룹은 위 3·4·6번 조건과 관계없이 출발 후 그 시각에 한 번 출발 페이스 − 폭으로 올린다(S15P31E105-915, 심박 위험선 이상이면 제외). 이 경우도 `reason=AHEAD`다. 자세한 규칙은 시연 설정 파일의 계정 전용 키 절을 따른다.
 
 ### 목표 페이스 모드 (`paceMode=GOAL`)
 

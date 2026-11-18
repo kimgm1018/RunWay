@@ -140,6 +140,15 @@ test('a sideways drag on a sheet never closes it', () => {
   expect(onClose).not.toHaveBeenCalled();
 });
 
+// S15P31E105-916: claiming on start grabbed a touch before a nested ruler's ScrollView ever saw it move, so the
+// ruler never scrolled. Leaving the start unclaimed lets whatever is under the finger answer the first move.
+test('a touch does not claim the sheet before it moves', () => {
+  const configs = captureResponders();
+  renderSheet(jest.fn());
+
+  expect(configs[0].onStartShouldSetPanResponder?.(event, gesture(0))).toBeFalsy();
+});
+
 // 코스 조건: open it folds when dragged down, folded it opens when dragged up.
 function Fold({ onCommit }: { onCommit: (folded: boolean) => void }) {
   const [folded, setFolded] = React.useState(false);
