@@ -16,8 +16,6 @@ RunWay는 휴대폰과 Galaxy Watch에서 모은 운동 데이터를 바탕으�
 | :---: | :---: | :---: |
 | <img src="docs/assets/readme/readiness.png" alt="수면과 최근 운동량을 반영한 운동 준비도 화면" width="210"> | <img src="docs/assets/readme/run-start-map.png" alt="현재 위치를 보여 주는 러닝 시작 지도" width="210"> | <img src="docs/assets/readme/run-analysis.png" alt="러닝 기록의 페이스와 심박 변화 그래프" width="210"> |
 
-지도 화면은 타일이 표시된 순간의 캡처입니다. 현재 설치된 앱에서는 기록 상세 지도가 로딩 완료로 판정되지 않아 실패 안내가 나타나는 문제가 확인돼 있습니다.
-
 ## 달리기 흐름
 
 ### 출발 전
