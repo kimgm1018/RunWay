@@ -6,11 +6,17 @@ RunWay는 휴대폰과 Galaxy Watch에서 모은 운동 데이터를 바탕으�
 
 ## 앱 화면
 
-운동을 시작하기 전에 거리·시간·페이스 중 원하는 기준을 고릅니다. 아래 화면과 GIF는 실제 Android 앱에서 촬영했습니다. 계정 정보나 위치가 드러나는 화면은 포함하지 않았습니다.
+아래 화면과 GIF는 실제 Android 앱에서 촬영했습니다. 운동을 시작하기 전에 거리·시간·페이스 중 원하는 기준을 고르고, 출발 화면에서 현재 위치와 선택한 코스를 확인합니다.
 
 | 목표를 고르기 전 | 거리 목표 선택 | 목표 값 조절 |
 | :---: | :---: | :---: |
 | <img src="docs/assets/readme/goal-overview.png" alt="거리, 시간, 페이스 중 운동 목표를 고르는 화면" width="210"> | <img src="docs/assets/readme/goal-setting.png" alt="거리 목표를 선택한 화면" width="210"> | <img src="docs/assets/readme/goal-setting.gif" alt="거리 목표의 눈금을 움직여 값을 바꾸는 장면" width="210"> |
+
+| 오늘의 운동 준비도 | 러닝 시작 지도 | 기록의 페이스·심박 분석 |
+| :---: | :---: | :---: |
+| <img src="docs/assets/readme/readiness.png" alt="수면과 최근 운동량을 반영한 운동 준비도 화면" width="210"> | <img src="docs/assets/readme/run-start-map.png" alt="현재 위치를 보여 주는 러닝 시작 지도" width="210"> | <img src="docs/assets/readme/run-analysis.png" alt="러닝 기록의 페이스와 심박 변화 그래프" width="210"> |
+
+지도 화면은 타일이 표시된 순간의 캡처입니다. 현재 설치된 앱에서는 기록 상세 지도가 로딩 완료로 판정되지 않아 실패 안내가 나타나는 문제가 확인돼 있습니다.
 
 ## 달리기 흐름
 
